@@ -1,0 +1,176 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <!-- ============================================================
+         Projeto: Borurio ERP Fiscal BR
+         Estrutura modular: Core / ERP / Fiscal / Web
+         Autor: Bruno Ribeiro – Dev Fullstack Java
+         ============================================================ -->
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>br.com.borurio</groupId>
+    <artifactId>borurio-erp-br</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+
+    <name>Borurio ERP Fiscal BR</name>
+    <description>ERP Fiscal nacionalizado em Java 17 / Spring Boot 3.3.2</description>
+
+    <!-- ============================================================
+         Módulos do projeto
+         ============================================================ -->
+    <modules>
+        <module>borurio-core</module>
+        <module>borurio-erp</module>
+        <module>borurio-fiscal</module>
+        <module>borurio-web</module>
+    </modules>
+
+    <!-- ============================================================
+         Propriedades globais
+         ============================================================ -->
+    <properties>
+        <java.version>17</java.version>
+        <spring.boot.version>3.3.2</spring.boot.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <owasp.dependency.check.version>8.2.1</owasp.dependency.check.version>
+    </properties>
+
+    <!-- ============================================================
+         Gerenciamento centralizado de dependências
+         ============================================================ -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- ============================================================
+         Plugins e build
+         ============================================================ -->
+    <build>
+        <pluginManagement>
+            <plugins>
+
+                <!-- Spring Boot Plugin -->
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring.boot.version}</version>
+                </plugin>
+
+                <!-- Compilador Java -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.11.0</version>
+                    <configuration>
+                        <source>${java.version}</source>
+                        <target>${java.version}</target>
+                        <encoding>${project.build.sourceEncoding}</encoding>
+                    </configuration>
+                </plugin>
+
+                <!-- OWASP Dependency Check -->
+                <plugin>
+                    <groupId>org.owasp</groupId>
+                    <artifactId>dependency-check-maven</artifactId>
+                    <version>${owasp.dependency.check.version}</version>
+                    <configuration>
+                        <failBuildOnCVSS>7</failBuildOnCVSS>
+                        <format>HTML</format>
+                        <outputDirectory>${project.build.directory}/dependency-check-report</outputDirectory>
+                        <skipProvidedScope>true</skipProvidedScope>
+                        <skipTestScope>false</skipTestScope>
+                    </configuration>
+                </plugin>
+
+                <!-- Padronização de encoding -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.3.1</version>
+                    <configuration>
+                        <encoding>${project.build.sourceEncoding}</encoding>
+                    </configuration>
+                </plugin>
+
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <!-- ============================================================
+         Repositórios Maven
+         ============================================================ -->
+    <repositories>
+        <repository>
+            <id>central</id>
+            <url>https://repo.maven.apache.org/maven2</url>
+        </repository>
+    </repositories>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>central-plugins</id>
+            <url>https://repo.maven.apache.org/maven2</url>
+        </pluginRepository>
+    </pluginRepositories>
+
+    <!-- ============================================================
+         Profiles DevSecOps
+         ============================================================ -->
+    <profiles>
+
+        <!-- Ambiente de Desenvolvimento -->
+        <profile>
+            <id>dev</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <spring.profiles.active>dev</spring.profiles.active>
+            </properties>
+        </profile>
+
+        <!-- Ambiente de Produção -->
+        <profile>
+            <id>prd</id>
+            <properties>
+                <spring.profiles.active>prd</spring.profiles.active>
+            </properties>
+        </profile>
+
+        <!-- Varredura de Vulnerabilidades -->
+        <profile>
+            <id>security-scan</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>${owasp.dependency.check.version}</version>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+    </profiles>
+
+</project>
