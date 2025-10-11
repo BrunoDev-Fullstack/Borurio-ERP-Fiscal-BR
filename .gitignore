@@ -1,16 +1,16 @@
-# Compiled class file
+# =====================================================================
+# .gitignore - Borurio ERP Fiscal BR
+# Ambiente: Java 17 / Spring Boot 3.3.2 / Maven / Docker / IntelliJ
+# Manutenção: Bruno Ribeiro da Silva (Cyber Security / Dev Java Senior)
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# Compilados Java / Maven
+# ---------------------------------------------------------------------
+target/
+!*/src/**
+!*/pom.xml
 *.class
-
-# Log file
-*.log
-
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
 *.jar
 *.war
 *.nar
@@ -19,6 +19,169 @@
 *.tar.gz
 *.rar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# ---------------------------------------------------------------------
+# Logs e relatórios de execução
+# ---------------------------------------------------------------------
+*.log
+logs/
 hs_err_pid*
 replay_pid*
+
+# ---------------------------------------------------------------------
+# IDEs e ferramentas de build
+# ---------------------------------------------------------------------
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+
+# Eclipse
+.settings/
+.project
+.classpath
+
+# VSCode
+.vscode/
+
+# ---------------------------------------------------------------------
+# Ambientes virtuais e temporários
+# ---------------------------------------------------------------------
+.mtj.tmp/
+.tmp/
+temp/
+tmp/
+
+# ---------------------------------------------------------------------
+# Arquivos de configuração local / credenciais
+# ---------------------------------------------------------------------
+# Variáveis de ambiente (dev/prd)
+docker/env/.env.*
+!docker/env/.env.example
+
+# Certificados / chaves privadas
+*.pfx
+*.pem
+*.crt
+*.key
+*.keystore
+
+# ---------------------------------------------------------------------
+# Docker / Volumes persistentes
+# ---------------------------------------------------------------------
+docker/mysql/data*/
+docker/redis/data*/
+docker/minio/data*/
+docker/mailpit/
+docker/logs/
+docker-compose.override.yml
+
+# ---------------------------------------------------------------------
+# Relatórios / ferramentas de segurança
+# ---------------------------------------------------------------------
+dependency-check-report.html
+dependency-check-data/
+dependency-check/
+scan-results/
+
+# ---------------------------------------------------------------------
+# Arquivos gerados automaticamente
+# ---------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.bak
+*.tmp
+*.orig
+
+# ---------------------------------------------------------------------
+# CI/CD temporário e build cache
+# ---------------------------------------------------------------------
+node_modules/
+dist/
+build/
+out/
+.cache/
+.coverage/
+reports/
+
+# ---------------------------------------------------------------------
+# Repositório / documentação auxiliar
+# ---------------------------------------------------------------------
+docs/sql/
+docs/temp/
+*.md.bak
+*.old.md
+*.draft.md
+
+# ---------------------------------------------------------------------
+# Backup e arquivos auxiliares
+# ---------------------------------------------------------------------
+*.old
+*.backup
+*.save
+*.retry
+*.rej
+*.orig
+
+# ---------------------------------------------------------------------
+# Testes / relatórios surefire
+# ---------------------------------------------------------------------
+**/surefire-reports/
+**/failsafe-reports/
+
+# ---------------------------------------------------------------------
+# Arquivos de banco de dados local
+# ---------------------------------------------------------------------
+*.db
+*.sqlite
+*.sql-journal
+*.lock
+
+# ---------------------------------------------------------------------
+# Arquivos locais de configuração
+# ---------------------------------------------------------------------
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# ---------------------------------------------------------------------
+# GitHub Actions temporários
+# ---------------------------------------------------------------------
+.github/workflows/cache/
+.github/workflows/tmp/
+
+# ---------------------------------------------------------------------
+# Binários de build e cache Docker
+# ---------------------------------------------------------------------
+*.tar
+*.img
+*.dockerfile~
+docker/*.pid
+docker/build-cache/
+
+# ---------------------------------------------------------------------
+# IntelliJ caches e relatórios temporários
+# ---------------------------------------------------------------------
+.idea/**/shelf/
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries/
+.idea/**/libraries/
+
+# ---------------------------------------------------------------------
+# Arquivos temporários de compilação Java e Maven Wrapper
+# ---------------------------------------------------------------------
+**/mvnw
+**/mvnw.cmd
+**/.mvn/wrapper/maven-wrapper.jar
+**/.mvn/wrapper/maven-wrapper.properties
+
+# ---------------------------------------------------------------------
+# Fim do .gitignore
+# ---------------------------------------------------------------------
+# Padrões de segurança e DevSecOps mantidos por Bruno Ribeiro
+# Data: 2025-10-11
+# ---------------------------------------------------------------------
