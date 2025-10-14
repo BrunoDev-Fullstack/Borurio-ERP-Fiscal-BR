@@ -1,38 +1,27 @@
 package br.com.borurio;
 
-import junit.framework.Test;
-import junit.framework.TestCase;
-import junit.framework.TestSuite;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit test for simple App.
+ * Teste básico de inicialização do módulo borurio-core.
+ *
+ * <p>Este teste tem como objetivo validar a configuração
+ * do ambiente de testes com JUnit 5 e garantir que o
+ * pipeline de build (Maven + CI/CD) reconheça o módulo</p>
+ *
+ * <p>Boas práticas aplicadas:
+ * - Padrão JUnit 5 (org.junit.jupiter.api)
+ * - Uso de @DisplayName para descrição legível
+ * - Assertions modernas do pacote org.junit.jupiter.api.Assertions
+ * - Compatível com Maven Surefire Plugin e pipelines DevSecOps</p>
  */
-public class AppTest 
-    extends TestCase
-{
-    /**
-     * Create the test case
-     *
-     * @param testName name of the test case
-     */
-    public AppTest( String testName )
-    {
-        super( testName );
-    }
+public class AppTest {
 
-    /**
-     * @return the suite of tests being tested
-     */
-    public static Test suite()
-    {
-        return new TestSuite( AppTest.class );
-    }
-
-    /**
-     * Rigourous Test :-)
-     */
-    public void testApp()
-    {
-        assertTrue( true );
+    @Test
+    @DisplayName("Ambiente de testes do módulo borurio-core inicializado com sucesso")
+    void testApp() {
+        assertTrue(true, "O ambiente de teste está operacional.");
     }
 }

@@ -1,0 +1,108 @@
+###################################################################################################
+# AMBIENTE DE DESENVOLVIMENTO – BORURIO ERP FISCAL BR
+# -----------------------------------------------------------------------------------------------
+# Módulo: borurio-web (API REST principal)
+# Integrações: MySQL, Redis, SEFAZ-SP (NF-e 4.00 Homologação)
+# Padrão: Spring Boot 3.3.x / Java 17 / UTF-8 sem BOM
+###################################################################################################
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  error:
+    include-message: always
+
+spring:
+  application:
+    name: borurio-web
+
+  ######################################################################
+  # BANCO DE DADOS – MySQL 8.4 (Container Docker: borurio-mysql-dev)
+  ######################################################################
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    username: borurio
+    password: H4ck3r123
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  ######################################################################
+  # REDIS – Cache e Sessões (Container Docker: borurio-redis-dev)
+  ######################################################################
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6380
+      timeout: 2000
+
+  ######################################################################
+  # JACKSON – Serialização JSON (Padrão Nacionalizado)
+  ######################################################################
+  jackson:
+    serialization:
+      indent_output: true
+    date-format: yyyy-MM-dd'T'HH:mm:ss
+    time-zone: America/Sao_Paulo
+    locale: pt_BR
+
+  ######################################################################
+  # SPRING CORE – Contexto e Inicialização
+  ######################################################################
+  main:
+    allow-bean-definition-overriding: true
+    banner-mode: console
+
+######################################################################
+# LOGGING – Auditoria e Rastreabilidade Fiscal
+######################################################################
+logging:
+  level:
+    root: INFO
+    org.springframework: INFO
+    br.com.borurio: DEBUG
+  file:
+    name: logs/borurio-dev.log
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+
+######################################################################
+# SEFAZ – Integração NF-e (Ambiente de Homologação – SP)
+######################################################################
+sefaz:
+  ambiente: homologacao
+  url-autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
+  url-retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
+
+######################################################################
+# FISCAL – Certificado Digital A1 (PFX)
+######################################################################
+fiscal:
+  cert:
+    # Caminho absoluto ou relativo do certificado PFX utilizado no ambiente DEV
+    path: C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx
+    # Senha pode ser definida via variável de ambiente CERT_PASS (fallback 1234)
+    pass: ${CERT_PASS:1234}
+
+######################################################################
+# ACTUATOR – Monitoramento e Observabilidade
+######################################################################
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info"
+  endpoint:
+    health:
+      show-details: always
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true

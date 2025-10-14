@@ -1,0 +1,79 @@
+# =============================================================================
+# Configuração de Ambiente - Módulo Borurio Fiscal (NF-e / Auditoria Fiscal)
+# Perfil: DEV / Homologação Local
+# =============================================================================
+
+spring:
+  application:
+    name: borurio-fiscal
+
+  # ---------------------------------------------------------------------------
+  # Banco de Dados - MySQL (Docker local: porta 3307)
+  # ---------------------------------------------------------------------------
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    username: borurio
+    password: H4ck3r123
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 30000
+      connection-timeout: 20000
+      pool-name: FiscalHikariPool
+
+  # ---------------------------------------------------------------------------
+  # Redis - Memória transitória e sessões fiscais
+  # ---------------------------------------------------------------------------
+  redis:
+    host: 127.0.0.1
+    port: 6380
+
+  # ---------------------------------------------------------------------------
+  # Jackson - Formatação de Data e Hora
+  # ---------------------------------------------------------------------------
+  jackson:
+    time-zone: America/Sao_Paulo
+    date-format: yyyy-MM-dd HH:mm:ss
+
+  # ---------------------------------------------------------------------------
+  # Configurações Globais do Spring
+  # ---------------------------------------------------------------------------
+  main:
+    allow-bean-definition-overriding: false
+    banner-mode: console
+
+# ---------------------------------------------------------------------------
+# Servidor HTTP - Porta principal da aplicação
+# ---------------------------------------------------------------------------
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+# ---------------------------------------------------------------------------
+# MyBatis - Mapeadores e Configuração ORM Fiscal
+# ---------------------------------------------------------------------------
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: br.com.borurio.fiscal.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    lazy-loading-enabled: false
+    jdbc-type-for-null: 'NULL'
+    default-statement-timeout: 30
+
+# ---------------------------------------------------------------------------
+# Logging - Auditoria Fiscal e Diagnóstico
+# ---------------------------------------------------------------------------
+logging:
+  level:
+    root: INFO
+    br.com.borurio: DEBUG
+    org.mybatis: INFO
+    org.springframework.jdbc.core: INFO
+  file:
+    name: ./logs/borurio-fiscal.log
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"

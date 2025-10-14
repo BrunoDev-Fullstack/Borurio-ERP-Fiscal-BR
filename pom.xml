@@ -4,44 +4,44 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <!-- ============================================================
-         Projeto: Borurio ERP Fiscal BR
-         Estrutura modular: Core / ERP / Fiscal / Web
+         Borurio ERP Fiscal BR – Projeto Modular Nacionalizado
+         Módulos: Core / App / Fiscal / Web
+         Stack: Java 17, Spring Boot 3.3.2, MyBatis, DevSecOps CI/CD
          Autor: Bruno Ribeiro – Dev Fullstack Java
          ============================================================ -->
 
     <modelVersion>4.0.0</modelVersion>
-
     <groupId>br.com.borurio</groupId>
     <artifactId>borurio-erp-br</artifactId>
     <version>1.0.0</version>
     <packaging>pom</packaging>
-
     <name>Borurio ERP Fiscal BR</name>
-    <description>ERP Fiscal nacionalizado em Java 17 / Spring Boot 3.3.2</description>
+    <description>ERP Fiscal nacionalizado – Java 17 / Spring Boot 3.3.2 / MyBatis / DevSecOps</description>
 
     <!-- ============================================================
-         Módulos do projeto
+         Módulos da Arquitetura
          ============================================================ -->
     <modules>
         <module>borurio-core</module>
-        <module>borurio-erp</module>
+        <module>borurio-app</module>
         <module>borurio-fiscal</module>
         <module>borurio-web</module>
     </modules>
 
     <!-- ============================================================
-         Propriedades globais
+         Propriedades Globais
          ============================================================ -->
     <properties>
         <java.version>17</java.version>
         <spring.boot.version>3.3.2</spring.boot.version>
+        <owasp.version>9.0.9</owasp.version>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <owasp.dependency.check.version>8.2.1</owasp.dependency.check.version>
     </properties>
 
     <!-- ============================================================
-         Gerenciamento centralizado de dependências
+         Gerenciamento Centralizado de Dependências
          ============================================================ -->
     <dependencyManagement>
         <dependencies>
@@ -56,17 +56,20 @@
     </dependencyManagement>
 
     <!-- ============================================================
-         Plugins e build
+         Configuração de Build e Plugins
          ============================================================ -->
     <build>
         <pluginManagement>
             <plugins>
 
-                <!-- Spring Boot Plugin -->
+                <!-- Spring Boot Plugin (empacotamento) -->
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring.boot.version}</version>
+                    <configuration>
+                        <mainClass>br.com.borurio.BorurioErpApplication</mainClass>
+                    </configuration>
                 </plugin>
 
                 <!-- Compilador Java -->
@@ -81,11 +84,11 @@
                     </configuration>
                 </plugin>
 
-                <!-- OWASP Dependency Check -->
+                <!-- OWASP Dependency Check (análise de vulnerabilidades) -->
                 <plugin>
                     <groupId>org.owasp</groupId>
                     <artifactId>dependency-check-maven</artifactId>
-                    <version>${owasp.dependency.check.version}</version>
+                    <version>${owasp.version}</version>
                     <configuration>
                         <failBuildOnCVSS>7</failBuildOnCVSS>
                         <format>HTML</format>
@@ -95,13 +98,26 @@
                     </configuration>
                 </plugin>
 
-                <!-- Padronização de encoding -->
+                <!-- Recursos e codificação -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-resources-plugin</artifactId>
                     <version>3.3.1</version>
                     <configuration>
                         <encoding>${project.build.sourceEncoding}</encoding>
+                    </configuration>
+                </plugin>
+
+                <!-- Testes Unitários (JUnit 5 / Surefire) -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.2.5</version>
+                    <configuration>
+                        <useModulePath>false</useModulePath>
+                        <includes>
+                            <include>**/*Test.java</include>
+                        </includes>
                     </configuration>
                 </plugin>
 
@@ -114,24 +130,24 @@
          ============================================================ -->
     <repositories>
         <repository>
-            <id>central</id>
+            <id>maven-central</id>
             <url>https://repo.maven.apache.org/maven2</url>
         </repository>
     </repositories>
 
     <pluginRepositories>
         <pluginRepository>
-            <id>central-plugins</id>
+            <id>maven-central-plugins</id>
             <url>https://repo.maven.apache.org/maven2</url>
         </pluginRepository>
     </pluginRepositories>
 
     <!-- ============================================================
-         Profiles DevSecOps
+         Perfis de Build e Segurança
          ============================================================ -->
     <profiles>
 
-        <!-- Ambiente de Desenvolvimento -->
+        <!-- Desenvolvimento -->
         <profile>
             <id>dev</id>
             <activation>
@@ -142,7 +158,7 @@
             </properties>
         </profile>
 
-        <!-- Ambiente de Produção -->
+        <!-- Produção -->
         <profile>
             <id>prd</id>
             <properties>
@@ -150,7 +166,7 @@
             </properties>
         </profile>
 
-        <!-- Varredura de Vulnerabilidades -->
+        <!-- Análise OWASP (DevSecOps pipeline) -->
         <profile>
             <id>security-scan</id>
             <build>
@@ -158,9 +174,10 @@
                     <plugin>
                         <groupId>org.owasp</groupId>
                         <artifactId>dependency-check-maven</artifactId>
-                        <version>${owasp.dependency.check.version}</version>
+                        <version>${owasp.version}</version>
                         <executions>
                             <execution>
+                                <phase>verify</phase>
                                 <goals>
                                     <goal>check</goal>
                                 </goals>
@@ -172,5 +189,21 @@
         </profile>
 
     </profiles>
+
+    <!-- ============================================================
+         Repositórios de Distribuição (CI/CD GitHub Packages)
+         ============================================================ -->
+    <distributionManagement>
+        <repository>
+            <id>borurio-releases</id>
+            <name>Borurio Maven Releases</name>
+            <url>https://maven.pkg.github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR</url>
+        </repository>
+        <snapshotRepository>
+            <id>borurio-snapshots</id>
+            <name>Borurio Maven Snapshots</name>
+            <url>https://maven.pkg.github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR</url>
+        </snapshotRepository>
+    </distributionManagement>
 
 </project>

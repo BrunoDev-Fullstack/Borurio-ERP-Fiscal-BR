@@ -1,10 +1,25 @@
-﻿server:
-  port: 8080
-  servlet:
-    context-path: /api
+﻿# =============================================================================
+# Configuração principal do ERP Fiscal Borurio Brasil
+# Este arquivo define o perfil ativo e herda configs específicas de cada módulo
+# =============================================================================
 
 spring:
   application:
-    name: borurio-erp-web
-  main:
-    banner-mode: console
+    name: borurio-web
+
+  profiles:
+    active: dev
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    username: borurio
+    password: H4ck3r123
+
+server:
+  port: 8080
+
+logging:
+  level:
+    root: INFO
+    br.com.borurio: DEBUG

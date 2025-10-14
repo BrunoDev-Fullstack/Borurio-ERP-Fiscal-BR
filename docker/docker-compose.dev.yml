@@ -1,0 +1,219 @@
+# =============================================================================
+# Docker Compose - Ambiente DEV / Homologação
+# Projeto: Borurio ERP Fiscal BR
+# Padrão: DevSecOps / Build Multi-Stage
+# =============================================================================
+# Objetivo:
+# Subir todos os serviços do ERP Fiscal Borurio Brasil localmente para desenvolvimento.
+# Inclui MySQL, Redis, MinIO, Mailpit, Fiscal e Web (Spring Boot 3.3.x).
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # MySQL - Banco de Dados Local (Desenvolvimento)
+  # ---------------------------------------------------------------------------
+  borurio-mysql-dev:
+    image: mysql:8.4
+    container_name: borurio-mysql-dev
+    restart: unless-stopped
+    env_file:
+      - ./env/.env.dev
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-SENHA_NOVA_DO_ROOT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal_dev}
+      MYSQL_USER: ${MYSQL_USER:-borurio}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
+      TZ: America/Sao_Paulo
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./mysql/data-dev:/var/lib/mysql:rw
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - borurio-net-dev
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+
+  # ---------------------------------------------------------------------------
+  # Redis - Cache e Sessões Locais
+  # ---------------------------------------------------------------------------
+  borurio-redis-dev:
+    image: redis:7.2
+    container_name: borurio-redis-dev
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - ./redis/data-dev:/data:rw
+    networks:
+      - borurio-net-dev
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # MinIO - Armazenamento Local Compatível com S3
+  # ---------------------------------------------------------------------------
+  borurio-minio-dev:
+    image: minio/minio:latest
+    container_name: borurio-minio-dev
+    restart: unless-stopped
+    command: server /data --console-address ":9003"
+    env_file:
+      - ./env/.env.dev
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-H4ck3r123}
+      TZ: America/Sao_Paulo
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    volumes:
+      - ./minio/data-dev:/data:rw
+    networks:
+      - borurio-net-dev
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Mailpit - Servidor SMTP e Painel Web para Testes de E-mail
+  # ---------------------------------------------------------------------------
+  borurio-mailpit-dev:
+    image: axllent/mailpit:latest
+    container_name: borurio-mailpit-dev
+    restart: unless-stopped
+    ports:
+      - "1030:1025"
+      - "8030:8025"
+    networks:
+      - borurio-net-dev
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 1025 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Serviço utilizado para capturar e visualizar e-mails enviados pela aplicação.
+    # Fornece interface web e servidor SMTP local para testes de notificações e alertas.
+
+  # ---------------------------------------------------------------------------
+  # Fiscal - Módulo NF-e e Auditoria Fiscal (Spring Boot)
+  # ---------------------------------------------------------------------------
+  borurio-fiscal-dev:
+    build:
+      context: ../
+      dockerfile: ./borurio-fiscal/Dockerfile
+    container_name: borurio-fiscal-dev
+    restart: unless-stopped
+    depends_on:
+      borurio-mysql-dev:
+        condition: service_healthy
+      borurio-redis-dev:
+        condition: service_healthy
+    env_file:
+      - ./env/.env.dev
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST: borurio-mysql-dev
+      DB_PORT: 3306
+      REDIS_HOST: borurio-redis-dev
+      REDIS_PORT: 6379
+      TZ: America/Sao_Paulo
+    ports:
+      - "8082:8080"
+    networks:
+      - borurio-net-dev
+    volumes:
+      - ~/.m2:/root/.m2:rw
+      - ../borurio-fiscal/target:/app/target:ro
+    command: ["java", "-jar", "/app/target/borurio-fiscal-1.0.0.jar"]
+    security_opt:
+      - no-new-privileges:true
+    tty: true
+    stdin_open: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health || exit 1"]
+      interval: 25s
+      timeout: 8s
+      retries: 5
+      start_period: 40s
+    # Serviço responsável por processar e validar documentos fiscais eletrônicos (NF-e).
+    # Realiza assinatura digital, validação de schema XML e comunicação com a SEFAZ.
+
+  # ---------------------------------------------------------------------------
+  # Web - API Principal do ERP (Spring Boot)
+  # ---------------------------------------------------------------------------
+  borurio-web-dev:
+    build:
+      context: ../
+      dockerfile: ./borurio-web/Dockerfile
+    container_name: borurio-web-dev
+    restart: unless-stopped
+    depends_on:
+      borurio-fiscal-dev:
+        condition: service_healthy
+      borurio-mailpit-dev:
+        condition: service_healthy
+    env_file:
+      - ./env/.env.dev
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST: borurio-mysql-dev
+      DB_PORT: 3306
+      REDIS_HOST: borurio-redis-dev
+      REDIS_PORT: 6379
+      TZ: America/Sao_Paulo
+    ports:
+      - "8081:8080"
+    networks:
+      - borurio-net-dev
+    volumes:
+      - ~/.m2:/root/.m2:rw
+      - ../borurio-web/target:/app/target:ro
+    command: ["java", "-jar", "/app/target/borurio-web-1.0.0.jar"]
+    security_opt:
+      - no-new-privileges:true
+    tty: true
+    stdin_open: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health || exit 1"]
+      interval: 25s
+      timeout: 8s
+      retries: 5
+      start_period: 40s
+    # API principal do ERP Fiscal, responsável por expor endpoints REST.
+    # Atua como camada de integração entre módulos de negócio e serviços fiscais.
+
+# =============================================================================
+# Volumes e Rede de Desenvolvimento
+# =============================================================================
+volumes:
+  mysql_dev_data:
+  redis_dev_data:
+  minio_dev_data:
+
+networks:
+  borurio-net-dev:
+    driver: bridge

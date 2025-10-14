@@ -1,0 +1,91 @@
+###################################################################################################
+# AMBIENTE DE TESTE – BORURIO FISCAL (JUnit / CI/CD)
+# -----------------------------------------------------------------------------------------------
+# Este ambiente é utilizado exclusivamente para testes unitários e de integração.
+# Nenhuma integração real com SEFAZ ou certificado A1 é realizada.
+#
+# Compatibilidade: Spring Boot 3.3.x / Java 17 / UTF-8 sem BOM
+# Última revisão: 13/10/2025 – Bruno Ribeiro
+###################################################################################################
+
+spring:
+  application:
+    name: borurio-fiscal-test
+
+  ######################################################################
+  # BANCO DE DADOS – Teste (MySQL ou fallback H2)
+  ######################################################################
+  datasource:
+    # URL principal – container MySQL (Docker)
+    url: jdbc:mysql://localhost:3307/borurio_fiscal_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    username: borurio
+    password: H4ck3r123
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+    # Pool de conexões Hikari – otimizado para ambiente de teste
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+
+  # Caso o MySQL não esteja disponível, usar banco em memória H2 (modo MySQL)
+  # Descomente para fallback automático:
+  # datasource:
+  #   url: jdbc:h2:mem:borurio_fiscal_test;MODE=MYSQL;DB_CLOSE_DELAY=-1
+  #   driver-class-name: org.h2.Driver
+  #   username: sa
+  #   password:
+
+  sql:
+    init:
+      mode: never  # Evita execução automática de scripts, o Flyway cuida disso
+
+  ######################################################################
+  # MYBATIS – Mapeamento e Configuração ORM
+  ######################################################################
+  mybatis:
+    mapper-locations: classpath*:mapper/**/*.xml
+    type-aliases-package: br.com.borurio.fiscal.entity
+    configuration:
+      map-underscore-to-camel-case: true
+      cache-enabled: false
+      log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+######################################################################
+# MOCK – CERTIFICADO DIGITAL A1 (.pfx)
+######################################################################
+fiscal:
+  cert:
+    # Caminho genérico apenas para simulação em ambiente de teste
+    path: C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx
+    # Senha fictícia para CI/CD – nunca usar certificados reais em pipelines
+    pass: 1234
+
+######################################################################
+# MOCK – ENDPOINTS SEFAZ (Homologação simulada)
+######################################################################
+sefaz:
+  ambiente: teste
+  url-autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
+  url-retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
+
+######################################################################
+# LOGGING – Configuração de logs simplificada para testes
+######################################################################
+logging:
+  level:
+    root: WARN
+    org.mybatis: INFO
+    org.springframework.jdbc.core: WARN
+    br.com.borurio.fiscal: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+
+######################################################################
+# ACTUATOR – Desabilitado em ambiente de teste
+######################################################################
+management:
+  endpoints:
+    enabled-by-default: false

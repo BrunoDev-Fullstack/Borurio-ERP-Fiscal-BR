@@ -1,0 +1,18 @@
+# Ignorar diretórios e arquivos temporários
+**/target/
+**/logs/
+**/.idea/
+**/.vscode/
+**/.git/
+**/.m2/
+**/.DS_Store
+
+# Ignorar arquivos de banco e runtime
+docker/mysql/data-dev/*
+docker/mysql/data/*
+docker/redis/data-dev/*
+docker/minio/data-dev/*
+*.sock
+*.pid
+*.tmp
+*.lock
