@@ -50,6 +50,10 @@ replay_pid*
 .tmp/
 temp/
 tmp/
+.cache/
+out/
+build/
+dist/
 
 # ---------------------------------------------------------------------
 # Arquivos de configuração local / credenciais
@@ -74,6 +78,8 @@ docker/minio/data*/
 docker/mailpit/
 docker/logs/
 docker-compose.override.yml
+docker/build-cache/
+docker/*.pid
 
 # ---------------------------------------------------------------------
 # Relatórios / ferramentas de segurança
@@ -82,6 +88,9 @@ dependency-check-report.html
 dependency-check-data/
 dependency-check/
 scan-results/
+security-reports/
+jacoco.exec
+jacoco-report/
 
 # ---------------------------------------------------------------------
 # Arquivos gerados automaticamente
@@ -92,17 +101,22 @@ Thumbs.db
 *.bak
 *.tmp
 *.orig
+*.retry
+*.rej
+*.save
+*.old
 
 # ---------------------------------------------------------------------
 # CI/CD temporário e build cache
 # ---------------------------------------------------------------------
 node_modules/
-dist/
-build/
-out/
-.cache/
-.coverage/
+coverage/
 reports/
+.tmp/
+.env.local
+.env.production
+.env.development
+.env.test
 
 # ---------------------------------------------------------------------
 # Repositório / documentação auxiliar
@@ -112,22 +126,16 @@ docs/temp/
 *.md.bak
 *.old.md
 *.draft.md
-
-# ---------------------------------------------------------------------
-# Backup e arquivos auxiliares
-# ---------------------------------------------------------------------
-*.old
 *.backup
-*.save
-*.retry
-*.rej
-*.orig
 
 # ---------------------------------------------------------------------
 # Testes / relatórios surefire
 # ---------------------------------------------------------------------
 **/surefire-reports/
 **/failsafe-reports/
+test-output/
+target/test-classes/
+target/surefire-reports/
 
 # ---------------------------------------------------------------------
 # Arquivos de banco de dados local
@@ -141,16 +149,16 @@ docs/temp/
 # Arquivos locais de configuração
 # ---------------------------------------------------------------------
 .env
-.env.local
-.env.development
-.env.production
-.env.test
+.env.*
+!.env.example
 
 # ---------------------------------------------------------------------
 # GitHub Actions temporários
 # ---------------------------------------------------------------------
 .github/workflows/cache/
 .github/workflows/tmp/
+.github/actions/cache/
+.github/tmp/
 
 # ---------------------------------------------------------------------
 # Binários de build e cache Docker
@@ -160,6 +168,8 @@ docs/temp/
 *.dockerfile~
 docker/*.pid
 docker/build-cache/
+images/
+volumes/
 
 # ---------------------------------------------------------------------
 # IntelliJ caches e relatórios temporários
@@ -170,6 +180,9 @@ docker/build-cache/
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries/
 .idea/**/libraries/
+.idea/**/caches/
+.idea/**/modules.xml
+.idea/**/misc.xml
 
 # ---------------------------------------------------------------------
 # Arquivos temporários de compilação Java e Maven Wrapper
@@ -180,8 +193,17 @@ docker/build-cache/
 **/.mvn/wrapper/maven-wrapper.properties
 
 # ---------------------------------------------------------------------
+# Diretórios ignorados por segurança
+# ---------------------------------------------------------------------
+borurio-core/target/
+borurio-fiscal/target/
+borurio-web/target/
+borurio-app/target/
+**/target/
+
+# ---------------------------------------------------------------------
 # Fim do .gitignore
 # ---------------------------------------------------------------------
 # Padrões de segurança e DevSecOps mantidos por Bruno Ribeiro
-# Data: 2025-10-11
+# Data: 2025-10-13
 # ---------------------------------------------------------------------
