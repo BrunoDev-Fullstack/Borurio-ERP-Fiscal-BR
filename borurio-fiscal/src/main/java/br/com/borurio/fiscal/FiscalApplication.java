@@ -1,38 +1,30 @@
 package br.com.borurio.fiscal;
 
 import org.mybatis.spring.annotation.MapperScan;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ComponentScan;
 
 /**
- * Classe principal do módulo fiscal do ERP Borurio Brasil.
+ * Configuração principal do módulo Fiscal do ERP Borurio Brasil.
  *
- * Responsável por inicializar o contexto Spring Boot,
- * registrar os mappers MyBatis e garantir o carregamento
- * dos serviços fiscais (NF-e, SEFAZ, certificados e logs).
+ * Função:
+ * - Registrar os mappers MyBatis e componentes fiscais (NF-e, SEFAZ, certificados, logs);
+ * - Permitir que o módulo `borurio-web` importe automaticamente o contexto fiscal;
+ * - Centralizar o escaneamento de beans sem criar um contexto Spring Boot separado.
  *
- * Boas práticas aplicadas:
- * - Padrão DevSecOps: configurações externas via YAML e .env.
- * - Scan abrangente para detecção de beans (serviços e componentes).
- * - Registro explícito dos mappers MyBatis.
- * - Compatível com Spring Boot 3.3.x e Java 17+.
+ * Padrões aplicados:
+ * - DevSecOps: configurações externas via YAML e variáveis de ambiente (.env);
+ * - Clean Architecture: camada fiscal modularizada e desacoplada da API REST;
+ * - Compatibilidade total com Spring Boot 3.3.x e Java 17+.
  *
- * Parâmetros principais (application-dev.yml):
- * - Datasources, Redis e Certificado A1 (.pfx).
- * - Perfis: dev, prd.
+ * Observação:
+ * Esta classe NÃO possui método main(), pois o ponto de entrada oficial
+ * é a classe `br.com.borurio.web.Application` no módulo `borurio-web`.
  */
-@SpringBootApplication(scanBasePackages = "br.com.borurio")
+@Configuration
+@ComponentScan(basePackages = "br.com.borurio.fiscal")
 @MapperScan(basePackages = "br.com.borurio.fiscal.mapper")
 public class FiscalApplication {
-
-    /**
-     * Método principal de inicialização do módulo fiscal.
-     * Responsável por iniciar o contexto Spring Boot e
-     * carregar automaticamente todos os beans do pacote base.
-     *
-     * @param args argumentos de linha de comando padrão.
-     */
-    public static void main(String[] args) {
-        SpringApplication.run(FiscalApplication.class, args);
-    }
+    // Classe de configuração do módulo fiscal.
+    // Todos os beans e mappers são registrados automaticamente.
 }

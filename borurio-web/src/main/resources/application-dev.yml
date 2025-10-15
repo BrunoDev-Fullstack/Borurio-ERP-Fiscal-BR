@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------------------------
 # Módulo: borurio-web (API REST principal)
 # Integrações: MySQL, Redis, SEFAZ-SP (NF-e 4.00 Homologação)
-# Padrão: Spring Boot 3.3.x / Java 17 / UTF-8 sem BOM
+# Stack: Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
 ###################################################################################################
 
 server:
@@ -18,13 +18,13 @@ spring:
     name: borurio-web
 
   ######################################################################
-  # BANCO DE DADOS – MySQL 8.4 (Container Docker: borurio-mysql-dev)
+  # BANCO DE DADOS – MySQL 8.4
   ######################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-    username: borurio
-    password: H4ck3r123
+    url: jdbc:mysql://${DB_HOST:borurio-mysql-dev}:${DB_PORT:3306}/${DB_NAME:borurio_fiscal_dev}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    username: ${DB_USER:borurio}
+    password: ${DB_PASS:H4ck3r123}
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
@@ -33,16 +33,16 @@ spring:
       max-lifetime: 1800000
 
   ######################################################################
-  # REDIS – Cache e Sessões (Container Docker: borurio-redis-dev)
+  # REDIS – Cache e Sessões
   ######################################################################
   data:
     redis:
-      host: 127.0.0.1
-      port: 6380
+      host: ${REDIS_HOST:borurio-redis-dev}
+      port: ${REDIS_PORT:6379}
       timeout: 2000
 
   ######################################################################
-  # JACKSON – Serialização JSON (Padrão Nacionalizado)
+  # JACKSON – Serialização JSON
   ######################################################################
   jackson:
     serialization:
@@ -59,7 +59,7 @@ spring:
     banner-mode: console
 
 ######################################################################
-# LOGGING – Auditoria e Rastreabilidade Fiscal
+# LOGGING – Auditoria e Rastreabilidade
 ######################################################################
 logging:
   level:
@@ -73,7 +73,7 @@ logging:
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 ######################################################################
-# SEFAZ – Integração NF-e (Ambiente de Homologação – SP)
+# SEFAZ – Integração NF-e (Homologação SP)
 ######################################################################
 sefaz:
   ambiente: homologacao
@@ -85,24 +85,25 @@ sefaz:
 ######################################################################
 fiscal:
   cert:
-    # Caminho absoluto ou relativo do certificado PFX utilizado no ambiente DEV
-    path: C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx
-    # Senha pode ser definida via variável de ambiente CERT_PASS (fallback 1234)
+    path: ${CERT_PATH:C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx}
     pass: ${CERT_PASS:1234}
 
 ######################################################################
 # ACTUATOR – Monitoramento e Observabilidade
 ######################################################################
 management:
+  server:
+    port: 8080
   endpoints:
     web:
+      base-path: /actuator
       exposure:
-        include: "health,info"
+        include: health,info
   endpoint:
     health:
       show-details: always
   health:
-    redis:
-      enabled: true
     db:
+      enabled: true
+    redis:
       enabled: true

@@ -1,4 +1,4 @@
-br\com\borurio\controller\NfeController$ApiResponse.class
-br\com\borurio\controller\NfeController.class
+br\com\borurio\web\controller\PingController.class
 br\com\borurio\web\Application.class
-br\com\borurio\controller\PingController.class
+br\com\borurio\web\controller\NfeController.class
+br\com\borurio\web\controller\NfeController$ApiResponse.class

@@ -1,0 +1,19 @@
+﻿<retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+    <tpAmb>2</tpAmb>
+    <verAplic>Borurio-ERP-DEV</verAplic>
+    <cStat>100</cStat>
+    <xMotivo>Autorizado o uso da NF-e</xMotivo>
+    <cUF>35</cUF>
+    <protNFe versao="4.00">
+        <infProt>
+            <tpAmb>2</tpAmb>
+            <verAplic>Borurio-ERP-DEV</verAplic>
+            <chNFe>35251012345678000123550010000000011500000015</chNFe>
+            <dhRecbto>2025-10-15T10:00:00-03:00</dhRecbto>
+            <nProt>135250000000001</nProt>
+            <digVal>AbCdEfGh123456==</digVal>
+            <cStat>100</cStat>
+            <xMotivo>Autorizado o uso da NF-e</xMotivo>
+        </infProt>
+    </protNFe>
+</retEnviNFe>

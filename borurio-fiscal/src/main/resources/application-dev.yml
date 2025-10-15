@@ -28,6 +28,22 @@ spring:
   redis:
     host: 127.0.0.1
     port: 6380
+    timeout: 2000
+    connect-timeout: 2000
+
+  # ---------------------------------------------------------------------------
+  # Flyway - Migrações de banco (sincronização de schema fiscal)
+  # ---------------------------------------------------------------------------
+  flyway:
+    enabled: true
+    url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    user: borurio
+    password: H4ck3r123
+    schemas: borurio_fiscal_dev
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    connect-retries: 3
 
   # ---------------------------------------------------------------------------
   # Jackson - Formatação de Data e Hora
@@ -37,14 +53,14 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
 
   # ---------------------------------------------------------------------------
-  # Configurações Globais do Spring
+  # Configurações Globais do Spring Boot
   # ---------------------------------------------------------------------------
   main:
     allow-bean-definition-overriding: false
     banner-mode: console
 
 # ---------------------------------------------------------------------------
-# Servidor HTTP - Porta principal da aplicação
+# Servidor HTTP - Porta principal da aplicação fiscal
 # ---------------------------------------------------------------------------
 server:
   port: 8080
@@ -52,7 +68,7 @@ server:
     context-path: /
 
 # ---------------------------------------------------------------------------
-# MyBatis - Mapeadores e Configuração ORM Fiscal
+# MyBatis - Mapeadores XML e Configuração ORM Fiscal
 # ---------------------------------------------------------------------------
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -65,7 +81,7 @@ mybatis:
     default-statement-timeout: 30
 
 # ---------------------------------------------------------------------------
-# Logging - Auditoria Fiscal e Diagnóstico
+# Logging - Auditoria Fiscal e Diagnóstico Técnico
 # ---------------------------------------------------------------------------
 logging:
   level:
@@ -77,3 +93,15 @@ logging:
     name: ./logs/borurio-fiscal.log
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+
+# ---------------------------------------------------------------------------
+# Monitoramento Actuator (para testes de saúde do serviço)
+# ---------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

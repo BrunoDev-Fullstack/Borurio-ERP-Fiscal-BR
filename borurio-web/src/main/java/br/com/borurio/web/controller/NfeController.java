@@ -1,4 +1,4 @@
-package br.com.borurio.controller;
+package br.com.borurio.web.controller;
 
 import br.com.borurio.fiscal.service.NfeTransmitService;
 import lombok.RequiredArgsConstructor;
