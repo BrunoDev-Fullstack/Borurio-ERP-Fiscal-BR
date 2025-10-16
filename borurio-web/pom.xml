@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <!-- ===============================================================
-         MÓDULO: Borurio Web
+         MÓDULO: Borurio ERP Web
          Função: API REST central do ERP Fiscal Borurio Brasil
          Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway | Actuator
          Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
@@ -54,7 +54,7 @@
     <dependencies>
 
         <!-- ===========================================================
-             Módulos internos do ERP Fiscal
+             MÓDULOS INTERNOS DO ERP (Core, App, Fiscal)
              =========================================================== -->
         <dependency>
             <groupId>br.com.borurio</groupId>
@@ -68,12 +68,11 @@
             <version>1.0.0</version>
         </dependency>
 
-        <!-- Módulo Fiscal (NF-e / SEFAZ-SP / Auditoria) -->
+        <!-- Fiscal (NF-e / SEFAZ) -->
         <dependency>
             <groupId>br.com.borurio</groupId>
             <artifactId>borurio-fiscal</artifactId>
             <version>1.0.0</version>
-            <classifier>lib</classifier>
         </dependency>
 
         <!-- ===========================================================
@@ -95,6 +94,14 @@
         </dependency>
 
         <!-- ===========================================================
+             LOGGING / MONITORAMENTO
+             =========================================================== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-logging</artifactId>
+        </dependency>
+
+        <!-- ===========================================================
              PERSISTÊNCIA / MIGRAÇÃO / CACHE
              =========================================================== -->
         <dependency>
@@ -108,27 +115,24 @@
             </exclusions>
         </dependency>
 
-        <!-- Flyway compatível com MySQL 8.4 -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
             <version>${flyway.version}</version>
         </dependency>
 
-        <!-- Redis Cache -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
-        <!-- MySQL Driver -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <version>${mysql.connector.version}</version>
         </dependency>
 
-        <!-- Cliente MinIO -->
+        <!-- MinIO (Armazenamento de Arquivos Fiscais) -->
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
@@ -150,7 +154,7 @@
             <version>4.5.0-M2</version>
         </dependency>
 
-        <!-- Lombok -->
+        <!-- Lombok (compilação) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -159,7 +163,7 @@
         </dependency>
 
         <!-- ===========================================================
-             TESTES UNITÁRIOS / INTEGRAÇÃO
+             TESTES UNITÁRIOS E INTEGRAÇÃO
              =========================================================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -215,6 +219,13 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+                <configuration>
+                    <mainClass>br.com.borurio.web.Application</mainClass>
+                    <layers>
+                        <enabled>true</enabled>
+                    </layers>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>
@@ -222,12 +233,6 @@
                         </goals>
                     </execution>
                 </executions>
-                <configuration>
-                    <mainClass>br.com.borurio.web.Application</mainClass>
-                    <layers>
-                        <enabled>true</enabled>
-                    </layers>
-                </configuration>
             </plugin>
 
             <!-- OWASP Dependency Check -->

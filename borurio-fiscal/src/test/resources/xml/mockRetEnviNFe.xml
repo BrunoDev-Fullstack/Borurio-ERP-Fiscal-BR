@@ -1,19 +1,48 @@
-﻿<retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
-    <tpAmb>2</tpAmb>
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe ../../../main/resources/xsd/retEnviNFe_v4.00.xsd"
+            versao="4.00">
+
+    <!-- ================================================================
+         RETORNO DE ENVIO DE NF-e – MOCK PARA TESTES SEFAZ (Homologação)
+         Conforme Manual de Orientação do Contribuinte – MOC 7.0 / PL009_v4.00
+         Sistema: Borurio ERP Fiscal BR
+         ================================================================ -->
+
+    <!-- Ambiente de processamento -->
+    <tpAmb>2</tpAmb> <!-- 1 = Produção / 2 = Homologação -->
+
+    <!-- Identificador da versão do aplicativo SEFAZ -->
     <verAplic>Borurio-ERP-DEV</verAplic>
-    <cStat>100</cStat>
+
+    <!-- Código do status -->
+    <cStat>100</cStat> <!-- 100 = Autorizado o uso da NF-e -->
+
+    <!-- Mensagem descritiva do status -->
     <xMotivo>Autorizado o uso da NF-e</xMotivo>
-    <cUF>35</cUF>
+
+    <!-- Código da UF processadora -->
+    <cUF>35</cUF> <!-- 35 = São Paulo -->
+
+    <!-- Data e hora do processamento -->
+    <dhRecbto>2025-10-15T10:00:00-03:00</dhRecbto>
+
+    <!-- Protocolo de autorização -->
     <protNFe versao="4.00">
-        <infProt>
+        <infProt Id="ID135250000000001">
             <tpAmb>2</tpAmb>
             <verAplic>Borurio-ERP-DEV</verAplic>
             <chNFe>35251012345678000123550010000000011500000015</chNFe>
             <dhRecbto>2025-10-15T10:00:00-03:00</dhRecbto>
             <nProt>135250000000001</nProt>
-            <digVal>AbCdEfGh123456==</digVal>
+
+            <!-- Valor hash do XML assinado (base64 com 28 caracteres válido) -->
+            <digVal>YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=</digVal>
+
             <cStat>100</cStat>
             <xMotivo>Autorizado o uso da NF-e</xMotivo>
         </infProt>
     </protNFe>
+
 </retEnviNFe>

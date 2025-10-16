@@ -2,6 +2,7 @@
 # Docker Compose - Borurio ERP Fiscal BR
 # Ambiente: Produção / Homologação
 # Stack oficial dos módulos fiscais e serviços auxiliares
+# Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
 # =============================================================================
 
 services:
@@ -16,15 +17,15 @@ services:
     env_file:
       - ./env/.env.prd
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-SENHA_NOVA_DO_ROOT}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-secure_root_2025}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal}
       MYSQL_USER: ${MYSQL_USER:-borurio}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
-      TZ: America/Sao_Paulo
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-secure_pass_2025}
+      TZ: ${TZ:-America/Sao_Paulo}
     ports:
-      - "3306:3306"
+      - "3307:3306"   # Porta alterada para evitar conflito local
     volumes:
-      - ./mysql/data:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - borurio-net
@@ -46,11 +47,11 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ./redis/data:/data
+      - redis_data:/data
     networks:
       - borurio-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -60,32 +61,32 @@ services:
   # MinIO - Armazenamento de Arquivos (S3 compatível)
   # ---------------------------------------------------------------------------
   borurio-minio:
-    image: minio/minio:RELEASE.2024-09-27T15-23-35Z
+    image: minio/minio:RELEASE.2024-08-17T01-24-54Z
     container_name: borurio-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     env_file:
       - ./env/.env.prd
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-H4ck3r123}
-      TZ: America/Sao_Paulo
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-borurio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-borurio@prd2025}
+      TZ: ${TZ:-America/Sao_Paulo}
     ports:
       - "9000:9000"   # API S3
       - "9001:9001"   # Console Web
     volumes:
-      - ./minio/data:/data
+      - minio_data:/data
     networks:
       - borurio-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
 
   # ---------------------------------------------------------------------------
-  # Mailpit - SMTP e Painel Web para Homologação
+  # Mailpit - SMTP e Painel Web (para homologação)
   # ---------------------------------------------------------------------------
   borurio-mailpit:
     image: axllent/mailpit:latest
@@ -97,7 +98,7 @@ services:
     networks:
       - borurio-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8025/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8025/healthz || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -108,30 +109,34 @@ services:
   # ---------------------------------------------------------------------------
   borurio-fiscal:
     build:
-      context: ../
+      context: ..
       dockerfile: ./borurio-fiscal/Dockerfile
-    container_name: borurio-fiscal
+    container_name: borurio-fiscal-prd
     restart: unless-stopped
     depends_on:
       borurio-mysql:
         condition: service_healthy
       borurio-redis:
         condition: service_healthy
+      borurio-minio:
+        condition: service_healthy
     env_file:
       - ./env/.env.prd
     environment:
       SPRING_PROFILES_ACTIVE: prd
-      TZ: America/Sao_Paulo
+      TZ: ${TZ:-America/Sao_Paulo}
     ports:
       - "8082:8080"
     networks:
       - borurio-net
     volumes:
-      - ~/.m2:/root/.m2              # cache Maven local
-      - ../borurio-fiscal:/app       # live-bind do módulo fiscal
+      - ~/.m2:/root/.m2
+      - ../borurio-fiscal:/app
+      - ./certs:/opt/borurio/certs
+      - ./logs:/var/log/borurio
     command: ["java", "-jar", "/app/target/borurio-fiscal-1.0.0.jar"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -142,9 +147,9 @@ services:
   # ---------------------------------------------------------------------------
   borurio-web:
     build:
-      context: ../
+      context: ..
       dockerfile: ./borurio-web/Dockerfile
-    container_name: borurio-web
+    container_name: borurio-web-prd
     restart: unless-stopped
     depends_on:
       borurio-fiscal:
@@ -155,17 +160,18 @@ services:
       - ./env/.env.prd
     environment:
       SPRING_PROFILES_ACTIVE: prd
-      TZ: America/Sao_Paulo
+      TZ: ${TZ:-America/Sao_Paulo}
     ports:
       - "8080:8080"
     networks:
       - borurio-net
     volumes:
-      - ~/.m2:/root/.m2              # cache Maven local
-      - ../borurio-web:/app          # live-bind do módulo web
+      - ~/.m2:/root/.m2
+      - ../borurio-web:/app
+      - ./logs:/var/log/borurio
     command: ["java", "-jar", "/app/target/borurio-web-1.0.0.jar"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -176,8 +182,13 @@ services:
 # =============================================================================
 volumes:
   mysql_data:
+    driver: local
   redis_data:
+    driver: local
   minio_data:
+    driver: local
+  logs:
+    driver: local
 
 networks:
   borurio-net:

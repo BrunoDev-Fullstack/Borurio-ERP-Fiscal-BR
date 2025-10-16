@@ -5,7 +5,7 @@
 # Nenhuma integração real com SEFAZ ou certificado A1 é realizada.
 #
 # Compatibilidade: Spring Boot 3.3.x / Java 17 / UTF-8 (sem BOM)
-# Última revisão: 14/10/2025 – Bruno Ribeiro
+# Última revisão: 15/10/2025 – Bruno Ribeiro
 ###################################################################################################
 
 spring:
@@ -23,14 +23,16 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
     hikari:
+      pool-name: FiscalTestHikariPool
       maximum-pool-size: 5
       minimum-idle: 1
       connection-timeout: 20000
       idle-timeout: 300000
       max-lifetime: 1200000
 
-  # Fallback automático (H2 em modo MySQL) — ativar se o container MySQL estiver offline
-  # Para uso em CI/CD ou GitHub Actions, pode ser habilitado via variável de ambiente.
+  # Fallback automático (H2 em modo MySQL)
+  # Pode ser ativado via variável de ambiente nos pipelines (CI/CD)
+  # Exemplo:
   # spring.datasource.url=jdbc:h2:mem:borurio_fiscal_test;MODE=MYSQL;DB_CLOSE_DELAY=-1
   # spring.datasource.driver-class-name=org.h2.Driver
   # spring.datasource.username=sa
@@ -38,7 +40,7 @@ spring:
 
   sql:
     init:
-      mode: never  # O controle de migração é feito exclusivamente via Flyway
+      mode: never  # Migrações sempre via Flyway (controle centralizado)
 
   ######################################################################
   # MYBATIS – Mapeamento e Configuração ORM
@@ -60,6 +62,8 @@ fiscal:
     path: C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx
     # Senha fictícia e isolada (não utilizar certificados reais em pipelines)
     pass: 1234
+    # Certificado não é carregado nem utilizado em testes unitários
+    enabled: false
 
 ######################################################################
 # MOCK – ENDPOINTS SEFAZ (Homologação simulada)
@@ -68,6 +72,8 @@ sefaz:
   ambiente: teste
   url-autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
   url-retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
+  # Modo de simulação habilitado (não faz chamadas reais)
+  mock-enabled: true
 
 ######################################################################
 # LOGGING – Configuração simplificada para ambiente de teste
@@ -81,6 +87,8 @@ logging:
     br.com.borurio.fiscal: DEBUG
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+  file:
+    name: logs/borurio-fiscal-test.log
 
 ######################################################################
 # FLYWAY – Migração controlada em ambiente de teste
@@ -92,6 +100,7 @@ flyway:
   clean-disabled: true
   validate-on-migrate: true
   connect-retries: 3
+  encoding: UTF-8
 
 ######################################################################
 # ACTUATOR – Desabilitado em ambiente de teste
@@ -99,3 +108,21 @@ flyway:
 management:
   endpoints:
     enabled-by-default: false
+  endpoint:
+    health:
+      enabled: false
+  health:
+    db:
+      enabled: false
+    redis:
+      enabled: false
+
+###################################################################################################
+# Notas Técnicas:
+# - Ambiente dedicado a testes JUnit 5 e pipelines CI/CD (GitHub Actions).
+# - Nenhuma comunicação externa real é executada.
+# - Certificado digital simulado apenas para validação de assinatura.
+# - Banco padrão: MySQL 8.4 local (porta 3307) ou H2 em fallback.
+# - Logs são impressos em console e armazenados em logs/borurio-fiscal-test.log.
+# - Codificação forçada UTF-8 sem BOM.
+###################################################################################################

@@ -9,22 +9,24 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * Controlador REST responsável por expor os endpoints fiscais (NF-e).
+ * =============================================================================
+ * CONTROLADOR NF-E (BORURIO FISCAL)
+ * -----------------------------------------------------------------------------
+ * Responsável por expor endpoints REST para operações fiscais da NF-e.
+ * Integra o módulo Web com o módulo Fiscal (borurio-fiscal), permitindo
+ * a transmissão de XMLs assinados e a consulta de status da SEFAZ-SP.
  *
- * Este controlador integra o módulo Web com o módulo Fiscal (borurio-fiscal),
- * permitindo que a aplicação realize operações de transmissão e consulta
- * de status da SEFAZ-SP para a Nota Fiscal Eletrônica (NF-e versão 4.00).
- *
- * Boas práticas aplicadas:
+ * Padrões aplicados:
  * - Arquitetura em camadas (Controller → Service → Mapper)
- * - Padrão RESTful e responses JSON padronizados
- * - Logging estruturado com SLF4J
- * - Tratamento de exceções resiliente
+ * - Boas práticas RESTful com retorno padronizado {code, message, data}
+ * - Logging estruturado via SLF4J
+ * - Tratamento resiliente de exceções
  *
  * Compatibilidade:
  * - Java 17
  * - Spring Boot 3.3.x
  * - Maven 3.9.x
+ * =============================================================================
  */
 @Slf4j
 @RestController
@@ -32,20 +34,28 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class NfeController {
 
+    /** Serviço responsável pela transmissão e status da NF-e */
     private final NfeTransmitService nfeTransmitService;
 
+    // =========================================================================
+    // ENDPOINT: Envio de NF-e
+    // =========================================================================
+
     /**
-     * Endpoint responsável por transmitir o XML assinado da NF-e
-     * para o WebService da SEFAZ-SP (Homologação ou Produção).
+     * Transmite o XML assinado da NF-e para o WebService da SEFAZ-SP
+     * (Homologação ou Produção), retornando a resposta fiscal mock/real.
      *
      * Exemplo:
+     * <pre>
      * POST /nfe/enviar
      * Header: CNPJ-Emitente: 12345678000199
-     * Body: XML assinado (text/plain ou application/xml)
+     * Content-Type: text/plain ou application/xml
+     * Body: XML assinado da NF-e (versão 4.00)
+     * </pre>
      *
      * @param xmlAssinado   Conteúdo XML assinado digitalmente.
      * @param cnpjEmitente  CNPJ do emitente (header obrigatório).
-     * @return Resposta SOAP retornada pela SEFAZ ou mensagem de erro padronizada.
+     * @return Resposta JSON padronizada contendo o retorno SEFAZ.
      */
     @PostMapping(
             value = "/enviar",
@@ -56,52 +66,92 @@ public class NfeController {
             @RequestBody String xmlAssinado,
             @RequestHeader("CNPJ-Emitente") String cnpjEmitente) {
 
-        log.info("Requisição recebida para transmissão NF-e | CNPJ: {}", cnpjEmitente);
+        log.info("Requisição recebida | Operação: Envio NF-e | CNPJ: {}", cnpjEmitente);
+
+        if (xmlAssinado == null || xmlAssinado.isBlank()) {
+            log.warn("XML vazio ou ausente | CNPJ: {}", cnpjEmitente);
+            return buildResponse(HttpStatus.BAD_REQUEST,
+                    "O corpo da requisição (XML) não pode estar vazio.", null);
+        }
 
         try {
             String respostaSefaz = nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente);
 
             if (respostaSefaz == null) {
-                log.warn("Falha ao transmitir NF-e para SEFAZ-SP | CNPJ: {}", cnpjEmitente);
-                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                        .body(new ApiResponse(502, "Falha ao comunicar com a SEFAZ-SP", null));
+                log.error("Falha ao transmitir NF-e | CNPJ: {}", cnpjEmitente);
+                return buildResponse(HttpStatus.BAD_GATEWAY,
+                        "Falha ao comunicar com a SEFAZ-SP", null);
             }
 
-            log.info("NF-e enviada com sucesso à SEFAZ-SP | CNPJ: {}", cnpjEmitente);
-            return ResponseEntity.ok(new ApiResponse(200, "NF-e enviada com sucesso à SEFAZ-SP", respostaSefaz));
+            log.info("NF-e transmitida com sucesso | CNPJ: {}", cnpjEmitente);
+            return buildResponse(HttpStatus.OK,
+                    "NF-e enviada com sucesso à SEFAZ-SP", respostaSefaz);
+
+        } catch (IllegalArgumentException ex) {
+            log.error("Parâmetros inválidos | CNPJ: {} | Erro: {}", cnpjEmitente, ex.getMessage());
+            return buildResponse(HttpStatus.BAD_REQUEST,
+                    "Parâmetros inválidos: " + ex.getMessage(), null);
 
         } catch (Exception ex) {
             log.error("Erro interno ao transmitir NF-e | CNPJ: {} | Erro: {}", cnpjEmitente, ex.getMessage(), ex);
-            return ResponseEntity.internalServerError()
-                    .body(new ApiResponse(500, "Erro interno ao transmitir NF-e: " + ex.getMessage(), null));
+            return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Erro interno ao transmitir NF-e: " + ex.getMessage(), null);
         }
     }
 
+    // =========================================================================
+    // ENDPOINT: Status da SEFAZ
+    // =========================================================================
+
     /**
-     * Endpoint de verificação de disponibilidade do serviço fiscal (mock SEFAZ-SP).
+     * Verifica a disponibilidade do serviço fiscal (mock SEFAZ-SP).
      *
      * Exemplo:
+     * <pre>
      * GET /nfe/status
+     * </pre>
      *
-     * @return Status do serviço NF-e (mock ou real).
+     * @return Status atual do serviço NF-e.
      */
     @GetMapping("/status")
     public ResponseEntity<ApiResponse> status() {
         log.info("Verificando status do serviço NF-e (módulo fiscal)");
-
         try {
             String status = nfeTransmitService.consultarStatus();
-            return ResponseEntity.ok(new ApiResponse(200, status, null));
+            return buildResponse(HttpStatus.OK, status, null);
         } catch (Exception e) {
             log.error("Falha ao consultar status da SEFAZ-SP: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(new ApiResponse(503, "Serviço NF-e indisponível", null));
+            return buildResponse(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Serviço NF-e indisponível", null);
         }
     }
 
+    // =========================================================================
+    // MÉTODOS AUXILIARES
+    // =========================================================================
+
     /**
-     * Estrutura padrão de resposta JSON.
-     * Exemplo: { "code": 200, "message": "OK", "data": { ... } }
+     * Cria um {@link ResponseEntity} padronizado com a estrutura JSON:
+     * <pre>
+     * {
+     *   "code": 200,
+     *   "message": "OK",
+     *   "data": { ... }
+     * }
+     * </pre>
+     *
+     * @param status  Código HTTP
+     * @param message Mensagem descritiva
+     * @param data    Objeto de retorno
+     * @return ResponseEntity com padrão corporativo Borurio
+     */
+    private ResponseEntity<ApiResponse> buildResponse(HttpStatus status, String message, Object data) {
+        return ResponseEntity.status(status)
+                .body(new ApiResponse(status.value(), message, data));
+    }
+
+    /**
+     * Estrutura padrão de resposta JSON para os endpoints fiscais.
      */
     private record ApiResponse(int code, String message, Object data) {}
 }

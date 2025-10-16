@@ -1,107 +1,116 @@
-# =============================================================================
-# Configuração de Ambiente - Módulo Borurio Fiscal (NF-e / Auditoria Fiscal)
-# Perfil: DEV / Homologação Local
-# =============================================================================
+# =====================================================================
+# Ambiente: Desenvolvimento (DEV)
+# Módulo: Borurio Fiscal (NF-e / SEFAZ / Auditoria)
+# Autor: Bruno Ribeiro — Desenvolvedor Java / DevSecOps
+# Data: 15/10/2025
+# Versão: 1.0.0
+# =====================================================================
 
 spring:
   application:
     name: borurio-fiscal
 
-  # ---------------------------------------------------------------------------
-  # Banco de Dados - MySQL (Docker local: porta 3307)
-  # ---------------------------------------------------------------------------
+  profiles:
+    active: dev
+
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
     username: borurio
     password: H4ck3r123
     hikari:
+      pool-name: FiscalHikariPool
       maximum-pool-size: 10
       minimum-idle: 2
       idle-timeout: 30000
       connection-timeout: 20000
-      pool-name: FiscalHikariPool
+      max-lifetime: 1800000
 
-  # ---------------------------------------------------------------------------
-  # Redis - Memória transitória e sessões fiscais
-  # ---------------------------------------------------------------------------
-  redis:
-    host: 127.0.0.1
-    port: 6380
-    timeout: 2000
-    connect-timeout: 2000
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      timeout: 2000
+      connect-timeout: 2000
 
-  # ---------------------------------------------------------------------------
-  # Flyway - Migrações de banco (sincronização de schema fiscal)
-  # ---------------------------------------------------------------------------
   flyway:
     enabled: true
-    url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-    user: borurio
-    password: H4ck3r123
-    schemas: borurio_fiscal_dev
-    locations: classpath:db/migration
     baseline-on-migrate: true
     validate-on-migrate: true
-    connect-retries: 3
+    clean-disabled: true
+    locations: classpath:db/migration
+    table: flyway_schema_history
+    encoding: UTF-8
 
-  # ---------------------------------------------------------------------------
-  # Jackson - Formatação de Data e Hora
-  # ---------------------------------------------------------------------------
   jackson:
-    time-zone: America/Sao_Paulo
-    date-format: yyyy-MM-dd HH:mm:ss
+    serialization:
+      INDENT_OUTPUT: true
+    default-property-inclusion: non_null
 
-  # ---------------------------------------------------------------------------
-  # Configurações Globais do Spring Boot
-  # ---------------------------------------------------------------------------
-  main:
-    allow-bean-definition-overriding: false
-    banner-mode: console
-
-# ---------------------------------------------------------------------------
-# Servidor HTTP - Porta principal da aplicação fiscal
-# ---------------------------------------------------------------------------
-server:
-  port: 8080
   servlet:
-    context-path: /
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
 
-# ---------------------------------------------------------------------------
-# MyBatis - Mapeadores XML e Configuração ORM Fiscal
-# ---------------------------------------------------------------------------
-mybatis:
-  mapper-locations: classpath*:mapper/**/*.xml
-  type-aliases-package: br.com.borurio.fiscal.entity
-  configuration:
-    map-underscore-to-camel-case: true
-    cache-enabled: false
-    lazy-loading-enabled: false
-    jdbc-type-for-null: 'NULL'
-    default-statement-timeout: 30
+server:
+  port: 8081
+  error:
+    include-message: always
+  tomcat:
+    accesslog:
+      enabled: true
+      directory: logs
+      prefix: access
+      suffix: .log
+      pattern: "%h %l %u %t \"%r\" %s %b"
 
-# ---------------------------------------------------------------------------
-# Logging - Auditoria Fiscal e Diagnóstico Técnico
-# ---------------------------------------------------------------------------
 logging:
+  file:
+    name: logs/borurio-fiscal-dev.log
   level:
     root: INFO
-    br.com.borurio: DEBUG
+    org.springframework.web: INFO
     org.mybatis: INFO
-    org.springframework.jdbc.core: INFO
-  file:
-    name: ./logs/borurio-fiscal.log
+    com.zaxxer.hikari: INFO
+    br.com.borurio: DEBUG
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+    console: "%d{HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
-# ---------------------------------------------------------------------------
-# Monitoramento Actuator (para testes de saúde do serviço)
-# ---------------------------------------------------------------------------
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health, info, metrics
   endpoint:
     health:
       show-details: always
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true
+
+# =====================================================================
+# Configurações do Mock SEFAZ-SP (modo desenvolvimento)
+# =====================================================================
+borurio:
+  sefaz:
+    environment: homologacao
+    xml-path: C:/Projetos/borurio-erp-br/borurio-fiscal/src/test/resources/xml/
+    schema-path: C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/xsd/
+    endpoint-mock: http://localhost:8081/nfe/status
+    certificate:
+      enabled: false
+      type: A1
+      keystore: classpath:certs/certificado-a1.pfx
+      password: senha_certificado
+
+# =====================================================================
+# Notas:
+# - Logs são gravados em logs/borurio-fiscal-dev.log
+# - Codificação forçada UTF-8
+# - Mock SEFAZ utiliza schema-path local (xsd/) e XMLs simulados
+# - Assinatura digital desabilitada no modo DEV (certificate.enabled=false)
+# - Banco: MySQL 8.4 / Redis 7.2
+# =====================================================================

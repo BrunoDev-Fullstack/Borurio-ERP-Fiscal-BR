@@ -8,8 +8,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * Classe principal do ERP Fiscal Borurio Brasil.
  *
  * Responsável por inicializar o contexto Spring Boot, realizar o
- * escaneamento dos componentes dos módulos integrados e registrar
- * os mapeadores MyBatis.
+ * escaneamento de componentes dos módulos integrados e registrar
+ * os mapeadores MyBatis do módulo de aplicação.
  *
  * Estrutura modular do sistema:
  *  - borurio-core   → Núcleo compartilhado (enums, DTOs, utilitários)
@@ -18,15 +18,15 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *  - borurio-web    → API REST principal e ponto de entrada unificado
  *
  * Boas práticas aplicadas:
- * - @SpringBootApplication: inicializa o contexto global e ativa o component scan;
- * - @MapperScan: registra os mappers MyBatis de múltiplos módulos;
- * - Modularização limpa e compatível com Java 17 / Spring Boot 3.3.x;
- * - Perfis de ambiente controlados via application-*.yml (ex.: dev, prd);
- * - Log de inicialização claro e informativo.
+ *  - @SpringBootApplication: inicializa o contexto global e ativa o component scan;
+ *  - @MapperScan: registra apenas os mappers de negócio (borurio-app);
+ *  - Modularização limpa e compatível com Java 17 / Spring Boot 3.3.x;
+ *  - Perfis de ambiente controlados via application-*.yml (ex.: dev, prd);
+ *  - Log de inicialização estruturado e auditável.
  *
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Sprint: Fiscal 2.2 – Integração SEFAZ-SP / NF-e 4.00
- * Desde: Outubro/2025
+ * Sprint: Fiscal 2.6 – Correções MyBatis / Mock SEFAZ-SP
+ * Data: Outubro/2025
  */
 @SpringBootApplication(scanBasePackages = {
         "br.com.borurio.core",
@@ -35,21 +35,19 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "br.com.borurio.web"
 })
 @MapperScan(basePackages = {
-        "br.com.borurio.app.mapper",
-        "br.com.borurio.fiscal.mapper"
+        "br.com.borurio.app.mapper"
 })
 public class Application {
 
     /**
      * Ponto de entrada principal do ERP Fiscal Borurio Brasil.
      *
-     * Execuções recomendadas:
+     * Modos de execução:
+     *  - Via Maven:
+     *    mvn spring-boot:run -pl borurio-web "-Dspring-boot.run.profiles=dev"
      *
-     * ▶ Via Maven:
-     * mvn spring-boot:run -pl borurio-web "-Dspring-boot.run.profiles=dev"
-     *
-     * ▶ Via JAR:
-     * java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
+     *  - Via JAR:
+     *    java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
      *
      * O contexto carregará automaticamente os módulos Core, App e Fiscal.
      *
@@ -57,10 +55,12 @@ public class Application {
      */
     public static void main(String[] args) {
         SpringApplication.run(Application.class, args);
-        System.out.println("\n==============================================================");
+        System.out.println();
+        System.out.println("==============================================================");
         System.out.println("ERP Fiscal Borurio Brasil iniciado com sucesso.");
         System.out.println("Perfil ativo: application-dev.yml");
         System.out.println("Módulos carregados: core | app | fiscal | web");
-        System.out.println("==============================================================\n");
+        System.out.println("==============================================================");
+        System.out.println();
     }
 }

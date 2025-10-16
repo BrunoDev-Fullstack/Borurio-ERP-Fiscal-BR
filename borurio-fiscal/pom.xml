@@ -12,6 +12,7 @@
 
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- Herança do POM raiz -->
     <parent>
         <groupId>br.com.borurio</groupId>
         <artifactId>borurio-erp-br</artifactId>
@@ -37,6 +38,7 @@
         <jacoco.version>0.8.11</jacoco.version>
         <owasp.version>9.0.9</owasp.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
     <!-- ===============================================================
@@ -48,14 +50,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
-            <version>${spring.boot.version}</version>
         </dependency>
 
         <!-- JDBC + HikariCP -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
-            <version>${spring.boot.version}</version>
         </dependency>
 
         <!-- MyBatis -->
@@ -76,7 +76,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
-            <version>${spring.boot.version}</version>
         </dependency>
 
         <!-- JAXB (Manipulação de XML Fiscal) -->
@@ -99,7 +98,7 @@
             <version>4.5.0-M2</version>
         </dependency>
 
-        <!-- Lombok -->
+        <!-- Lombok (somente em tempo de compilação) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -107,7 +106,7 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Flyway (Controle de Migração SQL) -->
+        <!-- Flyway (Migrações SQL) -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -121,12 +120,11 @@
         </dependency>
 
         <!-- ===========================================================
-             TESTES UNITÁRIOS E DE INTEGRAÇÃO
+             TESTES UNITÁRIOS / INTEGRAÇÃO
              =========================================================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
-            <version>${spring.boot.version}</version>
             <scope>test</scope>
             <exclusions>
                 <exclusion>
@@ -157,7 +155,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Banco em memória para testes -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -172,7 +169,6 @@
     <build>
         <finalName>${project.artifactId}-${project.version}</finalName>
 
-        <!-- Recursos principais e de teste -->
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -214,48 +210,15 @@
                 </configuration>
             </plugin>
 
-            <!-- Criação de artefato de biblioteca (lib) -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
-                <executions>
-                    <execution>
-                        <id>create-library-jar</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>jar</goal>
-                        </goals>
-                        <configuration>
-                            <classifier>lib</classifier>
-                            <archive>
-                                <manifest>
-                                    <addClasspath>true</addClasspath>
-                                    <classpathPrefix>lib/</classpathPrefix>
-                                </manifest>
-                            </archive>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- Build executável -->
+            <!-- Spring Boot (Desativado para não gerar fat JAR) -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring.boot.version}</version>
-                <executions>
-                    <execution>
-                        <id>repackage-exec</id>
-                        <goals>
-                            <goal>repackage</goal>
-                        </goals>
-                        <configuration>
-                            <classifier>exec</classifier>
-                            <mainClass>br.com.borurio.fiscal.FiscalApplication</mainClass>
-                        </configuration>
-                    </execution>
-                </executions>
+                <configuration>
+                    <!-- Desativa reempacotamento (gera JAR de biblioteca) -->
+                    <skip>true</skip>
+                </configuration>
             </plugin>
 
             <!-- Flyway Migration -->
@@ -272,8 +235,12 @@
                         <schema>borurio_fiscal_dev</schema>
                     </schemas>
                     <locations>
-                        <location>classpath:db/migration</location>
+                        <location>filesystem:src/main/resources/db/migration</location>
                     </locations>
+                    <baselineOnMigrate>true</baselineOnMigrate>
+                    <validateOnMigrate>true</validateOnMigrate>
+                    <cleanDisabled>true</cleanDisabled>
+                    <encoding>UTF-8</encoding>
                 </configuration>
             </plugin>
 

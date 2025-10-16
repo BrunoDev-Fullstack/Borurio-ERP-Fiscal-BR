@@ -3,24 +3,25 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <!-- ============================================================
+    <!-- ================================================================
          BORURIO ERP FISCAL BR – PROJETO MODULAR NACIONALIZADO
          Módulos: Core / App / Fiscal / Web (Main)
-         Stack: Java 17, Spring Boot 3.3.2, MyBatis, MySQL 8.4, Redis
-         Autor: Bruno Ribeiro – Dev Fullstack / DevSecOps
-         ============================================================ -->
+         Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis
+         Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+         ================================================================ -->
 
     <modelVersion>4.0.0</modelVersion>
+
     <groupId>br.com.borurio</groupId>
     <artifactId>borurio-erp-br</artifactId>
     <version>1.0.0</version>
     <packaging>pom</packaging>
     <name>Borurio ERP Fiscal BR</name>
-    <description>ERP Fiscal nacionalizado – Java 17 / Spring Boot 3.3.2 / MyBatis / DevSecOps</description>
+    <description>ERP Fiscal nacionalizado — Java 17 | Spring Boot 3.3.2 | MyBatis | DevSecOps</description>
 
-    <!-- ============================================================
+    <!-- ================================================================
          ESTRUTURA DE MÓDULOS
-         ============================================================ -->
+         ================================================================ -->
     <modules>
         <module>borurio-core</module>
         <module>borurio-app</module>
@@ -28,23 +29,25 @@
         <module>borurio-web</module>
     </modules>
 
-    <!-- ============================================================
+    <!-- ================================================================
          PROPRIEDADES GLOBAIS
-         ============================================================ -->
+         ================================================================ -->
     <properties>
         <java.version>17</java.version>
         <spring.boot.version>3.3.2</spring.boot.version>
         <owasp.version>9.0.9</owasp.version>
+        <surefire.version>3.2.5</surefire.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.release>${java.version}</maven.compiler.release>
     </properties>
 
-    <!-- ============================================================
+    <!-- ================================================================
          GERENCIAMENTO CENTRAL DE DEPENDÊNCIAS
-         ============================================================ -->
+         ================================================================ -->
     <dependencyManagement>
         <dependencies>
+            <!-- Spring Boot – versão padrão para todos os módulos -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -55,17 +58,15 @@
         </dependencies>
     </dependencyManagement>
 
-    <!-- ============================================================
+    <!-- ================================================================
          CONFIGURAÇÃO DE BUILD E PLUGINS
-         ============================================================ -->
+         ================================================================ -->
     <build>
         <pluginManagement>
             <plugins>
 
-                <!-- =====================================================
-                     Spring Boot (empacotamento e reempacotamento)
-                     Apenas o módulo 'web' gera JAR executável.
-                     ===================================================== -->
+                <!-- Spring Boot (empacotamento e reempacotamento)
+                     Apenas o módulo Web gera o JAR executável -->
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
@@ -93,7 +94,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.2.5</version>
+                    <version>${surefire.version}</version>
                     <configuration>
                         <useModulePath>false</useModulePath>
                         <includes>
@@ -130,9 +131,9 @@
         </pluginManagement>
     </build>
 
-    <!-- ============================================================
+    <!-- ================================================================
          REPOSITÓRIOS MAVEN
-         ============================================================ -->
+         ================================================================ -->
     <repositories>
         <repository>
             <id>maven-central</id>
@@ -147,12 +148,12 @@
         </pluginRepository>
     </pluginRepositories>
 
-    <!-- ============================================================
+    <!-- ================================================================
          PERFIS DE BUILD
-         ============================================================ -->
+         ================================================================ -->
     <profiles>
 
-        <!-- Desenvolvimento (padrão local e Docker) -->
+        <!-- Desenvolvimento local e Docker -->
         <profile>
             <id>dev</id>
             <activation>
@@ -171,7 +172,7 @@
             </properties>
         </profile>
 
-        <!-- Varredura OWASP para pipeline -->
+        <!-- Varredura de segurança OWASP (pipeline) -->
         <profile>
             <id>security-scan</id>
             <build>
@@ -195,9 +196,9 @@
 
     </profiles>
 
-    <!-- ============================================================
+    <!-- ================================================================
          DISTRIBUIÇÃO (CI/CD – GitHub Packages)
-         ============================================================ -->
+         ================================================================ -->
     <distributionManagement>
         <repository>
             <id>borurio-releases</id>
