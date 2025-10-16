@@ -5,9 +5,9 @@
 # Stack: Java 17 | Spring Boot 3.3.x | MySQL 8.4 | Redis 7.2 | MinIO | Mailpit
 # =============================================================================
 # Objetivo:
-# Este ambiente local é destinado para desenvolvimento e testes funcionais.
-# Ele provê todos os serviços necessários (MySQL, Redis, MinIO, Mailpit)
-# e executa a aplicação principal "borurio-web-dev", que integra Core, App e Fiscal.
+# Ambiente de desenvolvimento e testes funcionais.
+# Inclui todos os serviços (MySQL, Redis, MinIO, Mailpit)
+# e executa a aplicação principal "borurio-web-dev".
 # =============================================================================
 
 version: "3.9"
@@ -30,7 +30,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
       TZ: America/Sao_Paulo
     ports:
-      - "3307:3306"  # Porta local ajustada para não conflitar com MySQL de produção
+      - "3307:3306" # Porta local ajustada para não conflitar com MySQL global
     volumes:
       - ./mysql/data-dev:/var/lib/mysql:rw
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -83,8 +83,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
       TZ: America/Sao_Paulo
     ports:
-      - "9000:9000"  # API S3
-      - "9001:9001"  # Console Web
+      - "9000:9000" # API S3
+      - "9001:9001" # Console Web
     volumes:
       - ./minio/data-dev:/data:rw
     networks:
@@ -106,8 +106,8 @@ services:
     container_name: borurio-mailpit-dev
     restart: unless-stopped
     ports:
-      - "1025:1025"  # Porta SMTP local
-      - "8025:8025"  # Painel Web (visualização de mensagens)
+      - "1025:1025" # Porta SMTP local
+      - "8025:8025" # Painel Web
     networks:
       - borurio-net-dev
     security_opt:
@@ -149,8 +149,13 @@ services:
       REDIS_HOST: borurio-redis-dev
       REDIS_PORT: 6379
       TZ: America/Sao_Paulo
+
+      # === Forçar ativação do Actuator ===
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,env,beans"
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
+      MANAGEMENT_SERVER_PORT: 8080
     ports:
-      - "8081:8080"  # Porta da aplicação (8081 externa -> 8080 interna)
+      - "8081:8080" # Porta da aplicação (externa 8081 -> interna 8080)
     networks:
       - borurio-net-dev
     volumes:
@@ -162,12 +167,14 @@ services:
       - no-new-privileges:true
     tty: true
     stdin_open: true
+
+    # === Healthcheck via Actuator ===
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health || exit 1"]
-      interval: 25s
-      timeout: 8s
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 45s
     # API principal do ERP Fiscal, responsável por expor endpoints REST,
     # processar NF-e, controlar o fluxo fiscal e integrar com a SEFAZ-SP (mock ou real).
 

@@ -17,9 +17,9 @@ spring:
   application:
     name: borurio-web
 
-  ######################################################################
+  ################################################################################################
   # BANCO DE DADOS – MySQL 8.4
-  ######################################################################
+  ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${DB_HOST:borurio-mysql-dev}:${DB_PORT:3306}/${DB_NAME:borurio_fiscal_dev}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
@@ -32,18 +32,18 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
 
-  ######################################################################
+  ################################################################################################
   # REDIS – Cache e Sessões
-  ######################################################################
+  ################################################################################################
   data:
     redis:
       host: ${REDIS_HOST:borurio-redis-dev}
       port: ${REDIS_PORT:6379}
       timeout: 2000
 
-  ######################################################################
-  # JACKSON – Serialização JSON
-  ######################################################################
+  ################################################################################################
+  # JACKSON – Serialização JSON (formatação padrão brasileira)
+  ################################################################################################
   jackson:
     serialization:
       indent_output: true
@@ -51,16 +51,27 @@ spring:
     time-zone: America/Sao_Paulo
     locale: pt_BR
 
-  ######################################################################
-  # SPRING CORE – Contexto e Inicialização
-  ######################################################################
+  ################################################################################################
+  # SPRING CORE – Configurações gerais do contexto
+  ################################################################################################
   main:
     allow-bean-definition-overriding: true
     banner-mode: console
 
-######################################################################
+  ################################################################################################
+  # SPRING MVC – Configurações adicionais (CORS e recursos estáticos)
+  ################################################################################################
+  web:
+    resources:
+      add-mappings: true
+    cors:
+      allowed-origins: "*"
+      allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
+      allowed-headers: "*"
+
+###################################################################################################
 # LOGGING – Auditoria e Rastreabilidade
-######################################################################
+###################################################################################################
 logging:
   level:
     root: INFO
@@ -72,25 +83,25 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
-######################################################################
+###################################################################################################
 # SEFAZ – Integração NF-e (Homologação SP)
-######################################################################
+###################################################################################################
 sefaz:
   ambiente: homologacao
   url-autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
   url-retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
 
-######################################################################
+###################################################################################################
 # FISCAL – Certificado Digital A1 (PFX)
-######################################################################
+###################################################################################################
 fiscal:
   cert:
     path: ${CERT_PATH:C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx}
     pass: ${CERT_PASS:1234}
 
-######################################################################
-# ACTUATOR – Monitoramento e Observabilidade
-######################################################################
+###################################################################################################
+# ACTUATOR – Monitoramento, Healthcheck e Observabilidade
+###################################################################################################
 management:
   server:
     port: 8080
@@ -98,7 +109,7 @@ management:
     web:
       base-path: /actuator
       exposure:
-        include: health,info
+        include: "health,info,metrics,env,beans"
   endpoint:
     health:
       show-details: always
@@ -107,3 +118,12 @@ management:
       enabled: true
     redis:
       enabled: true
+    ping:
+      enabled: true
+
+###################################################################################################
+# PERFIL ATIVO E METADADOS DO AMBIENTE
+###################################################################################################
+app:
+  profile: dev
+  description: "Ambiente de Desenvolvimento – Mock SEFAZ-SP ativo"

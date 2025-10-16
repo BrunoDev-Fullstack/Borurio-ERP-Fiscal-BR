@@ -68,7 +68,6 @@
             <version>1.0.0</version>
         </dependency>
 
-        <!-- Fiscal (NF-e / SEFAZ) -->
         <dependency>
             <groupId>br.com.borurio</groupId>
             <artifactId>borurio-fiscal</artifactId>
@@ -76,7 +75,7 @@
         </dependency>
 
         <!-- ===========================================================
-             SPRING BOOT CORE / WEB / ACTUATOR
+             SPRING BOOT CORE / WEB / ACTUATOR / VALIDATION
              =========================================================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -94,20 +93,13 @@
         </dependency>
 
         <!-- ===========================================================
-             LOGGING / MONITORAMENTO
-             =========================================================== -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-logging</artifactId>
-        </dependency>
-
-        <!-- ===========================================================
              PERSISTÊNCIA / MIGRAÇÃO / CACHE
              =========================================================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
             <exclusions>
+                <!-- Evita duplicação de Flyway -->
                 <exclusion>
                     <groupId>org.flywaydb</groupId>
                     <artifactId>flyway-core</artifactId>
@@ -140,7 +132,7 @@
         </dependency>
 
         <!-- ===========================================================
-             UTILITÁRIOS PADRÕES
+             UTILITÁRIOS PADRÕES (Java Nativo e Apache)
              =========================================================== -->
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -154,7 +146,7 @@
             <version>4.5.0-M2</version>
         </dependency>
 
-        <!-- Lombok (compilação) -->
+        <!-- Lombok (apenas compilação) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -163,7 +155,7 @@
         </dependency>
 
         <!-- ===========================================================
-             TESTES UNITÁRIOS E INTEGRAÇÃO
+             TESTES UNITÁRIOS E INTEGRAÇÃO (JUnit 5)
              =========================================================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -202,7 +194,7 @@
                 </configuration>
             </plugin>
 
-            <!-- JUnit 5 -->
+            <!-- JUnit 5 (Surefire) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -215,7 +207,7 @@
                 </configuration>
             </plugin>
 
-            <!-- Spring Boot Repackage -->
+            <!-- Spring Boot Maven Plugin -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
