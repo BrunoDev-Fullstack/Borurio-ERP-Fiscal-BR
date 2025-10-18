@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+==============================================================================
+LEIAUTE AJUSTADO: leiauteNFe_v4.00
+______________________________________________________________________________
+Propósito:
+  Corrigir a referência incorreta do xmldsig-core-schema (W3C) no schema
+  oficial da SEFAZ, substituindo o include por import para compatibilidade
+  com o parser Xerces (Java), evitando o erro de targetNamespace divergente
+  entre http://www.portalfiscal.inf.br/nfe e http://www.w3.org/2000/09/xmldsig#.
+
+Base de referência:
+  Leiaute oficial SEFAZ – PL_010b v1.30 (NT 2025.002)
+
+Escopo de uso:
+  Ambiente DEV, Homologação e Produção
+
+Projeto:
+  Borurio ERP Fiscal BR
+
+Autor:
+  Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+==============================================================================
+-->
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+           xmlns="http://www.portalfiscal.inf.br/nfe"
+           targetNamespace="http://www.portalfiscal.inf.br/nfe"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <!-- ===================================================================== -->
+    <!-- IMPORTAÇÃO DO SCHEMA DE ASSINATURA DIGITAL (W3C XMLDSig v1.01)       -->
+    <!-- Substitui o include original por import para permitir namespace      -->
+    <!-- distinto e corrigir conflito de targetNamespace.                     -->
+    <!-- ===================================================================== -->
+    <xs:import namespace="http://www.w3.org/2000/09/xmldsig#"
+               schemaLocation="xmldsig-core-schema_v1.01-ajustado.xsd"/>
+
+    <!-- ===================================================================== -->
+    <!-- INCLUSÃO DOS SCHEMAS OFICIAIS DA SEFAZ                              -->
+    <!-- Mantém compatibilidade com o leiaute original PL_010b v1.30.         -->
+    <!-- ===================================================================== -->
+    <xs:include schemaLocation="../oficial/leiauteTipos_v4.00.xsd"/>
+    <xs:include schemaLocation="../oficial/tiposBasico_v4.00.xsd"/>
+    <xs:include schemaLocation="../oficial/DFeTiposBasicos_v1.00.xsd"/>
+
+</xs:schema>

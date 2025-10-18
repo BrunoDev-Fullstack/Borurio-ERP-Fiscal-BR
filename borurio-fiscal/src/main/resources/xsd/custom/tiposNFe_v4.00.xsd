@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+==============================================================================
+SCHEMA: tiposNFe_v4.00.xsd
+______________________________________________________________________________
+Define os tipos principais da NF-e (TEnviNFe, TRetEnviNFe, TNFe, TProtNFe),
+necessários para a validação dos XMLs de envio e retorno da NF-e 4.00
+conforme NT 2025.002 / PL_010b v1.30.
+
+Projeto: Borurio ERP Fiscal BR
+Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+==============================================================================
+-->
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="http://www.portalfiscal.inf.br/nfe"
+           targetNamespace="http://www.portalfiscal.inf.br/nfe"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <!-- =============================================================
+         Tipo principal: TEnviNFe (envio do lote)
+         ============================================================= -->
+    <xs:complexType name="TEnviNFe">
+        <xs:sequence>
+            <xs:element name="idLote" type="xs:string"/>
+            <xs:element name="indSinc" type="xs:string" minOccurs="0"/>
+            <xs:element name="NFe" type="TNFe" maxOccurs="50"/>
+        </xs:sequence>
+        <xs:attribute name="versao" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- =============================================================
+         Tipo principal: TRetEnviNFe (retorno do lote)
+         ============================================================= -->
+    <xs:complexType name="TRetEnviNFe">
+        <xs:sequence>
+            <xs:element name="tpAmb" type="xs:string"/>
+            <xs:element name="verAplic" type="xs:string"/>
+            <xs:element name="cStat" type="xs:string"/>
+            <xs:element name="xMotivo" type="xs:string"/>
+            <xs:element name="infRec" minOccurs="0">
+                <xs:complexType>
+                    <xs:sequence>
+                        <xs:element name="nRec" type="xs:string"/>
+                        <xs:element name="tMed" type="xs:string" minOccurs="0"/>
+                    </xs:sequence>
+                </xs:complexType>
+            </xs:element>
+        </xs:sequence>
+        <xs:attribute name="versao" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- =============================================================
+         Tipo auxiliar: TNFe (nota individual)
+         ============================================================= -->
+    <xs:complexType name="TNFe">
+        <xs:sequence>
+            <xs:element name="infNFe" type="xs:anyType"/>
+            <xs:element name="infNFeSupl" type="xs:anyType" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="xmlns" type="xs:anyURI" use="optional"/>
+    </xs:complexType>
+
+    <!-- =============================================================
+         Tipo auxiliar: TProtNFe (protocolo de autorização)
+         ============================================================= -->
+    <xs:complexType name="TProtNFe">
+        <xs:sequence>
+            <xs:element name="infProt" type="xs:anyType"/>
+            <xs:element name="Signature" type="xs:anyType" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="versao" type="xs:string" use="required"/>
+    </xs:complexType>
+
+</xs:schema>

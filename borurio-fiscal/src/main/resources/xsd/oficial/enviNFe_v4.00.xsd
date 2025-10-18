@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =====================================================================
+     SCHEMA: enviNFe_v4.00.xsd
+     _________________________________________________________________________
+     Finalidade:
+       Define o elemento raiz <enviNFe> e o tipo TEnviNFe para validação
+       de pedidos de autorização da NF-e 4.00, conforme PL_010b v1.30.
+     _________________________________________________________________________
+     Projeto: Borurio ERP Fiscal BR
+     Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+     ===================================================================== -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="http://www.portalfiscal.inf.br/nfe"
+           targetNamespace="http://www.portalfiscal.inf.br/nfe"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <!-- Inclui o leiaute principal da NF-e -->
+    <xs:include schemaLocation="leiauteNFe_v4.00.xsd"/>
+
+    <!-- Elemento raiz de envio da NF-e -->
+    <xs:element name="enviNFe" type="TEnviNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Pedido de Concessão de Autorização da NF-e (versão 4.00)
+                conforme NT 2025.002 / PL_010b v1.30.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+</xs:schema>

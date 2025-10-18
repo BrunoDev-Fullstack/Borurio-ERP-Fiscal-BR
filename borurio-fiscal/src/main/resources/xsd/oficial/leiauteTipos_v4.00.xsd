@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+==============================================================================
+SCHEMA: leiauteTipos_v4.00.xsd
+______________________________________________________________________________
+Propósito:
+  Definir os tipos estruturais complementares da NF-e 4.00 (TNFe e TProtNFe),
+  utilizados em TEnviNFe e TRetEnviNFe, garantindo a validação local completa.
+
+Compatibilidade:
+  NT 2025.002 / PL_010b v1.30
+  Ambiente: DEV / Homologação / Produção
+  Projeto: Borurio ERP Fiscal BR
+  Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+==============================================================================
+-->
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="http://www.portalfiscal.inf.br/nfe"
+           targetNamespace="http://www.portalfiscal.inf.br/nfe"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <!-- Tipo principal da Nota Fiscal Eletrônica -->
+    <xs:complexType name="TNFe">
+        <xs:sequence>
+            <xs:element name="infNFe" type="TInfNFe"/>
+            <xs:element name="infNFeSupl" type="TInfNFeSupl" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="xmlns" type="xs:anyURI" use="optional"/>
+    </xs:complexType>
+
+    <!-- Estrutura simplificada de infNFe -->
+    <xs:complexType name="TInfNFe">
+        <xs:sequence>
+            <xs:element name="ide" type="xs:anyType"/>
+            <xs:element name="emit" type="xs:anyType"/>
+            <xs:element name="dest" type="xs:anyType" minOccurs="0"/>
+            <xs:element name="det" type="xs:anyType" maxOccurs="unbounded"/>
+            <xs:element name="total" type="xs:anyType"/>
+            <xs:element name="transp" type="xs:anyType"/>
+            <xs:element name="pag" type="xs:anyType"/>
+            <xs:element name="infAdic" type="xs:anyType" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="Id" type="xs:string" use="required"/>
+        <xs:attribute name="versao" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- Estrutura suplementar da NF-e (QRCode, URL) -->
+    <xs:complexType name="TInfNFeSupl">
+        <xs:sequence>
+            <xs:element name="qrCode" type="xs:string"/>
+            <xs:element name="urlChave" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- Tipo do Protocolo de Autorização da NF-e -->
+    <xs:complexType name="TProtNFe">
+        <xs:sequence>
+            <xs:element name="infProt" type="TInfProt"/>
+        </xs:sequence>
+        <xs:attribute name="versao" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- Estrutura simplificada de infProt -->
+    <xs:complexType name="TInfProt">
+        <xs:sequence>
+            <xs:element name="tpAmb" type="xs:string"/>
+            <xs:element name="verAplic" type="xs:string"/>
+            <xs:element name="chNFe" type="xs:string"/>
+            <xs:element name="dhRecbto" type="xs:dateTime"/>
+            <xs:element name="nProt" type="xs:string"/>
+            <xs:element name="digVal" type="xs:string" minOccurs="0"/>
+            <xs:element name="cStat" type="xs:string"/>
+            <xs:element name="xMotivo" type="xs:string"/>
+        </xs:sequence>
+        <xs:attribute name="Id" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+</xs:schema>

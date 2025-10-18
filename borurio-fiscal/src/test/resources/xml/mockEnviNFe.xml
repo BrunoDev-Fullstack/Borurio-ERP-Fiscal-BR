@@ -1,15 +1,23 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <enviNFe xmlns="http://www.portalfiscal.inf.br/nfe"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe ../../../main/resources/xsd/enviNFe_v4.00.xsd"
+         xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe xsd/custom/consolidado/nfe_v4.00_consolidado.xsd"
          versao="4.00">
 
-    <!-- ================================================================
-         MOCK NF-e 4.00 – Envio de Nota Fiscal Eletrônica
-         Ambiente: Homologação (tpAmb=2)
-         Padrão: PL009 / NT 2021.004 / MOC 7.0
-         Sistema: Borurio ERP Fiscal BR
-         ================================================================ -->
+    <!--
+    ==============================================================================
+    MOCK NF-e 4.00 – Envio de Nota Fiscal Eletrônica
+    ______________________________________________________________________________
+    Padrão técnico: NT 2025.002 / PL_010b v1.30
+    Ambiente: Homologação (tpAmb=2)
+    Projeto: Borurio ERP Fiscal BR
+    Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+    Descrição:
+      Este XML simula o envio de uma NF-e válida para testes de conformidade com
+      o schema consolidado nacionalizado (nfe_v4.00_consolidado.xsd), ajustado
+      para compatibilidade com o parser Xerces (Java) e schema digital W3C.
+    ==============================================================================
+    -->
 
     <idLote>12345</idLote>
     <indSinc>1</indSinc>
@@ -17,7 +25,9 @@
     <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
         <infNFe Id="NFe35251012345678000123550010000000011500000015" versao="4.00">
 
-            <!-- Cabeçalho -->
+            <!-- ============================================================= -->
+            <!-- DADOS DA NOTA FISCAL                                         -->
+            <!-- ============================================================= -->
             <ide>
                 <cUF>35</cUF>
                 <cNF>12345678</cNF>
@@ -40,7 +50,9 @@
                 <verProc>Borurio ERP 1.0.0</verProc>
             </ide>
 
-            <!-- Emitente -->
+            <!-- ============================================================= -->
+            <!-- EMITENTE                                                     -->
+            <!-- ============================================================= -->
             <emit>
                 <CNPJ>12345678000123</CNPJ>
                 <xNome>EMPRESA DE TESTE LTDA</xNome>
@@ -49,7 +61,7 @@
                     <nro>100</nro>
                     <xBairro>Centro</xBairro>
                     <cMun>3550308</cMun>
-                    <xMun>São Paulo</xMun>
+                    <xMun>SAO PAULO</xMun>
                     <UF>SP</UF>
                     <CEP>01000000</CEP>
                     <cPais>1058</cPais>
@@ -60,7 +72,9 @@
                 <CRT>3</CRT>
             </emit>
 
-            <!-- Destinatário -->
+            <!-- ============================================================= -->
+            <!-- DESTINATÁRIO                                                  -->
+            <!-- ============================================================= -->
             <dest>
                 <CNPJ>98765432000100</CNPJ>
                 <xNome>CLIENTE DE TESTE LTDA</xNome>
@@ -69,7 +83,7 @@
                     <nro>500</nro>
                     <xBairro>Bela Vista</xBairro>
                     <cMun>3550308</cMun>
-                    <xMun>São Paulo</xMun>
+                    <xMun>SAO PAULO</xMun>
                     <UF>SP</UF>
                     <CEP>01311000</CEP>
                     <cPais>1058</cPais>
@@ -79,7 +93,9 @@
                 <indIEDest>1</indIEDest>
             </dest>
 
-            <!-- Produto -->
+            <!-- ============================================================= -->
+            <!-- PRODUTOS / DETALHES                                          -->
+            <!-- ============================================================= -->
             <det nItem="1">
                 <prod>
                     <cProd>0001</cProd>
@@ -97,7 +113,6 @@
                     <vUnTrib>100.00</vUnTrib>
                     <indTot>1</indTot>
                 </prod>
-
                 <imposto>
                     <ICMS>
                         <ICMS00>
@@ -128,7 +143,9 @@
                 </imposto>
             </det>
 
-            <!-- Totais -->
+            <!-- ============================================================= -->
+            <!-- TOTAIS                                                       -->
+            <!-- ============================================================= -->
             <total>
                 <ICMSTot>
                     <vBC>100.00</vBC>
@@ -157,12 +174,16 @@
                 </ICMSTot>
             </total>
 
-            <!-- Transporte -->
+            <!-- ============================================================= -->
+            <!-- TRANSPORTE                                                   -->
+            <!-- ============================================================= -->
             <transp>
                 <modFrete>9</modFrete>
             </transp>
 
-            <!-- Pagamento -->
+            <!-- ============================================================= -->
+            <!-- PAGAMENTO                                                    -->
+            <!-- ============================================================= -->
             <pag>
                 <detPag>
                     <indPag>0</indPag>
@@ -171,17 +192,28 @@
                 </detPag>
             </pag>
 
-            <!-- Informações Adicionais -->
+            <!-- ============================================================= -->
+            <!-- INFORMAÇÕES ADICIONAIS                                       -->
+            <!-- ============================================================= -->
             <infAdic>
                 <infCpl>NF-e gerada automaticamente para ambiente de testes (Borurio ERP).</infCpl>
             </infAdic>
 
         </infNFe>
 
-        <!-- Bloco Suplementar -->
+        <!-- ============================================================= -->
+        <!-- BLOCO SUPLEMENTAR (QRCode)                                   -->
+        <!-- ============================================================= -->
         <infNFeSupl>
-            <qrCode><![CDATA[HTTP://www.nfe.fazenda.gov.br/qrcode?chNFe=35251012345678000123550010000000011500000015&nVersao=100&tpAmb=2&cDest=98765432000100&dhEmi=ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF12&vNF=118.00&vICMS=18.00&digVal=1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF12345678&cIdToken=000001&cHashQRCode=ABCDEF1234567890ABCDEF1234567890ABCDEF1234]]></qrCode>
-            <urlChave>HTTP://www.nfe.fazenda.gov.br/portal/consulta.aspx</urlChave>
+            <qrCode><![CDATA[
+https://www.nfe.fazenda.gov.br/qrcode?chNFe=35251012345678000123550010000000011500000015
+&nVersao=100&tpAmb=2&cDest=98765432000100
+&dhEmi=ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEFAABB
+&vNF=118.00&vICMS=18.00
+&digVal=1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCD12
+&cIdToken=000001&cHashQRCode=ABCDEF1234567890ABCDEF1234567890ABCDEF1234
+            ]]></qrCode>
+            <urlChave>https://www.nfe.fazenda.gov.br/portal/consulta.aspx</urlChave>
         </infNFeSupl>
 
     </NFe>

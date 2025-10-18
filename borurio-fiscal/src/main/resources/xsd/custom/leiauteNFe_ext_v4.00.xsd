@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+==============================================================================
+EXTENSÃO LOCAL: leiauteNFe_ext_v4.00.xsd
+______________________________________________________________________________
+Propósito:
+  Estender o leiaute oficial da NF-e 4.00 para incluir os tipos nacionais
+  (TEnviNFe, TNFe, TProtNFe), garantindo compatibilidade com o parser Xerces
+  e evitando includes diretos de schemas oficiais com targetNamespace distinto.
+
+Motivo:
+  O leiaute oficial SEFAZ (leiauteNFe_v4.00.xsd) referencia o xmldsig-core-schema
+  via include, o que viola o namespace W3C. Esta extensão usa o leiaute ajustado.
+
+Padrão técnico: NT 2025.002 / PL_010b v1.30
+Ambiente: DEV / Homologação / Produção
+Projeto: Borurio ERP Fiscal BR
+Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+==============================================================================
+-->
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+           xmlns="http://www.portalfiscal.inf.br/nfe"
+           targetNamespace="http://www.portalfiscal.inf.br/nfe"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <!-- =============================================================
+         INCLUDES – Tipos e leiaute ajustado (customizado)
+         ============================================================= -->
+    <xs:include schemaLocation="./tiposNFe_v4.00.xsd"/>
+    <xs:include schemaLocation="./leiauteNFe_v4.00-ajustado.xsd"/>
+
+</xs:schema>

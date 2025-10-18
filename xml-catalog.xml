@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
+
+    <!-- ===============================================================
+         Catálogo XML do Projeto Borurio ERP Fiscal BR
+         -
+         Finalidade:
+           - Centralizar o mapeamento dos schemas SEFAZ NF-e 4.00
+           - Garantir validação consistente entre IDE, Maven e CI/CD
+           - Compatível com NT 2025.002 e PL_010b v1.30
+           - Suporta includes/imports internos dos XSDs oficiais
+         -
+         Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+         Módulo: borurio-fiscal
+         =============================================================== -->
+
+    <!-- ===============================================================
+         Namespace principal da SEFAZ (NF-e 4.00)
+         =============================================================== -->
+    <system systemId="http://www.portalfiscal.inf.br/nfe"
+            uri="borurio-fiscal/src/main/resources/xsd/nfe_v4.00.xsd"/>
+
+    <!-- ===============================================================
+         Schemas auxiliares (import/include) da NF-e 4.00
+         =============================================================== -->
+    <system systemId="leiauteNFe_v4.00.xsd"
+            uri="borurio-fiscal/src/main/resources/xsd/leiauteNFe_v4.00.xsd"/>
+
+    <system systemId="tiposBasico_v4.00.xsd"
+            uri="borurio-fiscal/src/main/resources/xsd/tiposBasico_v4.00.xsd"/>
+
+    <system systemId="xmldsig-core-schema_v1.01.xsd"
+            uri="borurio-fiscal/src/main/resources/xsd/xmldsig-core-schema_v1.01.xsd"/>
+
+    <system systemId="DFeTiposBasicos_v1.00.xsd"
+            uri="borurio-fiscal/src/main/resources/xsd/DFeTiposBasicos_v1.00.xsd"/>
+
+</catalog>

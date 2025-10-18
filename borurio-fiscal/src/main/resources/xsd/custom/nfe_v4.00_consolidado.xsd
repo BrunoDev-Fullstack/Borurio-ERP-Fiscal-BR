@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+==============================================================================
+SCHEMA CONSOLIDADO: nfe_v4.00_consolidado.xsd
+______________________________________________________________________________
+Propósito:
+  Consolidar todos os schemas necessários para validação das mensagens XML
+  da Nota Fiscal Eletrônica (NF-e) versão 4.00, garantindo compatibilidade
+  total com o parser Xerces (Java) e evitando conflitos de targetNamespace
+  entre os schemas da SEFAZ e o schema W3C XML Digital Signature (xmldsig).
+
+Base técnica:
+  - Nota Técnica 2025.002
+  - Pacote Leiaute PL_010b v1.30
+
+Escopo:
+  Ambiente DEV / Homologação / Produção
+
+Projeto:
+  Borurio ERP Fiscal BR
+
+Autor:
+  Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+==============================================================================
+-->
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+           xmlns="http://www.portalfiscal.inf.br/nfe"
+           targetNamespace="http://www.portalfiscal.inf.br/nfe"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <!-- ============================================================= -->
+    <!-- IMPORTAÇÃO: Schema de Assinatura Digital (W3C XMLDSig v1.01)  -->
+    <!-- ============================================================= -->
+    <xs:import namespace="http://www.w3.org/2000/09/xmldsig#"
+               schemaLocation="xmldsig-core-schema_v1.01-ajustado.xsd"/>
+
+    <!-- ============================================================= -->
+    <!-- INCLUSÃO: Schemas nacionais customizados                      -->
+    <!-- ============================================================= -->
+    <xs:include schemaLocation="tiposNFe_v4.00.xsd"/>
+    <xs:include schemaLocation="leiauteNFe_v4.00-ajustado.xsd"/>
+    <xs:include schemaLocation="leiauteNFe_ext_v4.00.xsd"/>
+
+    <!-- ============================================================= -->
+    <!-- ELEMENTOS RAIZ: Mensagens principais da NF-e 4.00             -->
+    <!-- ============================================================= -->
+
+    <!-- Pedido de Autorização da NF-e -->
+    <xs:element name="enviNFe" type="TEnviNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Schema consolidado da NF-e (versão 4.00).
+                Define o elemento enviNFe utilizado para o envio
+                do Pedido de Concessão de Autorização de Uso.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+    <!-- Retorno do Pedido de Autorização da NF-e -->
+    <xs:element name="retEnviNFe" type="TRetEnviNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Schema consolidado da NF-e (versão 4.00).
+                Define o elemento retEnviNFe utilizado para
+                o retorno da Autorização de Uso, contendo protocolo
+                e status de processamento.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+    <!-- Processo completo da NF-e -->
+    <xs:element name="procNFe" type="TProcNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Estrutura combinada do XML da NF-e com o protocolo de
+                autorização, para arquivamento e controle fiscal.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+</xs:schema>

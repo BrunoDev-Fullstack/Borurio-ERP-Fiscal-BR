@@ -1,34 +1,26 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe"
             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-            xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe ../../../main/resources/xsd/retEnviNFe_v4.00.xsd"
+            xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe leiauteNFe_v4.00.xsd"
             versao="4.00">
 
-    <!-- ================================================================
-         RETORNO DE ENVIO DE NF-e – MOCK PARA TESTES SEFAZ (Homologação)
-         Conforme Manual de Orientação do Contribuinte – MOC 7.0 / PL009_v4.00
-         Sistema: Borurio ERP Fiscal BR
-         ================================================================ -->
+    <!--
+        MOCK NF-e 4.00 – Retorno do Envio de Nota Fiscal Eletrônica
+        Ambiente: Homologação (tpAmb=2)
+        Padrão: NT 2025.002 / PL_010b v1.30
+        Sistema: Borurio ERP Fiscal BR
+        Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
+        Descrição:
+        Simula a resposta da SEFAZ-SP ao envio de uma NF-e, com cStat=100 (Autorizado o uso).
+    -->
 
-    <!-- Ambiente de processamento -->
-    <tpAmb>2</tpAmb> <!-- 1 = Produção / 2 = Homologação -->
-
-    <!-- Identificador da versão do aplicativo SEFAZ -->
+    <tpAmb>2</tpAmb>
     <verAplic>Borurio-ERP-DEV</verAplic>
-
-    <!-- Código do status -->
-    <cStat>100</cStat> <!-- 100 = Autorizado o uso da NF-e -->
-
-    <!-- Mensagem descritiva do status -->
+    <cStat>100</cStat>
     <xMotivo>Autorizado o uso da NF-e</xMotivo>
-
-    <!-- Código da UF processadora -->
-    <cUF>35</cUF> <!-- 35 = São Paulo -->
-
-    <!-- Data e hora do processamento -->
+    <cUF>35</cUF>
     <dhRecbto>2025-10-15T10:00:00-03:00</dhRecbto>
 
-    <!-- Protocolo de autorização -->
     <protNFe versao="4.00">
         <infProt Id="ID135250000000001">
             <tpAmb>2</tpAmb>
@@ -37,7 +29,7 @@
             <dhRecbto>2025-10-15T10:00:00-03:00</dhRecbto>
             <nProt>135250000000001</nProt>
 
-            <!-- Valor hash do XML assinado (base64 com 28 caracteres válido) -->
+            <!-- Valor hash do XML assinado (Base64, 44 bytes = 28 chars visíveis) -->
             <digVal>YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=</digVal>
 
             <cStat>100</cStat>

@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+==============================================================================
+AJUSTE LOCAL: xmldsig-core-schema_v1.01-ajustado.xsd
+______________________________________________________________________________
+Propósito:
+  Corrigir conflitos de targetNamespace entre os schemas da SEFAZ e o schema
+  de assinatura digital do W3C, mantendo a compatibilidade com o parser Xerces
+  e a estrutura completa de tipos do XML Signature 1.01 (W3C).
+
+Origem: W3C – XML Signature Syntax and Processing (Second Edition)
+URL: https://www.w3.org/TR/xmldsig-core/
+
+Ambiente: DEV / Homologação / Produção
+Projeto: Borurio ERP Fiscal BR
+Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+==============================================================================
+-->
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://www.w3.org/2000/09/xmldsig#"
+           xmlns="http://www.w3.org/2000/09/xmldsig#"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <!-- =============================================================
+         ELEMENTOS PRINCIPAIS
+         ============================================================= -->
+    <xs:element name="Signature" type="SignatureType"/>
+    <xs:complexType name="SignatureType">
+        <xs:sequence>
+            <xs:element name="SignedInfo" type="SignedInfoType"/>
+            <xs:element name="SignatureValue" type="SignatureValueType"/>
+            <xs:element name="KeyInfo" type="KeyInfoType" minOccurs="0"/>
+            <xs:element name="Object" type="ObjectType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="Id" type="xs:ID" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="SignatureValueType">
+        <xs:simpleContent>
+            <xs:extension base="xs:base64Binary">
+                <xs:attribute name="Id" type="xs:ID" use="optional"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="SignedInfoType">
+        <xs:sequence>
+            <xs:element name="CanonicalizationMethod" type="CanonicalizationMethodType"/>
+            <xs:element name="SignatureMethod" type="SignatureMethodType"/>
+            <xs:element name="Reference" type="ReferenceType" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="Id" type="xs:ID" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="CanonicalizationMethodType" mixed="true">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:any namespace="##any" processContents="lax"/>
+        </xs:sequence>
+        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="SignatureMethodType" mixed="true">
+        <xs:sequence>
+            <xs:element name="HMACOutputLength" type="xs:integer" minOccurs="0"/>
+            <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="ReferenceType">
+        <xs:sequence>
+            <xs:element name="Transforms" type="TransformsType" minOccurs="0"/>
+            <xs:element name="DigestMethod" type="DigestMethodType"/>
+            <xs:element name="DigestValue" type="xs:base64Binary"/>
+        </xs:sequence>
+        <xs:attribute name="Id" type="xs:ID" use="optional"/>
+        <xs:attribute name="URI" type="xs:anyURI" use="optional"/>
+        <xs:attribute name="Type" type="xs:anyURI" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="TransformsType">
+        <xs:sequence>
+            <xs:element name="Transform" type="TransformType" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="TransformType" mixed="true">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:any namespace="##any" processContents="lax"/>
+        </xs:sequence>
+        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="DigestMethodType" mixed="true">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:any namespace="##any" processContents="lax"/>
+        </xs:sequence>
+        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="KeyInfoType" mixed="true">
+        <xs:choice maxOccurs="unbounded">
+            <xs:element name="KeyName" type="xs:string" minOccurs="0"/>
+            <xs:element name="KeyValue" type="KeyValueType" minOccurs="0"/>
+            <xs:element name="RetrievalMethod" type="RetrievalMethodType" minOccurs="0"/>
+            <xs:element name="X509Data" type="X509DataType" minOccurs="0"/>
+            <xs:element name="PGPData" type="PGPDataType" minOccurs="0"/>
+            <xs:element name="SPKIData" type="SPKIDataType" minOccurs="0"/>
+            <xs:element name="MgmtData" type="xs:string" minOccurs="0"/>
+            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
+        </xs:choice>
+        <xs:attribute name="Id" type="xs:ID" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="ObjectType" mixed="true">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:any namespace="##any" processContents="lax"/>
+        </xs:sequence>
+        <xs:attribute name="Id" type="xs:ID" use="optional"/>
+        <xs:attribute name="MimeType" type="xs:string" use="optional"/>
+        <xs:attribute name="Encoding" type="xs:anyURI" use="optional"/>
+    </xs:complexType>
+
+    <!-- =============================================================
+         DEFINIÇÕES COMPLEMENTARES DE CHAVES E CERTIFICADOS
+         ============================================================= -->
+    <xs:complexType name="KeyValueType" mixed="true">
+        <xs:choice>
+            <xs:element name="DSAKeyValue" type="DSAKeyValueType" minOccurs="0"/>
+            <xs:element name="RSAKeyValue" type="RSAKeyValueType" minOccurs="0"/>
+            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:complexType name="DSAKeyValueType">
+        <xs:sequence>
+            <xs:element name="P" type="xs:base64Binary" minOccurs="0"/>
+            <xs:element name="Q" type="xs:base64Binary" minOccurs="0"/>
+            <xs:element name="G" type="xs:base64Binary" minOccurs="0"/>
+            <xs:element name="Y" type="xs:base64Binary"/>
+            <xs:element name="J" type="xs:base64Binary" minOccurs="0"/>
+            <xs:element name="Seed" type="xs:base64Binary" minOccurs="0"/>
+            <xs:element name="PgenCounter" type="xs:base64Binary" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="RSAKeyValueType">
+        <xs:sequence>
+            <xs:element name="Modulus" type="xs:base64Binary"/>
+            <xs:element name="Exponent" type="xs:base64Binary"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="RetrievalMethodType">
+        <xs:sequence>
+            <xs:element name="Transforms" type="TransformsType" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="URI" type="xs:anyURI" use="optional"/>
+        <xs:attribute name="Type" type="xs:anyURI" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="X509DataType">
+        <xs:choice maxOccurs="unbounded">
+            <xs:element name="X509IssuerSerial" type="X509IssuerSerialType" minOccurs="0"/>
+            <xs:element name="X509SKI" type="xs:base64Binary" minOccurs="0"/>
+            <xs:element name="X509SubjectName" type="xs:string" minOccurs="0"/>
+            <xs:element name="X509Certificate" type="xs:base64Binary" minOccurs="0"/>
+            <xs:element name="X509CRL" type="xs:base64Binary" minOccurs="0"/>
+            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:complexType name="X509IssuerSerialType">
+        <xs:sequence>
+            <xs:element name="X509IssuerName" type="xs:string"/>
+            <xs:element name="X509SerialNumber" type="xs:integer"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="PGPDataType">
+        <xs:choice>
+            <xs:sequence>
+                <xs:element name="PGPKeyID" type="xs:base64Binary"/>
+                <xs:element name="PGPKeyPacket" type="xs:base64Binary" minOccurs="0"/>
+                <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
+            </xs:sequence>
+            <xs:sequence>
+                <xs:element name="PGPKeyPacket" type="xs:base64Binary"/>
+                <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
+            </xs:sequence>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:complexType name="SPKIDataType">
+        <xs:sequence maxOccurs="unbounded">
+            <xs:element name="SPKISexp" type="xs:base64Binary"/>
+            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+</xs:schema>

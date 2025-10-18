@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+==============================================================================
+ARQUIVO: procNFe_v4.00.xsd
+______________________________________________________________________________
+Propósito:
+  Definir o tipo complexo TProcNFe, que representa o processo completo
+  da Nota Fiscal Eletrônica (NF-e) — combinando o XML da NFe e o protocolo
+  de autorização retornado pela SEFAZ.
+
+Base técnica:
+  - Nota Técnica 2025.002
+  - Pacote Leiaute PL_010b v1.30
+
+Escopo:
+  Ambientes: DEV / Homologação / Produção
+
+Projeto:
+  Borurio ERP Fiscal BR
+
+Autor:
+  Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+==============================================================================
+-->
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="http://www.portalfiscal.inf.br/nfe"
+           targetNamespace="http://www.portalfiscal.inf.br/nfe"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+    <!-- ============================================================= -->
+    <!-- INCLUSÕES DOS TIPOS E ESTRUTURAS NECESSÁRIAS                  -->
+    <!-- ============================================================= -->
+    <xs:include schemaLocation="tiposNFe_v4.00.xsd"/>
+    <xs:include schemaLocation="leiauteNFe_v4.00-ajustado.xsd"/>
+    <xs:include schemaLocation="leiauteNFe_ext_v4.00.xsd"/>
+
+    <!-- ============================================================= -->
+    <!-- DEFINIÇÃO DO TIPO COMPLEXO: TProcNFe                          -->
+    <!-- ============================================================= -->
+    <xs:complexType name="TProcNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Tipo que define o processo completo da NF-e, formado pela NFe
+                e o respectivo protocolo de autorização retornado pela SEFAZ.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:sequence>
+            <xs:element name="NFe" type="TNFe"/>
+            <xs:element name="protNFe" type="TProtNFe" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="versao" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- ============================================================= -->
+    <!-- ELEMENTO RAIZ: procNFe                                        -->
+    <!-- ============================================================= -->
+    <xs:element name="procNFe" type="TProcNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Elemento raiz que representa o processo completo da NF-e,
+                contendo o XML da nota e o protocolo de autorização.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+</xs:schema>

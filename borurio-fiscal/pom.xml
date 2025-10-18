@@ -7,7 +7,7 @@
          MÓDULO: Borurio Fiscal
          Função: Biblioteca Fiscal e Integração SEFAZ-SP (NF-e 4.00)
          Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway
-         Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+         Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
          =============================================================== -->
 
     <modelVersion>4.0.0</modelVersion>
@@ -72,20 +72,20 @@
             <version>${mysql.connector.version}</version>
         </dependency>
 
-        <!-- Redis -->
+        <!-- Redis (cache e filas fiscais) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
-        <!-- JAXB (Manipulação de XML Fiscal) -->
+        <!-- JAXB: manipulação segura de XMLs fiscais -->
         <dependency>
             <groupId>jakarta.xml.bind</groupId>
             <artifactId>jakarta.xml.bind-api</artifactId>
             <version>4.0.2</version>
         </dependency>
 
-        <!-- Apache Commons -->
+        <!-- Apache Commons (utilitários padrões nacionais) -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -98,7 +98,7 @@
             <version>4.5.0-M2</version>
         </dependency>
 
-        <!-- Lombok (somente em tempo de compilação) -->
+        <!-- Lombok: simplificação de código (compilação apenas) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -106,7 +106,7 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Flyway (Migrações SQL) -->
+        <!-- Flyway: controle de versão do banco de dados -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -120,8 +120,9 @@
         </dependency>
 
         <!-- ===========================================================
-             TESTES UNITÁRIOS / INTEGRAÇÃO
+             DEPENDÊNCIAS DE TESTE E QA
              =========================================================== -->
+        <!-- Testes de integração Spring Boot + JUnit 5 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -134,6 +135,7 @@
             </exclusions>
         </dependency>
 
+        <!-- JUnit 5 -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -141,6 +143,7 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Mockito: mock de serviços e componentes -->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
@@ -148,6 +151,7 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- MyBatis: suporte específico a testes de integração -->
         <dependency>
             <groupId>org.mybatis.spring.boot</groupId>
             <artifactId>mybatis-spring-boot-starter-test</artifactId>
@@ -155,6 +159,7 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- H2: banco em memória para execução de testes -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -169,6 +174,7 @@
     <build>
         <finalName>${project.artifactId}-${project.version}</finalName>
 
+        <!-- Inclusão explícita de recursos fiscais -->
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -181,6 +187,7 @@
             </resource>
         </resources>
 
+        <!-- Recursos de teste -->
         <testResources>
             <testResource>
                 <directory>src/test/resources</directory>
@@ -210,18 +217,17 @@
                 </configuration>
             </plugin>
 
-            <!-- Spring Boot (Desativado para não gerar fat JAR) -->
+            <!-- Spring Boot: desativado (gera biblioteca, não executável) -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring.boot.version}</version>
                 <configuration>
-                    <!-- Desativa reempacotamento (gera JAR de biblioteca) -->
                     <skip>true</skip>
                 </configuration>
             </plugin>
 
-            <!-- Flyway Migration -->
+            <!-- Flyway: controle de migrações -->
             <plugin>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-maven-plugin</artifactId>
@@ -244,7 +250,7 @@
                 </configuration>
             </plugin>
 
-            <!-- Jacoco (Cobertura de Testes) -->
+            <!-- Jacoco: geração de relatórios de cobertura -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -265,7 +271,7 @@
                 </executions>
             </plugin>
 
-            <!-- OWASP Dependency Check -->
+            <!-- OWASP Dependency Check: análise de vulnerabilidades -->
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>
