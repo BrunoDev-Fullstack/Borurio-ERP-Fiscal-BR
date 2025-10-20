@@ -1,4 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+==============================================================================
+SCHEMA CONSOLIDADO AJUSTADO — NF-e 4.00
+______________________________________________________________________________
+Propósito:
+  Centralizar o ponto de validação de XMLs da NF-e 4.00 no projeto Borurio ERP
+  Fiscal BR, corrigindo referências de namespace e removendo conflitos de
+  elementos globais duplicados.
+
+Base de referência:
+  NT 2025.002 / PL_010b v1.30 — SEFAZ Nacional
+
+Compatibilidade:
+  Java 17 | Spring Boot 3.3.x | Xerces XML Parser
+
+Autor:
+  Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+==============================================================================
+-->
+
 <xs:schema
         xmlns:xs="http://www.w3.org/2001/XMLSchema"
         xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
@@ -7,21 +27,28 @@
         elementFormDefault="qualified"
         attributeFormDefault="unqualified">
 
-    <!-- _________________________________________________________________
-         SCHEMA CONSOLIDADO NF-e 4.00 — BORURIO ERP FISCAL BR
-         
-         Padrão técnico: NT 2025.002 / PL_010b v1.30
-         Função: ponto de validação único para XMLs mock/homologação.
-         Inclui apenas o leiaute base da NF-e, evitando duplicações
-         globais de elementos (enviNFe, procNFe, retEnviNFe).
-         _________________________________________________________________ -->
+    <!-- ================================================================ -->
+    <!-- IMPORTAÇÃO DO LEIAUTE PRINCIPAL AJUSTADO                         -->
+    <!-- Inclui o leiaute da NF-e com correção do XMLDSig (W3C).          -->
+    <!-- ================================================================ -->
+    <xs:include schemaLocation="leiauteNFe_v4.00-ajustado.xsd"/>
 
-    <xs:include schemaLocation="../leiauteNFe_v4.00.xsd"/>
+    <!-- ================================================================ -->
+    <!-- INCLUSÃO DOS TIPOS DA NF-e (DECLARAÇÃO DE TNFe)                  -->
+    <!-- O IntelliJ e o parser Xerces requerem esta inclusão explícita    -->
+    <!-- para resolver o tipo TNFe corretamente.                         -->
+    <!-- ================================================================ -->
+    <xs:include schemaLocation="tiposNFe_v4.00.xsd"/>
 
-    <!-- Elemento raiz único (compatível com XML mock e real) -->
+    <!-- ================================================================ -->
+    <!-- ELEMENTO RAIZ ÚNICO — NF-e                                       -->
+    <!-- ================================================================ -->
     <xs:element name="NFe" type="TNFe">
         <xs:annotation>
-            <xs:documentation>Nota Fiscal Eletrônica — NF-e 4.00</xs:documentation>
+            <xs:documentation>
+                Nota Fiscal Eletrônica — NF-e 4.00
+                (Schema consolidado ajustado para validação mock/homologação)
+            </xs:documentation>
         </xs:annotation>
     </xs:element>
 

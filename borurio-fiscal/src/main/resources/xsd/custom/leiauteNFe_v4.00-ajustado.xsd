@@ -23,12 +23,13 @@ Autor:
 ==============================================================================
 -->
 
-<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
-           xmlns="http://www.portalfiscal.inf.br/nfe"
-           targetNamespace="http://www.portalfiscal.inf.br/nfe"
-           elementFormDefault="qualified"
-           attributeFormDefault="unqualified">
+<xs:schema
+        xmlns:xs="http://www.w3.org/2001/XMLSchema"
+        xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+        xmlns="http://www.portalfiscal.inf.br/nfe"
+        targetNamespace="http://www.portalfiscal.inf.br/nfe"
+        elementFormDefault="qualified"
+        attributeFormDefault="unqualified">
 
     <!-- ===================================================================== -->
     <!-- IMPORTAÇÃO DO SCHEMA DE ASSINATURA DIGITAL (W3C XMLDSig v1.01)       -->
@@ -47,3 +48,4 @@ Autor:
     <xs:include schemaLocation="../oficial/DFeTiposBasicos_v1.00.xsd"/>
 
 </xs:schema>
+

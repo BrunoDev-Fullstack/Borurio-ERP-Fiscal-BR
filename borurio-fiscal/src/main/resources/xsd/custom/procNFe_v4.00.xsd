@@ -5,12 +5,12 @@ ARQUIVO: procNFe_v4.00.xsd
 ______________________________________________________________________________
 Propósito:
   Definir o tipo complexo TProcNFe, que representa o processo completo
-  da Nota Fiscal Eletrônica (NF-e) — combinando o XML da NFe e o protocolo
-  de autorização retornado pela SEFAZ.
+  da Nota Fiscal Eletrônica (NF-e), unindo o XML da nota (NFe) e o
+  protocolo de autorização retornado pela SEFAZ.
 
 Base técnica:
   - Nota Técnica 2025.002
-  - Pacote Leiaute PL_010b v1.30
+  - Leiaute PL_010b v1.30 (SEFAZ Nacional)
 
 Escopo:
   Ambientes: DEV / Homologação / Produção
@@ -23,18 +23,18 @@ Autor:
 ==============================================================================
 -->
 
-<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           xmlns="http://www.portalfiscal.inf.br/nfe"
-           targetNamespace="http://www.portalfiscal.inf.br/nfe"
-           elementFormDefault="qualified"
-           attributeFormDefault="unqualified">
+<xs:schema
+        xmlns:xs="http://www.w3.org/2001/XMLSchema"
+        xmlns="http://www.portalfiscal.inf.br/nfe"
+        targetNamespace="http://www.portalfiscal.inf.br/nfe"
+        elementFormDefault="qualified"
+        attributeFormDefault="unqualified">
 
     <!-- ============================================================= -->
     <!-- INCLUSÕES DOS TIPOS E ESTRUTURAS NECESSÁRIAS                  -->
     <!-- ============================================================= -->
     <xs:include schemaLocation="tiposNFe_v4.00.xsd"/>
     <xs:include schemaLocation="leiauteNFe_v4.00-ajustado.xsd"/>
-    <xs:include schemaLocation="leiauteNFe_ext_v4.00.xsd"/>
 
     <!-- ============================================================= -->
     <!-- DEFINIÇÃO DO TIPO COMPLEXO: TProcNFe                          -->
@@ -60,7 +60,7 @@ Autor:
         <xs:annotation>
             <xs:documentation>
                 Elemento raiz que representa o processo completo da NF-e,
-                contendo o XML da nota e o protocolo de autorização.
+                contendo o XML da nota e o protocolo de autorização SEFAZ.
             </xs:documentation>
         </xs:annotation>
     </xs:element>
