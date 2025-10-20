@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema
+        xmlns:xs="http://www.w3.org/2001/XMLSchema"
+        xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+        xmlns="http://www.portalfiscal.inf.br/nfe"
+        targetNamespace="http://www.portalfiscal.inf.br/nfe"
+        elementFormDefault="qualified"
+        attributeFormDefault="unqualified">
+
+    <!-- _________________________________________________________________
+         SCHEMA CONSOLIDADO NF-e 4.00 — BORURIO ERP FISCAL BR
+         
+         Padrão técnico: NT 2025.002 / PL_010b v1.30
+         Função: ponto de validação único para XMLs mock/homologação.
+         Inclui apenas o leiaute base da NF-e, evitando duplicações
+         globais de elementos (enviNFe, procNFe, retEnviNFe).
+         _________________________________________________________________ -->
+
+    <xs:include schemaLocation="../leiauteNFe_v4.00.xsd"/>
+
+    <!-- Elemento raiz único (compatível com XML mock e real) -->
+    <xs:element name="NFe" type="TNFe">
+        <xs:annotation>
+            <xs:documentation>Nota Fiscal Eletrônica — NF-e 4.00</xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+</xs:schema>
