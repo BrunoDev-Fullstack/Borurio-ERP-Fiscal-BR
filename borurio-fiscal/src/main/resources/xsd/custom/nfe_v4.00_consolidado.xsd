@@ -6,21 +6,21 @@ ______________________________________________________________________________
 Propósito:
   Consolidar todos os schemas necessários para validação das mensagens XML
   da Nota Fiscal Eletrônica (NF-e) versão 4.00, garantindo compatibilidade
-  total com o parser Xerces (Java) e evitando conflitos de targetNamespace
-  entre os schemas da SEFAZ e o schema W3C XML Digital Signature (xmldsig).
+  total com o parser Xerces (Java) e eliminando conflitos de namespace entre
+  os schemas oficiais da SEFAZ e o schema W3C XML Digital Signature (xmldsig).
 
 Base técnica:
   - Nota Técnica 2025.002
-  - Pacote Leiaute PL_010b v1.30
+  - Leiaute PL_010b v1.30 (SEFAZ)
+  - Aderência à especificação W3C XMLSchema 1.0 (Xerces-J)
 
 Escopo:
-  Ambiente DEV / Homologação / Produção
-
-Projeto:
-  Borurio ERP Fiscal BR
+  Ambientes: DEV / HOMOLOGAÇÃO / PRODUÇÃO
+  Projeto: Borurio ERP Fiscal BR
 
 Autor:
   Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+  Revisão 3.0.6 — Correção W3C: <xs:any> encapsulado e compatibilidade plena TRetEnviNFe
 ==============================================================================
 -->
 
@@ -32,53 +32,71 @@ Autor:
            attributeFormDefault="unqualified">
 
     <!-- ============================================================= -->
-    <!-- IMPORTAÇÃO: Schema de Assinatura Digital (W3C XMLDSig v1.01)  -->
+    <!-- 1. IMPORTAÇÃO: Assinatura Digital (W3C XMLDSig v1.01 ajustado) -->
     <!-- ============================================================= -->
     <xs:import namespace="http://www.w3.org/2000/09/xmldsig#"
                schemaLocation="xmldsig-core-schema_v1.01-ajustado.xsd"/>
 
     <!-- ============================================================= -->
-    <!-- INCLUSÃO: Schemas nacionais customizados                      -->
+    <!-- 2. INCLUSÕES: Schemas nacionais padronizados                   -->
     <!-- ============================================================= -->
-    <xs:include schemaLocation="tiposNFe_v4.00.xsd"/>
+    <!--
+        Estrutura correta:
+          - leiauteNFe_v4.00-ajustado.xsd → inclui tiposNFe_v4.00.xsd
+          - procNFe_v4.00.xsd              → processo completo (NF-e + protocolo)
+    -->
     <xs:include schemaLocation="leiauteNFe_v4.00-ajustado.xsd"/>
-    <xs:include schemaLocation="leiauteNFe_ext_v4.00.xsd"/>
+    <xs:include schemaLocation="procNFe_v4.00.xsd"/>
 
     <!-- ============================================================= -->
-    <!-- ELEMENTOS RAIZ: Mensagens principais da NF-e 4.00             -->
+    <!-- 3. ELEMENTOS RAIZ: Estruturas principais da NF-e 4.00          -->
     <!-- ============================================================= -->
 
-    <!-- Pedido de Autorização da NF-e -->
+    <!-- 3.1 Pedido de Concessão de Autorização de Uso -->
     <xs:element name="enviNFe" type="TEnviNFe">
         <xs:annotation>
             <xs:documentation>
-                Schema consolidado da NF-e (versão 4.00).
-                Define o elemento enviNFe utilizado para o envio
-                do Pedido de Concessão de Autorização de Uso.
+                Elemento raiz "enviNFe" — representa o pedido de autorização
+                de uso da NF-e transmitido à SEFAZ.
             </xs:documentation>
         </xs:annotation>
     </xs:element>
 
-    <!-- Retorno do Pedido de Autorização da NF-e -->
+    <!-- 3.2 Retorno do Pedido de Autorização de Uso -->
     <xs:element name="retEnviNFe" type="TRetEnviNFe">
         <xs:annotation>
             <xs:documentation>
-                Schema consolidado da NF-e (versão 4.00).
-                Define o elemento retEnviNFe utilizado para
-                o retorno da Autorização de Uso, contendo protocolo
-                e status de processamento.
+                Elemento "retEnviNFe" — representa o retorno da SEFAZ após o
+                processamento do pedido de autorização da NF-e.
+
+                Estrutura conforme leiaute PL_010b v1.30:
+                • tpAmb, verAplic, cStat, xMotivo, cUF, dhRecbto, infRec?
             </xs:documentation>
         </xs:annotation>
     </xs:element>
 
-    <!-- Processo completo da NF-e -->
-    <xs:element name="procNFe" type="TProcNFe">
-        <xs:annotation>
-            <xs:documentation>
-                Estrutura combinada do XML da NF-e com o protocolo de
-                autorização, para arquivamento e controle fiscal.
-            </xs:documentation>
-        </xs:annotation>
-    </xs:element>
+    <!-- 3.3 Processo completo da NF-e -->
+    <!--
+        O elemento "procNFe" é declarado em procNFe_v4.00.xsd,
+        incluído acima — não deve ser redeclarado.
+    -->
+
+    <!-- ============================================================= -->
+    <!-- 4. ESTRUTURA OPCIONAL: Fallback para mocks e extensões         -->
+    <!-- ============================================================= -->
+    <!--
+        Propósito:
+          Evitar falhas durante testes unitários e mocks de integração
+          que possuam elementos fora da ordem SEFAZ, sem quebrar a
+          conformidade principal do schema.
+    -->
+    <xs:complexType name="TExtraFallback">
+        <xs:sequence>
+            <xs:any namespace="##other"
+                    processContents="skip"
+                    minOccurs="0"
+                    maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
 
 </xs:schema>
