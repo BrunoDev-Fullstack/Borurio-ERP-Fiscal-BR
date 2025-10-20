@@ -3,12 +3,29 @@
 ==============================================================================
 SCHEMA: tiposNFe_v4.00.xsd
 ______________________________________________________________________________
-Define os tipos principais da NF-e (TEnviNFe, TRetEnviNFe, TNFe, TProtNFe),
-necessários para a validação dos XMLs de envio e retorno da NF-e 4.00
-conforme NT 2025.002 / PL_010b v1.30.
+Propósito:
+  Definir os tipos principais e auxiliares da Nota Fiscal Eletrônica (NF-e)
+  versão 4.00, incluindo estruturas de envio (TEnviNFe), retorno (TRetEnviNFe),
+  nota individual (TNFe) e protocolo de autorização (TProtNFe).
 
-Projeto: Borurio ERP Fiscal BR
-Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+Base técnica:
+  - NT 2025.002
+  - Leiaute PL_010b v1.30 (SEFAZ)
+  - Especificação W3C XML Schema 1.0
+
+Ajustes aplicados:
+  - Substituição de "xs:any" por "xs:anyType" (tipo válido W3C).
+  - Remoção de atributos default redundantes e inválidos (xmlns).
+  - Compatibilidade validada com parser Xerces (Java 17) e IntelliJ.
+  - Estrutura ajustada para integração com schema consolidado NF-e.
+
+Escopo:
+  Ambientes: DEV / HOMOLOGAÇÃO / PRODUÇÃO
+  Projeto: Borurio ERP Fiscal BR
+
+Autor:
+  Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+  Revisão: 3.2.0 — Remoção do atributo 'xmlns' e validação final com Xerces
 ==============================================================================
 -->
 
@@ -19,9 +36,16 @@ Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
            attributeFormDefault="unqualified">
 
     <!-- =============================================================
-         Tipo principal: TEnviNFe (envio do lote)
+         1. Tipo principal: TEnviNFe (envio do lote)
          ============================================================= -->
     <xs:complexType name="TEnviNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Estrutura principal de envio do lote de NF-e (TEnviNFe).
+                Contém o identificador do lote, o indicador de envio síncrono
+                e até 50 documentos NF-e individuais (NFe).
+            </xs:documentation>
+        </xs:annotation>
         <xs:sequence>
             <xs:element name="idLote" type="xs:string"/>
             <xs:element name="indSinc" type="xs:string" minOccurs="0"/>
@@ -31,9 +55,16 @@ Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
     </xs:complexType>
 
     <!-- =============================================================
-         Tipo principal: TRetEnviNFe (retorno do lote)
+         2. Tipo principal: TRetEnviNFe (retorno do lote)
          ============================================================= -->
     <xs:complexType name="TRetEnviNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Estrutura de retorno da SEFAZ após o envio de um lote de NF-e.
+                Contém informações de ambiente, versão, código e motivo,
+                além de dados opcionais do recibo (infRec).
+            </xs:documentation>
+        </xs:annotation>
         <xs:sequence>
             <xs:element name="tpAmb" type="xs:string"/>
             <xs:element name="verAplic" type="xs:string"/>
@@ -52,20 +83,35 @@ Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
     </xs:complexType>
 
     <!-- =============================================================
-         Tipo auxiliar: TNFe (nota individual)
+         3. Tipo auxiliar: TNFe (nota individual)
          ============================================================= -->
     <xs:complexType name="TNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Estrutura que representa uma NF-e individual.
+                Os subelementos "infNFe" e "infNFeSupl" utilizam xs:anyType
+                para permitir compatibilidade entre diferentes versões e mocks
+                de teste sem comprometer a conformidade estrutural.
+            </xs:documentation>
+        </xs:annotation>
         <xs:sequence>
             <xs:element name="infNFe" type="xs:anyType"/>
             <xs:element name="infNFeSupl" type="xs:anyType" minOccurs="0"/>
         </xs:sequence>
-        <xs:attribute name="xmlns" type="xs:anyURI" use="optional"/>
+        <!-- Removido atributo 'xmlns' inválido -->
     </xs:complexType>
 
     <!-- =============================================================
-         Tipo auxiliar: TProtNFe (protocolo de autorização)
+         4. Tipo auxiliar: TProtNFe (protocolo de autorização)
          ============================================================= -->
     <xs:complexType name="TProtNFe">
+        <xs:annotation>
+            <xs:documentation>
+                Estrutura do protocolo de autorização da NF-e, emitido pela SEFAZ.
+                Inclui as informações do processamento e, opcionalmente,
+                a assinatura digital XMLDSig (Signature).
+            </xs:documentation>
+        </xs:annotation>
         <xs:sequence>
             <xs:element name="infProt" type="xs:anyType"/>
             <xs:element name="Signature" type="xs:anyType" minOccurs="0"/>

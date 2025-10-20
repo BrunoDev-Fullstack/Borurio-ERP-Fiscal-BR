@@ -1,40 +1,32 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe"
             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-            xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe leiauteNFe_v4.00.xsd"
+            xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe ../../../main/resources/xsd/custom/nfe_v4.00_consolidado.xsd"
             versao="4.00">
 
     <!--
-        MOCK NF-e 4.00 – Retorno do Envio de Nota Fiscal Eletrônica
-        Ambiente: Homologação (tpAmb=2)
-        Padrão: NT 2025.002 / PL_010b v1.30
-        Sistema: Borurio ERP Fiscal BR
-        Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
-        Descrição:
-        Simula a resposta da SEFAZ-SP ao envio de uma NF-e, com cStat=100 (Autorizado o uso).
+    ==============================================================================
+    MOCK NF-e 4.00 – Retorno do Envio de Nota Fiscal Eletrônica
+    ______________________________________________________________________________
+    Padrão técnico: NT 2025.002 / PL_010b v1.30
+    Ambiente: Homologação (tpAmb=2)
+    Projeto: Borurio ERP Fiscal BR
+    Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+    Descrição:
+      Simula o retorno imediato da SEFAZ-SP após o envio de um lote NF-e,
+      indicando apenas o recebimento (sem protocolo de autorização).
+    Revisão: 1.3.0 — Compatível com TRetEnviNFe (schema consolidado)
+    ==============================================================================
     -->
 
     <tpAmb>2</tpAmb>
     <verAplic>Borurio-ERP-DEV</verAplic>
-    <cStat>100</cStat>
-    <xMotivo>Autorizado o uso da NF-e</xMotivo>
-    <cUF>35</cUF>
-    <dhRecbto>2025-10-15T10:00:00-03:00</dhRecbto>
+    <cStat>103</cStat>
+    <xMotivo>Lote recebido com sucesso</xMotivo>
 
-    <protNFe versao="4.00">
-        <infProt Id="ID135250000000001">
-            <tpAmb>2</tpAmb>
-            <verAplic>Borurio-ERP-DEV</verAplic>
-            <chNFe>35251012345678000123550010000000011500000015</chNFe>
-            <dhRecbto>2025-10-15T10:00:00-03:00</dhRecbto>
-            <nProt>135250000000001</nProt>
-
-            <!-- Valor hash do XML assinado (Base64, 44 bytes = 28 chars visíveis) -->
-            <digVal>YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=</digVal>
-
-            <cStat>100</cStat>
-            <xMotivo>Autorizado o uso da NF-e</xMotivo>
-        </infProt>
-    </protNFe>
+    <infRec>
+        <nRec>351000000123456</nRec>
+        <tMed>1</tMed>
+    </infRec>
 
 </retEnviNFe>

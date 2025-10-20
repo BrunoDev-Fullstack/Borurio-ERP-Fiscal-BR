@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <enviNFe xmlns="http://www.portalfiscal.inf.br/nfe"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe xsd/custom/consolidado/nfe_v4.00_consolidado.xsd"
+         xsi:schemaLocation="http://www.portalfiscal.inf.br/nfe ../../../main/resources/xsd/custom/nfe_v4.00_consolidado.xsd"
          versao="4.00">
 
     <!--
@@ -16,6 +16,7 @@
       Este XML simula o envio de uma NF-e válida para testes de conformidade com
       o schema consolidado nacionalizado (nfe_v4.00_consolidado.xsd), ajustado
       para compatibilidade com o parser Xerces (Java) e schema digital W3C.
+    Revisão: 1.3.3 — Ajuste final para IntelliJ + Maven classpath (../../../main/resources)
     ==============================================================================
     -->
 
@@ -25,9 +26,6 @@
     <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
         <infNFe Id="NFe35251012345678000123550010000000011500000015" versao="4.00">
 
-            <!-- ============================================================= -->
-            <!-- DADOS DA NOTA FISCAL                                         -->
-            <!-- ============================================================= -->
             <ide>
                 <cUF>35</cUF>
                 <cNF>12345678</cNF>
@@ -50,9 +48,6 @@
                 <verProc>Borurio ERP 1.0.0</verProc>
             </ide>
 
-            <!-- ============================================================= -->
-            <!-- EMITENTE                                                     -->
-            <!-- ============================================================= -->
             <emit>
                 <CNPJ>12345678000123</CNPJ>
                 <xNome>EMPRESA DE TESTE LTDA</xNome>
@@ -72,9 +67,6 @@
                 <CRT>3</CRT>
             </emit>
 
-            <!-- ============================================================= -->
-            <!-- DESTINATÁRIO                                                  -->
-            <!-- ============================================================= -->
             <dest>
                 <CNPJ>98765432000100</CNPJ>
                 <xNome>CLIENTE DE TESTE LTDA</xNome>
@@ -93,9 +85,6 @@
                 <indIEDest>1</indIEDest>
             </dest>
 
-            <!-- ============================================================= -->
-            <!-- PRODUTOS / DETALHES                                          -->
-            <!-- ============================================================= -->
             <det nItem="1">
                 <prod>
                     <cProd>0001</cProd>
@@ -143,47 +132,19 @@
                 </imposto>
             </det>
 
-            <!-- ============================================================= -->
-            <!-- TOTAIS                                                       -->
-            <!-- ============================================================= -->
             <total>
                 <ICMSTot>
                     <vBC>100.00</vBC>
                     <vICMS>18.00</vICMS>
-                    <vICMSDeson>0.00</vICMSDeson>
-                    <vFCPUFDest>0.00</vFCPUFDest>
-                    <vICMSUFDest>0.00</vICMSUFDest>
-                    <vICMSUFRemet>0.00</vICMSUFRemet>
-                    <vFCP>0.00</vFCP>
-                    <vBCST>0.00</vBCST>
-                    <vST>0.00</vST>
-                    <vFCPST>0.00</vFCPST>
-                    <vFCPSTRet>0.00</vFCPSTRet>
                     <vProd>100.00</vProd>
-                    <vFrete>0.00</vFrete>
-                    <vSeg>0.00</vSeg>
-                    <vDesc>0.00</vDesc>
-                    <vII>0.00</vII>
-                    <vIPI>0.00</vIPI>
-                    <vIPIDevol>0.00</vIPIDevol>
-                    <vPIS>1.65</vPIS>
-                    <vCOFINS>7.60</vCOFINS>
-                    <vOutro>0.00</vOutro>
                     <vNF>118.00</vNF>
-                    <vTotTrib>0.00</vTotTrib>
                 </ICMSTot>
             </total>
 
-            <!-- ============================================================= -->
-            <!-- TRANSPORTE                                                   -->
-            <!-- ============================================================= -->
             <transp>
                 <modFrete>9</modFrete>
             </transp>
 
-            <!-- ============================================================= -->
-            <!-- PAGAMENTO                                                    -->
-            <!-- ============================================================= -->
             <pag>
                 <detPag>
                     <indPag>0</indPag>
@@ -192,18 +153,12 @@
                 </detPag>
             </pag>
 
-            <!-- ============================================================= -->
-            <!-- INFORMAÇÕES ADICIONAIS                                       -->
-            <!-- ============================================================= -->
             <infAdic>
                 <infCpl>NF-e gerada automaticamente para ambiente de testes (Borurio ERP).</infCpl>
             </infAdic>
 
         </infNFe>
 
-        <!-- ============================================================= -->
-        <!-- BLOCO SUPLEMENTAR (QRCode)                                   -->
-        <!-- ============================================================= -->
         <infNFeSupl>
             <qrCode><![CDATA[
 https://www.nfe.fazenda.gov.br/qrcode?chNFe=35251012345678000123550010000000011500000015

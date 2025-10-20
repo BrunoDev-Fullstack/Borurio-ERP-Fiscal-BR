@@ -1,25 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 ==============================================================================
-LEIAUTE AJUSTADO: leiauteNFe_v4.00
+LEIAUTE AJUSTADO: leiauteNFe_v4.00-ajustado.xsd
 ______________________________________________________________________________
 Propósito:
-  Corrigir a referência incorreta do xmldsig-core-schema (W3C) no schema
-  oficial da SEFAZ, substituindo o include por import para compatibilidade
-  com o parser Xerces (Java), evitando o erro de targetNamespace divergente
-  entre http://www.portalfiscal.inf.br/nfe e http://www.w3.org/2000/09/xmldsig#.
+  Corrigir a referência incorreta ao schema xmldsig-core-schema (W3C) presente
+  no leiaute oficial da SEFAZ, substituindo o "include" por "import" para
+  compatibilidade com o parser Xerces (Java), eliminando o conflito entre os
+  targetNamespaces:
+    - http://www.portalfiscal.inf.br/nfe
+    - http://www.w3.org/2000/09/xmldsig#
 
-Base de referência:
-  Leiaute oficial SEFAZ – PL_010b v1.30 (NT 2025.002)
+Correção adicional:
+  Removida a inclusão redundante de "leiauteTipos_v4.00.xsd", que causava
+  conflito de definição duplicada do tipo "TNFe" já declarado em
+  "tiposNFe_v4.00.xsd" (layout nacionalizado e consolidado).
 
-Escopo de uso:
-  Ambiente DEV, Homologação e Produção
+Base técnica:
+  - Leiaute oficial SEFAZ PL_010b v1.30
+  - Nota Técnica 2025.002 (NF-e 4.00)
+  - Aderência total à especificação W3C XMLSchema 1.0
+  - Compatibilidade com o parser Xerces (Java) e execução via Maven/Surefire
 
-Projeto:
-  Borurio ERP Fiscal BR
+Escopo:
+  Ambientes: DEV / HOMOLOGAÇÃO / PRODUÇÃO
+  Projeto: Borurio ERP Fiscal BR
 
 Autor:
   Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+  Revisão 3.2.0 — Conflito TNFe resolvido / Nacionalização final
 ==============================================================================
 -->
 
@@ -30,20 +39,34 @@ Autor:
            elementFormDefault="qualified"
            attributeFormDefault="unqualified">
 
-    <!-- ===================================================================== -->
-    <!-- IMPORTAÇÃO DO SCHEMA DE ASSINATURA DIGITAL (W3C XMLDSig v1.01)       -->
-    <!-- Substitui o include original por import para permitir namespace      -->
-    <!-- distinto e corrigir conflito de targetNamespace.                     -->
-    <!-- ===================================================================== -->
+    <!-- =============================================================
+         1. IMPORTAÇÃO — Schema de Assinatura Digital (W3C XMLDSig)
+         =============================================================
+         Substitui o "include" original por "import" para permitir
+         coexistência de namespaces distintos e compatibilidade com Xerces.
+    -->
     <xs:import namespace="http://www.w3.org/2000/09/xmldsig#"
                schemaLocation="xmldsig-core-schema_v1.01-ajustado.xsd"/>
 
-    <!-- ===================================================================== -->
-    <!-- INCLUSÃO DOS SCHEMAS OFICIAIS DA SEFAZ                              -->
-    <!-- Mantém compatibilidade com o leiaute original PL_010b v1.30.         -->
-    <!-- ===================================================================== -->
-    <xs:include schemaLocation="../oficial/leiauteTipos_v4.00.xsd"/>
+    <!-- =============================================================
+         2. INCLUSÕES — Schemas oficiais SEFAZ (PL_010b v1.30)
+         =============================================================
+         Mantidos apenas os tipos básicos essenciais, removendo
+         leiauteTipos_v4.00.xsd para evitar duplicação de TNFe.
+    -->
     <xs:include schemaLocation="../oficial/tiposBasico_v4.00.xsd"/>
     <xs:include schemaLocation="../oficial/DFeTiposBasicos_v1.00.xsd"/>
+
+    <!-- =============================================================
+         3. INCLUSÃO — Tipos nacionais ajustados (NF-e 4.00)
+         =============================================================
+         Inclui o schema customizado do projeto Borurio Fiscal BR que define:
+           • TEnviNFe
+           • TRetEnviNFe
+           • TNFe
+           • TProtNFe
+         garantindo compatibilidade plena com o leiaute nacional.
+    -->
+    <xs:include schemaLocation="tiposNFe_v4.00.xsd"/>
 
 </xs:schema>
