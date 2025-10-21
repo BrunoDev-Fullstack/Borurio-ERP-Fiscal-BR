@@ -1,4 +1,6 @@
+br\com\borurio\web\config\StartupListener.class
 br\com\borurio\web\controller\PingController.class
 br\com\borurio\web\Application.class
 br\com\borurio\web\controller\NfeController$ApiResponse.class
+br\com\borurio\web\config\OpenApiConfig.class
 br\com\borurio\web\controller\NfeController.class
