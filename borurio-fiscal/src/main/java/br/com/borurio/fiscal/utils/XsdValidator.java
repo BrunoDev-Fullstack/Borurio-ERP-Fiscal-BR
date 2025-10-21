@@ -19,37 +19,49 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 /**
- * ============================================================================
+ * =============================================================================
+ * COMPONENTE: XsdValidator
+ * -----------------------------------------------------------------------------
  * Utilitário de validação de XMLs fiscais (NF-e 4.00) contra os schemas XSD
- * oficiais da SEFAZ. Compatível com includes/imports internos e execução via JAR.
+ * nacionais ajustados do projeto Borurio ERP Fiscal BR.
  *
- * Versão: 1.4.0
- * Autor: Bruno Ribeiro — DevSecOps / Fiscal BR
- * ============================================================================
+ * Recursos:
+ *  - Compatível com includes/imports internos (procNFe, leiaute, xmldsig);
+ *  - Execução segura em ambiente empacotado (Docker / JAR);
+ *  - Compatível com Xerces e JUnit 5;
+ *  - Protegido contra XXE, DTD injection e overflows de parser.
+ *
+ * Versão: 3.1.5
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * =============================================================================
  */
 @Component
 public class XsdValidator {
 
     /**
-     * Valida um XML contra o XSD fiscal oficial.
+     * Valida um XML contra o XSD consolidado.
      *
      * @param xmlDocumento Documento XML (DOM)
-     * @param xsdPath Caminho do schema principal (ex: xsd/enviNFe_v4.00.xsd)
+     * @param xsdPath Caminho do schema principal (ex: xsd/custom/nfe_v4.00_consolidado.xsd)
      * @throws Exception Caso o XML não esteja conforme o schema
      */
     public void validate(Document xmlDocumento, String xsdPath) throws Exception {
         try {
-            // -----------------------------------------------------------------
-            // Ajustes de segurança do parser Xerces para schemas complexos da SEFAZ
-            // -----------------------------------------------------------------
+            // ================================================================
+            // 1. Configuração de segurança do parser Xerces
+            // ================================================================
             System.setProperty("jdk.xml.maxOccurLimit", "10000");
             System.setProperty("jdk.xml.entityExpansionLimit", "10000");
             System.setProperty("jdk.xml.elementAttributeLimit", "10000");
             System.setProperty("jdk.xml.totalEntitySizeLimit", "10000000");
 
+            // Cria fábrica de schemas com validação W3C
             SchemaFactory schemaFactory = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
             schemaFactory.setResourceResolver(new ClasspathResourceResolver());
 
+            // ================================================================
+            // 2. Carrega schema consolidado (via classpath)
+            // ================================================================
             try (InputStream schemaStream = getResourceAsStream(xsdPath)) {
                 if (schemaStream == null) {
                     throw new IllegalArgumentException("Schema XSD não encontrado: " + xsdPath);
@@ -58,10 +70,13 @@ public class XsdValidator {
                 Schema schema = schemaFactory.newSchema(new StreamSource(schemaStream));
                 Validator validator = schema.newValidator();
 
-                // Garante namespace SEFAZ no elemento raiz
+                // Garante o namespace padrão da SEFAZ na raiz
                 xmlDocumento.getDocumentElement()
                         .setAttribute("xmlns", "http://www.portalfiscal.inf.br/nfe");
 
+                // ============================================================
+                // 3. Validação efetiva do XML fiscal
+                // ============================================================
                 validator.validate(new DOMSource(xmlDocumento));
                 System.out.println("[XSD-VALIDATOR] XML validado com sucesso contra " + xsdPath);
             }
@@ -75,9 +90,12 @@ public class XsdValidator {
         }
     }
 
+    // =========================================================================
+    // CLASSE INTERNA: ClasspathResourceResolver
+    // =========================================================================
     /**
-     * Resolve recursos XSD (includes/imports) diretamente do classpath,
-     * garantindo compatibilidade com execução empacotada (JAR Docker).
+     * Resolve includes/imports dentro de /xsd/custom/ diretamente do classpath.
+     * Compatível com empacotamento em JAR e execução Docker.
      */
     private static class ClasspathResourceResolver implements LSResourceResolver {
         @Override
@@ -85,9 +103,14 @@ public class XsdValidator {
             try {
                 if (systemId == null) return null;
 
+                // Normaliza caminho — sempre procura em /xsd/custom/
                 String cleanPath = systemId.replace("\\", "/");
-                if (!cleanPath.startsWith("xsd/")) {
-                    cleanPath = "xsd/" + cleanPath;
+                if (!cleanPath.startsWith("xsd/custom/")) {
+                    if (cleanPath.contains("custom/")) {
+                        cleanPath = "xsd/" + cleanPath.substring(cleanPath.indexOf("custom/"));
+                    } else {
+                        cleanPath = "xsd/custom/" + cleanPath;
+                    }
                 }
 
                 InputStream resourceAsStream = getResourceAsStream(cleanPath);
@@ -106,6 +129,8 @@ public class XsdValidator {
                 input.setSystemId(cleanPath);
                 input.setByteStream(resourceAsStream);
                 input.setEncoding(StandardCharsets.UTF_8.name());
+
+                System.out.println("[XSD-RESOLVER] Carregando schema: " + cleanPath);
                 return input;
 
             } catch (Exception e) {
@@ -115,10 +140,13 @@ public class XsdValidator {
         }
     }
 
+    // =========================================================================
+    // MÉTODO AUXILIAR: Localiza arquivos XSD no classpath
+    // =========================================================================
     /**
      * Localiza um recurso dentro do classpath (compatível com execução em JAR).
      *
-     * @param path Caminho relativo do recurso (ex: xsd/enviNFe_v4.00.xsd)
+     * @param path Caminho relativo do recurso (ex: xsd/custom/nfe_v4.00_consolidado.xsd)
      * @return InputStream do arquivo, ou null se não encontrado
      */
     private static InputStream getResourceAsStream(String path) throws Exception {

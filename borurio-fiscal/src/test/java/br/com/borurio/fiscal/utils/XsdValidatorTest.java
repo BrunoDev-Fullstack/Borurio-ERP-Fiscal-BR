@@ -17,23 +17,25 @@ import static org.junit.jupiter.api.Assertions.*;
  * -----------------------------------------------------------------------------
  * Objetivo:
  *   - Validar o comportamento do componente {@link XsdValidator};
- *   - Garantir que os XMLs fiscais de mock estejam em conformidade com os
- *     schemas oficiais da SEFAZ (NF-e 4.00 / NT 2025.002 / PL_010b v1.30);
- *   - Certificar a compatibilidade com o schema consolidado nacionalizado
- *     (nfe_v4.00_consolidado.xsd), utilizado no Borurio ERP Fiscal BR.
+ *   - Garantir que os XMLs fiscais estejam em conformidade com os schemas
+ *     oficiais da SEFAZ (NF-e 4.00 / NT 2025.002 / PL_010b v1.30);
+ *   - Certificar compatibilidade com o schema consolidado nacionalizado
+ *     (nfe_v4.00_consolidado.xsd) do Borurio ERP Fiscal BR.
  *
  * Contexto:
- *   - Ambiente de desenvolvimento e homologação (JUnit 5 + Xerces);
- *   - Proteção contra XXE e falhas de schema injection;
- *   - Total aderência às práticas DevSecOps.
+ *   - Ambiente: DEV / Homologação
+ *   - Frameworks: JUnit 5 + Xerces (validação XSD)
+ *   - Segurança: proteção contra XXE e schema injection
  *
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Revisão: 3.0.7 — Teste endurecido e tolerância controlada
+ * Revisão: 3.1.2 — Ajuste final de paths e compatibilidade total com /xml/
  * =============================================================================
  */
 public class XsdValidatorTest {
 
-    private static final String SCHEMA_CONSOLIDADO = "xsd/consolidado/nfe_v4.00_consolidado.xsd";
+    /** Caminho relativo do schema consolidado nacionalizado */
+    private static final String SCHEMA_CONSOLIDADO = "xsd/custom/nfe_v4.00_consolidado.xsd";
+
     private XsdValidator validator;
 
     @BeforeEach
@@ -71,12 +73,11 @@ public class XsdValidatorTest {
     // TESTE 03 — Falha controlada de conformidade XSD (namespace removido)
     // ========================================================================
     @Test
-    @DisplayName("Falha esperada ao remover o namespace raiz do XML")
+    @DisplayName("Falha esperada ao remover o namespace raiz do XML (enviNFeSemNamespace)")
     void testXmlInvalidoDeveFalhar() throws Exception {
         Document xml = carregarXml("xml/mockEnviNFe.xml");
 
         // Remove namespace obrigatório e altera o nome da tag raiz
-        // para garantir falha estrutural real.
         xml.renameNode(xml.getDocumentElement(), null, "enviNFeSemNamespace");
         xml.getDocumentElement().removeAttribute("xmlns");
         xml.getDocumentElement().removeAttribute("xmlns:xsi");
@@ -84,20 +85,20 @@ public class XsdValidatorTest {
         // Força ausência de targetNamespace
         xml.getDocumentElement().setAttribute("xmlns", "");
 
-        // Execução controlada: validação deve falhar por não encontrar o namespace raiz
+        // Execução controlada: a validação deve falhar
         Exception exception = assertThrows(Exception.class, () ->
                         validator.validate(xml, SCHEMA_CONSOLIDADO),
-                "A validação deveria falhar quando o namespace obrigatório é removido ou alterado.");
+                "A validação deveria falhar quando o namespace obrigatório é removido.");
 
         assertTrue(
                 exception.getMessage().contains("cvc-elt.1.a")
                         || exception.getMessage().contains("SAXParseException")
                         || exception.getMessage().contains("Falha de conformidade"),
-                "A mensagem da exceção deve indicar erro de conformidade XML/XSD.");
+                "A exceção deve indicar erro de conformidade XML/XSD (namespace ausente).");
     }
 
     // ========================================================================
-    // MÉTODO AUXILIAR — Carrega XML do classpath e aplica hardening parser
+    // MÉTODO AUXILIAR — Carrega XML do classpath e aplica hardening do parser
     // ========================================================================
     private Document carregarXml(String path) throws Exception {
         ClassPathResource resource = new ClassPathResource(path);

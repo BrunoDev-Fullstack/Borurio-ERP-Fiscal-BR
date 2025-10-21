@@ -3,12 +3,12 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          MÓDULO: Borurio ERP Web
          Função: API REST central do ERP Fiscal Borurio Brasil
-         Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway | Actuator
+         Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway | Actuator | Swagger | Logback
          Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
-         =============================================================== -->
+         ============================================================================= -->
 
     <modelVersion>4.0.0</modelVersion>
 
@@ -24,23 +24,24 @@
     <name>Borurio ERP Web</name>
     <description>API REST central do ERP Fiscal Borurio Brasil — NF-e, Auditoria e Integrações SEFAZ-SP</description>
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          PROPRIEDADES DO PROJETO
-         =============================================================== -->
+         ============================================================================= -->
     <properties>
         <java.version>17</java.version>
         <spring.boot.version>3.3.2</spring.boot.version>
         <flyway.version>10.18.0</flyway.version>
         <mysql.connector.version>8.4.0</mysql.connector.version>
+        <springdoc.version>2.6.0</springdoc.version>
         <owasp.version>9.0.9</owasp.version>
         <surefire.version>3.2.5</surefire.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          REPOSITÓRIOS
-         =============================================================== -->
+         ============================================================================= -->
     <repositories>
         <repository>
             <id>central</id>
@@ -48,9 +49,9 @@
         </repository>
     </repositories>
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          DEPENDÊNCIAS PRINCIPAIS
-         =============================================================== -->
+         ============================================================================= -->
     <dependencies>
 
         <!-- ===========================================================
@@ -124,11 +125,28 @@
             <version>${mysql.connector.version}</version>
         </dependency>
 
-        <!-- MinIO (Armazenamento de Arquivos Fiscais) -->
+        <!-- MinIO (Armazenamento de Arquivos Fiscais e Certificados) -->
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
             <version>8.5.11</version>
+        </dependency>
+
+        <!-- ===========================================================
+             DOCUMENTAÇÃO OPENAPI / SWAGGER
+             =========================================================== -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- ===========================================================
+             LOGGING (Logback - provider SLF4J)
+             =========================================================== -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
         </dependency>
 
         <!-- ===========================================================
@@ -146,7 +164,7 @@
             <version>4.5.0-M2</version>
         </dependency>
 
-        <!-- Lombok (apenas compilação) -->
+        <!-- Lombok (somente em tempo de compilação) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -171,9 +189,9 @@
 
     </dependencies>
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          CONFIGURAÇÃO DE BUILD E PLUGINS
-         =============================================================== -->
+         ============================================================================= -->
     <build>
         <finalName>${project.artifactId}-${project.version}</finalName>
 
@@ -214,6 +232,7 @@
                 <version>${spring.boot.version}</version>
                 <configuration>
                     <mainClass>br.com.borurio.web.Application</mainClass>
+                    <jvmArguments>-Dfile.encoding=UTF-8</jvmArguments>
                     <layers>
                         <enabled>true</enabled>
                     </layers>

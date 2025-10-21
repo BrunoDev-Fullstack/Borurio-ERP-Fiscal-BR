@@ -15,7 +15,7 @@ server:
 
 spring:
   application:
-    name: borurio-web
+    name: borurio-web-dev
 
   ################################################################################################
   # BANCO DE DADOS – MySQL 8.4
@@ -52,14 +52,17 @@ spring:
     locale: pt_BR
 
   ################################################################################################
-  # SPRING CORE – Configurações gerais do contexto
+  # SPRING CORE – Configurações gerais
   ################################################################################################
   main:
     allow-bean-definition-overriding: true
     banner-mode: console
+  mvc:
+    throw-exception-if-no-handler-found: true
+    static-path-pattern: /static/**
 
   ################################################################################################
-  # SPRING MVC – Configurações adicionais (CORS e recursos estáticos)
+  # SPRING WEB – CORS e Recursos Estáticos
   ################################################################################################
   web:
     resources:
@@ -70,15 +73,14 @@ spring:
       allowed-headers: "*"
 
 ###################################################################################################
-# LOGGING – Auditoria e Rastreabilidade
+# LOGGING – Auditoria e Rastreabilidade (via Logback)
 ###################################################################################################
 logging:
   level:
     root: INFO
     org.springframework: INFO
     br.com.borurio: DEBUG
-  file:
-    name: logs/borurio-dev.log
+  config: classpath:logback-dev.xml
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
@@ -100,7 +102,7 @@ fiscal:
     pass: ${CERT_PASS:1234}
 
 ###################################################################################################
-# ACTUATOR – Monitoramento, Healthcheck e Observabilidade
+# ACTUATOR – Monitoramento e Observabilidade
 ###################################################################################################
 management:
   server:
@@ -127,3 +129,5 @@ management:
 app:
   profile: dev
   description: "Ambiente de Desenvolvimento – Mock SEFAZ-SP ativo"
+  version: ${project.version:1.0.0}
+  owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
