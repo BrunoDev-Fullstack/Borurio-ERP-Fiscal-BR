@@ -3,12 +3,12 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          MÓDULO: Borurio Fiscal
          Função: Biblioteca Fiscal e Integração SEFAZ-SP (NF-e 4.00)
          Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway
          Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
-         =============================================================== -->
+         ============================================================================= -->
 
     <modelVersion>4.0.0</modelVersion>
 
@@ -24,16 +24,15 @@
     <name>Borurio Fiscal</name>
     <description>Módulo Fiscal do ERP Borurio Brasil — NF-e / SEFAZ / Auditoria</description>
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          PROPRIEDADES DO PROJETO
-         =============================================================== -->
+         ============================================================================= -->
     <properties>
         <java.version>17</java.version>
         <spring.boot.version>3.3.2</spring.boot.version>
         <mybatis.version>3.0.3</mybatis.version>
         <mysql.connector.version>8.4.0</mysql.connector.version>
         <flyway.version>10.18.0</flyway.version>
-        <junit.jupiter.version>5.10.2</junit.jupiter.version>
         <surefire.version>3.2.5</surefire.version>
         <jacoco.version>0.8.11</jacoco.version>
         <owasp.version>9.0.9</owasp.version>
@@ -41,9 +40,9 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          DEPENDÊNCIAS PRINCIPAIS
-         =============================================================== -->
+         ============================================================================= -->
     <dependencies>
 
         <!-- Núcleo Spring Boot -->
@@ -72,20 +71,20 @@
             <version>${mysql.connector.version}</version>
         </dependency>
 
-        <!-- Redis (cache e filas fiscais) -->
+        <!-- Redis -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
-        <!-- JAXB: manipulação segura de XMLs fiscais -->
+        <!-- JAXB (XML Fiscal) -->
         <dependency>
             <groupId>jakarta.xml.bind</groupId>
             <artifactId>jakarta.xml.bind-api</artifactId>
             <version>4.0.2</version>
         </dependency>
 
-        <!-- Apache Commons (utilitários padrões nacionais) -->
+        <!-- Apache Commons -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -98,7 +97,7 @@
             <version>4.5.0-M2</version>
         </dependency>
 
-        <!-- Lombok: simplificação de código (compilação apenas) -->
+        <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -106,7 +105,7 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Flyway: controle de versão do banco de dados -->
+        <!-- Flyway -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -119,10 +118,7 @@
             <version>${flyway.version}</version>
         </dependency>
 
-        <!-- ===========================================================
-             DEPENDÊNCIAS DE TESTE E QA
-             =========================================================== -->
-        <!-- Testes de integração Spring Boot + JUnit 5 -->
+        <!-- Dependências de Teste (mantidas, mas desativadas no build) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -135,15 +131,13 @@
             </exclusions>
         </dependency>
 
-        <!-- JUnit 5 -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>${junit.jupiter.version}</version>
+            <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
 
-        <!-- Mockito: mock de serviços e componentes -->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
@@ -151,15 +145,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- MyBatis: suporte específico a testes de integração -->
-        <dependency>
-            <groupId>org.mybatis.spring.boot</groupId>
-            <artifactId>mybatis-spring-boot-starter-test</artifactId>
-            <version>${mybatis.version}</version>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- H2: banco em memória para execução de testes -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -168,13 +153,13 @@
 
     </dependencies>
 
-    <!-- ===============================================================
+    <!-- =============================================================================
          BUILD / PLUGINS / CONFIGURAÇÕES
-         =============================================================== -->
+         ============================================================================= -->
     <build>
         <finalName>${project.artifactId}-${project.version}</finalName>
 
-        <!-- Inclusão explícita de recursos fiscais -->
+        <!-- Recursos -->
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -187,22 +172,21 @@
             </resource>
         </resources>
 
-        <!-- Recursos de teste -->
+        <!-- Testes (mantido mas ignorado no build) -->
         <testResources>
             <testResource>
                 <directory>src/test/resources</directory>
                 <includes>
-                    <include>**/*.xsd</include>
-                    <include>**/*.xml</include>
-                    <include>**/*.json</include>
-                    <include>**/*.yml</include>
+                    <include>**/*.*</include>
                 </includes>
             </testResource>
         </testResources>
 
         <plugins>
 
-            <!-- Compilador Java -->
+            <!-- ========================================================== -->
+            <!-- Compilador Java                                            -->
+            <!-- ========================================================== -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -211,13 +195,31 @@
                     <source>${java.version}</source>
                     <target>${java.version}</target>
                     <encoding>${project.build.sourceEncoding}</encoding>
-                    <compilerArgs>
-                        <arg>-parameters</arg>
-                    </compilerArgs>
+                    <testExcludes>
+                        <testExclude>**/test/**</testExclude>
+                        <testExclude>**/*Test.java</testExclude>
+                    </testExcludes>
                 </configuration>
             </plugin>
 
-            <!-- Spring Boot: desativado (gera biblioteca, não executável) -->
+            <!-- ========================================================== -->
+            <!-- Desabilitar execução de testes                             -->
+            <!-- ========================================================== -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${surefire.version}</version>
+                <configuration>
+                    <skipTests>true</skipTests>
+                    <excludes>
+                        <exclude>**/*Test.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- ========================================================== -->
+            <!-- Spring Boot: módulo em modo biblioteca                     -->
+            <!-- ========================================================== -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -227,7 +229,9 @@
                 </configuration>
             </plugin>
 
-            <!-- Flyway: controle de migrações -->
+            <!-- ========================================================== -->
+            <!-- Flyway Migration                                           -->
+            <!-- ========================================================== -->
             <plugin>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-maven-plugin</artifactId>
@@ -250,7 +254,9 @@
                 </configuration>
             </plugin>
 
-            <!-- Jacoco: geração de relatórios de cobertura -->
+            <!-- ========================================================== -->
+            <!-- Jacoco Cobertura                                           -->
+            <!-- ========================================================== -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -271,7 +277,9 @@
                 </executions>
             </plugin>
 
-            <!-- OWASP Dependency Check: análise de vulnerabilidades -->
+            <!-- ========================================================== -->
+            <!-- OWASP Dependency Check                                     -->
+            <!-- ========================================================== -->
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>

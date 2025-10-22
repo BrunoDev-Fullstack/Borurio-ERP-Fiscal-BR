@@ -12,43 +12,43 @@
 FROM maven:3.9.9-eclipse-temurin-17 AS builder
 WORKDIR /build
 
-# Copia apenas os arquivos de definição (melhor cache de dependências)
+# Copia apenas os POMs (para melhor cache de dependências Maven)
 COPY pom.xml .
 COPY borurio-core/pom.xml borurio-core/
 COPY borurio-app/pom.xml borurio-app/
 COPY borurio-fiscal/pom.xml borurio-fiscal/
 COPY borurio-web/pom.xml borurio-web/
 
-# Baixa dependências Maven (cache offline)
+# Baixa dependências (cache offline para acelerar builds subsequentes)
 RUN mvn -B dependency:go-offline -D"dependency-check.skip=true"
 
-# Copia o código-fonte completo após cache
+# Copia todo o código-fonte após o cache
 COPY . .
 
-# Define ambiente de build (DEV por padrão)
+# Define ambiente de build (por padrão, desenvolvimento)
 ARG BUILD_ENV=dev
 ENV SPRING_PROFILES_ACTIVE=${BUILD_ENV}
 
-# Compila o módulo fiscal e empacota com dependências
+# Compila e empacota apenas o módulo fiscal, gerando JAR executável
 RUN mvn -B -pl borurio-fiscal -am clean package spring-boot:repackage \
     -DskipTests -D"dependency-check.skip=true"
 
 # ---------------------------------------------------------------------------
-# Etapa 2 - Runtime (imagem leve, segura e com variáveis de ambiente padrão)
+# Etapa 2 - Runtime (imagem leve, segura e com variáveis padrão)
 # ---------------------------------------------------------------------------
 FROM eclipse-temurin:17-jdk-jammy AS runtime
 
-# Define diretórios seguros e cria usuário não-root
+# Cria diretórios seguros e usuário não-root
 RUN mkdir -p /app /var/log/borurio /opt/borurio/certs && \
     groupadd -r borurio && useradd -r -g borurio borurio
 
 WORKDIR /app
 
-# Copia o artefato gerado no build
+# Copia o artefato gerado pelo builder
 COPY --from=builder /build/borurio-fiscal/target/borurio-fiscal-1.0.0.jar /app/borurio-fiscal.jar
 
 # ---------------------------------------------------------------------------
-# Variáveis de ambiente padrão e seguras
+# Variáveis de ambiente padrão (configuráveis via Compose ou CI/CD)
 # ---------------------------------------------------------------------------
 ENV SPRING_PROFILES_ACTIVE=dev \
     TZ=America/Sao_Paulo \
@@ -68,8 +68,8 @@ ENV SPRING_PROFILES_ACTIVE=dev \
 # ---------------------------------------------------------------------------
 # Segurança e boas práticas DevSecOps
 # ---------------------------------------------------------------------------
-# - remove cache temporário do JDK
-# - define permissões restritas ao usuário borurio
+# - Remove caches temporários
+# - Define permissões seguras e usuário não-root
 RUN rm -rf /tmp/* /var/tmp/* && \
     chown -R borurio:borurio /app /var/log/borurio /opt/borurio/certs
 
@@ -80,7 +80,9 @@ USER borurio
 # ---------------------------------------------------------------------------
 EXPOSE 8080
 
+# Healthcheck nativo para monitoramento via Docker ou Compose
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
+# Execução padrão do aplicativo fiscal
 ENTRYPOINT ["sh", "-c", "java $JAVA_TOOL_OPTIONS -jar /app/borurio-fiscal.jar"]

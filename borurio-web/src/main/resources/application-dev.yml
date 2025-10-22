@@ -4,6 +4,7 @@
 # Módulo: borurio-web (API REST principal)
 # Integrações: MySQL, Redis, SEFAZ-SP (NF-e 4.00 Homologação)
 # Stack: Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
+# Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
 ###################################################################################################
 
 server:
@@ -18,7 +19,7 @@ spring:
     name: borurio-web-dev
 
   ################################################################################################
-  # BANCO DE DADOS – MySQL 8.4
+  # BANCO DE DADOS – MySQL 8.4 (ambiente de homologação / dev)
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -26,6 +27,7 @@ spring:
     username: ${DB_USER:borurio}
     password: ${DB_PASS:H4ck3r123}
     hikari:
+      pool-name: BorurioWebHikariPool
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
@@ -40,6 +42,7 @@ spring:
       host: ${REDIS_HOST:borurio-redis-dev}
       port: ${REDIS_PORT:6379}
       timeout: 2000
+      connect-timeout: 2000
 
   ################################################################################################
   # JACKSON – Serialização JSON (formatação padrão brasileira)
@@ -50,6 +53,7 @@ spring:
     date-format: yyyy-MM-dd'T'HH:mm:ss
     time-zone: America/Sao_Paulo
     locale: pt_BR
+    default-property-inclusion: non_null
 
   ################################################################################################
   # SPRING CORE – Configurações gerais
@@ -76,22 +80,35 @@ spring:
 # LOGGING – Auditoria e Rastreabilidade (via Logback)
 ###################################################################################################
 logging:
+  config: classpath:logback-dev.xml
   level:
     root: INFO
     org.springframework: INFO
+    org.hibernate: WARN
     br.com.borurio: DEBUG
-  config: classpath:logback-dev.xml
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 ###################################################################################################
-# SEFAZ – Integração NF-e (Homologação SP)
+# SEFAZ-SP – Integração NF-e (Homologação tpAmb=2)
 ###################################################################################################
 sefaz:
   ambiente: homologacao
   url-autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
   url-retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
+  url-consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx
+  url-status: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx
+
+###################################################################################################
+# LEGADO DE COMPATIBILIDADE – Variáveis esperadas por NfeTransmitServiceImpl
+###################################################################################################
+nfe:
+  sefaz:
+    url-autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+    url-retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+    url-consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+    url-status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
 
 ###################################################################################################
 # FISCAL – Certificado Digital A1 (PFX)
@@ -128,6 +145,16 @@ management:
 ###################################################################################################
 app:
   profile: dev
-  description: "Ambiente de Desenvolvimento – Mock SEFAZ-SP ativo"
+  description: "Ambiente de Desenvolvimento e Homologação SEFAZ-SP (tpAmb=2)"
   version: ${project.version:1.0.0}
   owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
+
+###################################################################################################
+# NOTAS TÉCNICAS
+# -----------------------------------------------------------------------------------------------
+# - Ambiente integrado Docker Compose (MySQL 3307 / Redis 6379 / MinIO / Mailpit)
+# - Mock SEFAZ habilitado para testes de NF-e 4.00 (NT 2025.002 v1.30)
+# - Certificado Digital A1 genérico (generic-dev-cert.pfx)
+# - Flyway desabilitado no web (ativo no fiscal)
+# - Porta 8080 para web / 8081 para fiscal se executados juntos
+###################################################################################################

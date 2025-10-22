@@ -118,7 +118,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    # Utilizado para capturar e visualizar e-mails enviados pela aplicação durante testes.
+    # Captura e visualiza e-mails enviados pela aplicação durante testes.
 
   # ---------------------------------------------------------------------------
   # Web (API Principal + Módulos Core / App / Fiscal)
@@ -126,7 +126,7 @@ services:
   borurio-web-dev:
     build:
       context: ../
-      dockerfile: ./borurio-web/Dockerfile
+      dockerfile: ./Dockerfile   # Usa o Dockerfile RAIZ unificado
     container_name: borurio-web-dev
     restart: unless-stopped
     depends_on:
@@ -149,34 +149,29 @@ services:
       REDIS_HOST: borurio-redis-dev
       REDIS_PORT: 6379
       TZ: America/Sao_Paulo
-
-      # === Forçar ativação do Actuator ===
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,env,beans"
       MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
       MANAGEMENT_SERVER_PORT: 8080
     ports:
-      - "8081:8080" # Porta da aplicação (externa 8081 -> interna 8080)
+      - "8081:8080"  # Porta da aplicação (externa -> interna)
     networks:
       - borurio-net-dev
     volumes:
-      - ~/.m2:/root/.m2:rw
-      - ../borurio-web/target:/app/target:ro
-      - ./logs:/var/log/borurio:rw
-    command: ["java", "-jar", "/app/target/borurio-web-1.0.0.jar"]
+      - ~/.m2:/root/.m2:rw              # Cache Maven local
+      - ../logs:/var/log/borurio:rw     # Logs persistentes
+    command: ["sh", "-c", "java -jar borurio-web.jar"]
     security_opt:
       - no-new-privileges:true
     tty: true
     stdin_open: true
-
-    # === Healthcheck via Actuator ===
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8080/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 45s
-    # API principal do ERP Fiscal, responsável por expor endpoints REST,
-    # processar NF-e, controlar o fluxo fiscal e integrar com a SEFAZ-SP (mock ou real).
+    # API principal do ERP Fiscal: expõe endpoints REST,
+    # processa NF-e, controla o fluxo fiscal e integra com SEFAZ-SP (mock ou real).
 
 # =============================================================================
 # Volumes e Rede de Desenvolvimento
