@@ -1,25 +1,83 @@
-﻿# =============================================================================
-# Configuração principal do ERP Fiscal Borurio Brasil
-# Este arquivo define o perfil ativo e herda configs específicas de cada módulo
-# =============================================================================
+﻿###############################################################################################
+# CONFIGURAÇÃO PRINCIPAL – BORURIO ERP FISCAL BR
+# ---------------------------------------------------------------------------------------------
+# Função:
+#   Este arquivo define o perfil ativo e configurações mínimas comuns a todos os ambientes.
+#   Ele herda as propriedades detalhadas do arquivo application-${spring.profiles.active}.yml.
+#
+# Módulo:
+#   borurio-web (API REST principal)
+#
+# Ambiente:
+#   Desenvolvimento / Homologação (perfil ativo: dev)
+#
+# Stack:
+#   Spring Boot 3.3.x | Java 17 | UTF-8 (sem BOM)
+#
+# Autor:
+#   Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+###############################################################################################
 
 spring:
   application:
     name: borurio-web
 
+  ################################################################################################
+  # PERFIL ATIVO – Define qual arquivo de configuração será carregado
+  ################################################################################################
   profiles:
-    active: dev
+    active: dev   # => Herda de application-dev.yml
 
+  ################################################################################################
+  # DATASOURCE LOCAL – Configuração padrão para execução fora do Docker (opcional)
+  # Observação:
+  #   No Docker Compose, os parâmetros são substituídos por variáveis de ambiente.
+  ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
     username: borurio
     password: H4ck3r123
 
+###############################################################################################
+# SERVIDOR WEB – Porta interna padrão
+###############################################################################################
 server:
   port: 8080
+  servlet:
+    context-path: /
+  error:
+    include-message: always
 
+###############################################################################################
+# LOGGING – Configuração de nível de log e rastreabilidade padrão
+###############################################################################################
 logging:
   level:
     root: INFO
+    org.springframework: INFO
+    org.hibernate: WARN
     br.com.borurio: DEBUG
+  file:
+    path: logs/
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+
+###############################################################################################
+# METADADOS DO AMBIENTE E INFORMAÇÕES DO PROJETO
+###############################################################################################
+app:
+  name: Borurio ERP Fiscal BR
+  version: ${project.version:1.0.0}
+  description: "Configuração principal - carrega perfis específicos (dev, prd, hom)"
+  owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
+
+###############################################################################################
+# NOTAS TÉCNICAS
+# ---------------------------------------------------------------------------------------------
+# - Este arquivo é o entrypoint de configuração do Spring Boot.
+# - application-dev.yml contém as definições detalhadas de banco, Redis, SEFAZ e Actuator.
+# - Perfis disponíveis: dev | prd | hom
+# - Para subir com outro perfil: mvn spring-boot:run -Dspring-boot.run.profiles=hom
+# - Porta padrão interna: 8080 (mapeada como 8081 no Docker)
+###############################################################################################

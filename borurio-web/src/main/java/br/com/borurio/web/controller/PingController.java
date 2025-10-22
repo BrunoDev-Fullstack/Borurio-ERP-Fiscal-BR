@@ -1,59 +1,56 @@
 package br.com.borurio.web.controller;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * =============================================================================
- * Controlador de monitoramento básico da aplicação.
+ * CONTROLADOR: PingController
+ * -----------------------------------------------------------------------------
+ * Responsável por verificar a disponibilidade da API principal do ERP Fiscal.
  *
- * Responsável por validar a disponibilidade da API principal
- * (módulo web do ERP Fiscal Borurio Brasil).
- *
- * Utilizado em ambientes de:
- * - Desenvolvimento (smoke tests)
- * - Homologação (CI/CD pipelines)
- * - Produção (monitoramento e observabilidade)
- *
- * Compatibilidade:
+ * Padrão técnico:
  * - Java 17
  * - Spring Boot 3.3.x
- * - Docker Compose / Kubernetes Healthchecks
+ * - Docker / DevSecOps / Observabilidade
+ *
+ * Utilização:
+ * - /api/test/ping → utilizado em smoke tests, CI/CD e health checks externos.
+ *
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
  * =============================================================================
  */
 @Slf4j
 @RestController
+@RequestMapping("/api/test")
 public class PingController {
 
     /**
-     * Endpoint de verificação básica da aplicação.
-     * <p>
-     * Retorna uma resposta JSON simples confirmando
-     * que a API está operacional e registrando o timestamp.
+     * Endpoint de verificação básica de disponibilidade da API.
+     * Retorna status, mensagem e timestamp atual.
      *
-     * Exemplo:
-     * <pre>
-     * GET /ping
-     * </pre>
-     *
-     * @return JSON indicando que a API está online.
+     * @return JSON contendo informações básicas do ambiente ativo.
      */
     @GetMapping("/ping")
     public ResponseEntity<Map<String, Object>> ping() {
-        log.debug("Verificação de disponibilidade /ping acionada.");
+        log.debug("Verificação de disponibilidade /api/test/ping acionada.");
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("code", 200);
-        response.put("message", "API Borurio ERP Fiscal BR está online.");
-        response.put("timestamp", OffsetDateTime.now(ZoneId.of("America/Sao_Paulo")).toString());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", "UP");
+        body.put("code", HttpStatus.OK.value());
+        body.put("message", "API Borurio ERP Fiscal BR está operacional.");
+        body.put("environment", "dev");
+        body.put("timestamp", OffsetDateTime.now(ZoneId.of("America/Sao_Paulo")).toString());
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(body);
     }
 }

@@ -30,7 +30,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
       TZ: America/Sao_Paulo
     ports:
-      - "3307:3306" # Porta local ajustada para não conflitar com MySQL global
+      - "3307:3306"   # Porta local ajustada para não conflitar com o MySQL global
     volumes:
       - ./mysql/data-dev:/var/lib/mysql:rw
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -83,8 +83,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
       TZ: America/Sao_Paulo
     ports:
-      - "9000:9000" # API S3
-      - "9001:9001" # Console Web
+      - "9000:9000"   # API S3
+      - "9001:9001"   # Console Web
     volumes:
       - ./minio/data-dev:/data:rw
     networks:
@@ -106,8 +106,8 @@ services:
     container_name: borurio-mailpit-dev
     restart: unless-stopped
     ports:
-      - "1025:1025" # Porta SMTP local
-      - "8025:8025" # Painel Web
+      - "1025:1025"   # Porta SMTP local
+      - "8025:8025"   # Painel Web
     networks:
       - borurio-net-dev
     security_opt:
@@ -151,9 +151,10 @@ services:
       TZ: America/Sao_Paulo
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,env,beans"
       MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
-      MANAGEMENT_SERVER_PORT: 8080
+      MANAGEMENT_SERVER_PORT: 8081
     ports:
-      - "8081:8080"  # Porta da aplicação (externa -> interna)
+      - "8082:8082"   # Porta principal da API (Tomcat interno)
+      - "8081:8081"   # Actuator / Monitoramento
     networks:
       - borurio-net-dev
     volumes:
@@ -165,7 +166,7 @@ services:
     tty: true
     stdin_open: true
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

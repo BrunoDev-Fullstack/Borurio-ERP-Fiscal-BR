@@ -8,11 +8,12 @@
 ###################################################################################################
 
 server:
-  port: 8080
+  port: 8082                                  # Porta interna da API principal (exposta como 8082 no Docker)
   servlet:
     context-path: /
   error:
     include-message: always
+    include-binding-errors: always
 
 spring:
   application:
@@ -33,6 +34,13 @@ spring:
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate.format_sql: true
+      hibernate.show_sql: false
 
   ################################################################################################
   # REDIS – Cache e Sessões
@@ -56,7 +64,7 @@ spring:
     default-property-inclusion: non_null
 
   ################################################################################################
-  # SPRING CORE – Configurações gerais
+  # SPRING CORE – Configurações gerais e MVC
   ################################################################################################
   main:
     allow-bean-definition-overriding: true
@@ -64,10 +72,6 @@ spring:
   mvc:
     throw-exception-if-no-handler-found: true
     static-path-pattern: /static/**
-
-  ################################################################################################
-  # SPRING WEB – CORS e Recursos Estáticos
-  ################################################################################################
   web:
     resources:
       add-mappings: true
@@ -95,16 +99,20 @@ logging:
 ###################################################################################################
 sefaz:
   ambiente: homologacao
-  url-autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
-  url-retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
-  url-consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx
-  url-status: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx
+  tpAmb: 2
+  url-autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+  url-retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+  url-consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+  url-status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
 
 ###################################################################################################
 # LEGADO DE COMPATIBILIDADE – Variáveis esperadas por NfeTransmitServiceImpl
 ###################################################################################################
 nfe:
   sefaz:
+    tpAmb: 2
+    certificado: ${NFE_SEFAZ_CERTIFICADO:C:/Projetos/borurio-erp-br/certificados/mock-dev-certificado.pfx}
+    senha: ${NFE_SEFAZ_SENHA:mock123}
     url-autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
     url-retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
     url-consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
@@ -123,12 +131,12 @@ fiscal:
 ###################################################################################################
 management:
   server:
-    port: 8080
+    port: 8081                             # Porta separada do servidor principal (8082) para monitoramento
   endpoints:
     web:
       base-path: /actuator
       exposure:
-        include: "health,info,metrics,env,beans"
+        include: "health,info,metrics,env,beans,loggers"
   endpoint:
     health:
       show-details: always
@@ -155,6 +163,8 @@ app:
 # - Ambiente integrado Docker Compose (MySQL 3307 / Redis 6379 / MinIO / Mailpit)
 # - Mock SEFAZ habilitado para testes de NF-e 4.00 (NT 2025.002 v1.30)
 # - Certificado Digital A1 genérico (generic-dev-cert.pfx)
-# - Flyway desabilitado no web (ativo no fiscal)
-# - Porta 8080 para web / 8081 para fiscal se executados juntos
+# - Flyway ativo no módulo fiscal, desativado no web
+# - Porta interna 8082 (API Web) e 8081 (Actuator Health)
+# - Configuração alinhada ao container borurio-web-dev
+# - spring.jpa.open-in-view=false já configurado para segurança transacional
 ###################################################################################################

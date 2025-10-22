@@ -1,64 +1,68 @@
 package br.com.borurio.web.config;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.env.Environment;
-import org.springframework.stereotype.Component;
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.context.WebServerApplicationContext;
+import org.springframework.context.annotation.Configuration;
+import java.time.LocalDateTime;
 
 /**
  * =============================================================================
- * COMPONENTE: StartupListener
- * =============================================================================
- * Responsável por exibir informações essenciais de inicialização
- * logo após o carregamento completo do contexto Spring Boot.
- *
- * Funções:
- *   • Registrar no log os endpoints principais do sistema
- *   • Confirmar o perfil ativo (dev, hom, prd)
- *   • Garantir visibilidade operacional conforme boas práticas DevSecOps
- *
- * Ambiente de uso:
- *   - Executado automaticamente no evento {@link ApplicationReadyEvent}
- *   - Módulo: borurio-web
+ * STARTUP LISTENER – BORURIO ERP FISCAL BR
  * -----------------------------------------------------------------------------
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Projeto: ERP Fiscal Borurio Brasil
+ * Exibe informações detalhadas no log ao inicializar a aplicação.
+ * Ajustado para detectar a porta mapeada via Docker Compose (HOST/CONTAINER).
  * =============================================================================
  */
-@Component
+@Slf4j
+@Configuration
 public class StartupListener {
 
-    private static final Logger log = LoggerFactory.getLogger(StartupListener.class);
-    private final Environment environment;
+    private final WebServerApplicationContext webServerAppContext;
 
-    public StartupListener(Environment environment) {
-        this.environment = environment;
+    @Value("${spring.profiles.active:default}")
+    private String activeProfile;
+
+    @Value("${spring.application.name:borurio-web}")
+    private String appName;
+
+    public StartupListener(WebServerApplicationContext webServerAppContext) {
+        this.webServerAppContext = webServerAppContext;
     }
 
-    /**
-     * Método invocado automaticamente após a aplicação estar pronta para uso.
-     * Exibe os principais endpoints de monitoramento e documentação.
-     */
-    @EventListener(ApplicationReadyEvent.class)
-    public void onApplicationReady() {
-        String activeProfile = String.join(", ", environment.getActiveProfiles());
-        log.info("""
+    @PostConstruct
+    public void onStartup() {
+        int port = webServerAppContext.getWebServer().getPort();
+
+        // Detecta a porta externa (host) se estiver em Docker
+        String mappedPort = System.getenv("SERVER_PORT_EXTERNAL");
+        String effectivePort = (mappedPort != null && !mappedPort.isBlank()) ? mappedPort : String.valueOf(port);
+
+        String startupBanner = String.format("""
                 ==============================================================
                 ✅  SISTEMA ERP FISCAL BORURIO BRASIL INICIADO
                 --------------------------------------------------------------
                 🔗  ENDPOINTS PRINCIPAIS DISPONÍVEIS:
-                    • Swagger UI:      http://localhost:8080/swagger-ui/index.html
-                    • OpenAPI JSON:    http://localhost:8080/v3/api-docs
-                    • Actuator Health: http://localhost:8080/actuator/health
+                    • Swagger UI:      http://localhost:%s/swagger-ui/index.html
+                    • OpenAPI JSON:    http://localhost:%s/v3/api-docs
+                    • Actuator Health: http://localhost:%s/actuator/health
                 --------------------------------------------------------------
-                🌐  Perfil ativo: {}
-                📅  Data de inicialização: {}
+                🌐  Perfil ativo: %s
+                📅  Data de inicialização: %s
                 --------------------------------------------------------------
                 📦  Módulos carregados: core | app | fiscal | web
                 🧩  Padrão DevSecOps: segurança • automação • observabilidade
                 ==============================================================
-                """, activeProfile, java.time.LocalDateTime.now());
+
+                ERP Fiscal Borurio Brasil iniciado com sucesso.
+                Perfil ativo: application-dev.yml
+                Porta interna: %d | Porta externa: %s
+                ==============================================================
+                """,
+                effectivePort, effectivePort, effectivePort,
+                activeProfile, LocalDateTime.now(), port, effectivePort);
+
+        log.info(startupBanner);
     }
 }
