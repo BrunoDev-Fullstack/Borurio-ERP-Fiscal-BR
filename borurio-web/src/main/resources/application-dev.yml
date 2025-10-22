@@ -8,7 +8,7 @@
 ###################################################################################################
 
 server:
-  port: 8082                                  # Porta interna da API principal (exposta como 8082 no Docker)
+  port: 8182                                  # Porta principal da API REST
   servlet:
     context-path: /
   error:
@@ -53,7 +53,7 @@ spring:
       connect-timeout: 2000
 
   ################################################################################################
-  # JACKSON – Serialização JSON (formatação padrão brasileira)
+  # JACKSON – Serialização JSON
   ################################################################################################
   jackson:
     serialization:
@@ -64,7 +64,7 @@ spring:
     default-property-inclusion: non_null
 
   ################################################################################################
-  # SPRING CORE – Configurações gerais e MVC
+  # SPRING CORE – MVC e CORS
   ################################################################################################
   main:
     allow-bean-definition-overriding: true
@@ -81,7 +81,7 @@ spring:
       allowed-headers: "*"
 
 ###################################################################################################
-# LOGGING – Auditoria e Rastreabilidade (via Logback)
+# LOGGING – Auditoria e Rastreabilidade
 ###################################################################################################
 logging:
   config: classpath:logback-dev.xml
@@ -95,7 +95,7 @@ logging:
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 ###################################################################################################
-# SEFAZ-SP – Integração NF-e (Homologação tpAmb=2)
+# SEFAZ-SP – Integração NF-e (Homologação)
 ###################################################################################################
 sefaz:
   ambiente: homologacao
@@ -106,32 +106,19 @@ sefaz:
   url-status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
 
 ###################################################################################################
-# LEGADO DE COMPATIBILIDADE – Variáveis esperadas por NfeTransmitServiceImpl
-###################################################################################################
-nfe:
-  sefaz:
-    tpAmb: 2
-    certificado: ${NFE_SEFAZ_CERTIFICADO:C:/Projetos/borurio-erp-br/certificados/mock-dev-certificado.pfx}
-    senha: ${NFE_SEFAZ_SENHA:mock123}
-    url-autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-    url-retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-    url-consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-    url-status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
-
-###################################################################################################
-# FISCAL – Certificado Digital A1 (PFX)
+# FISCAL – Certificado Digital A1
 ###################################################################################################
 fiscal:
   cert:
-    path: ${CERT_PATH:C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx}
-    pass: ${CERT_PASS:1234}
+    path: ${CERT_PATH:C:/Projetos/borurio-erp-br/certs/borurio-hom.pfx}
+    pass: ${CERT_PASS:123456}
 
 ###################################################################################################
 # ACTUATOR – Monitoramento e Observabilidade
 ###################################################################################################
 management:
   server:
-    port: 8081                             # Porta separada do servidor principal (8082) para monitoramento
+    port: 8181                             # Porta separada do servidor principal (8182)
   endpoints:
     web:
       base-path: /actuator
@@ -158,13 +145,11 @@ app:
   owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
 
 ###################################################################################################
-# NOTAS TÉCNICAS
-# -----------------------------------------------------------------------------------------------
-# - Ambiente integrado Docker Compose (MySQL 3307 / Redis 6379 / MinIO / Mailpit)
-# - Mock SEFAZ habilitado para testes de NF-e 4.00 (NT 2025.002 v1.30)
-# - Certificado Digital A1 genérico (generic-dev-cert.pfx)
-# - Flyway ativo no módulo fiscal, desativado no web
-# - Porta interna 8082 (API Web) e 8081 (Actuator Health)
-# - Configuração alinhada ao container borurio-web-dev
-# - spring.jpa.open-in-view=false já configurado para segurança transacional
+# ENDPOINTS AUXILIARES (PingController / /api/test/ping)
+###################################################################################################
+borurio:
+  web:
+    internal-port: 8182
+    actuator-port: 8181
+    test-port: 8183
 ###################################################################################################

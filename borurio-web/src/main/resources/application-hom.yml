@@ -1,0 +1,81 @@
+###################################################################################################
+# AMBIENTE: HOMOLOGAÇÃO — SEFAZ-SP
+# Projeto: Borurio ERP Fiscal BR
+# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+# Data: 22/10/2025
+###################################################################################################
+# Descrição:
+# Arquivo de configuração Spring Boot para o ambiente de homologação.
+# Utiliza containers Docker de MySQL, Redis e certificado PFX dedicado.
+###################################################################################################
+
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST:borurio-mysql-hom}:${DB_PORT:3306}/borurio_fiscal_hom?useSSL=false&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true
+    username: ${DB_USER:borurio}
+    password: ${DB_PASS:H4ck3r123}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      host: ${REDIS_HOST:borurio-redis-hom}
+      port: ${REDIS_PORT:6379}
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+    show-sql: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+server:
+  port: ${SERVER_PORT:8282}
+
+borurio:
+  ambiente: homologacao
+  certificado:
+    caminho: ${CERT_PATH:certs/borurio-hom.pfx}
+    senha: ${CERT_PASS:SENHA_DO_CERTIFICADO}
+  sefaz:
+    uf: ${SEFAZ_UF:SP}
+    tpAmb: ${TP_AMB:2}
+    versao: 4.00
+    urlAutorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
+    urlRetAutorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
+    urlStatusServico: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx
+    urlConsultaProtocolo: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx
+    urlInutilizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx
+    urlRecepcaoEvento: https://homologacao.nfe.fazenda.sp.gov.br/ws/RecepcaoEvento4.asmx
+
+logging:
+  file:
+    name: ${LOG_PATH:logs/borurio-hom.log}
+  level:
+    root: INFO
+    br.com.borurio: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env,metrics,beans,loggers
+  endpoint:
+    health:
+      show-details: always
+
+###################################################################################################
+# Observações:
+# - Porta padrão: 8282
+# - Banco de dados: borurio_fiscal_hom (MySQL 8.4, container: borurio-mysql-hom)
+# - Redis: borurio-redis-hom (porta interna 6379)
+# - Certificado digital: certs/borurio-hom.pfx
+# - Ambiente SEFAZ: Homologação (tpAmb=2)
+# - Flyway habilitado para versionamento de schema
+# - Logs persistidos em logs/borurio-hom.log
+###################################################################################################

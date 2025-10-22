@@ -22,27 +22,27 @@ import java.time.LocalDateTime;
  * =============================================================================
  * SERVIÇO: NfeTransmitServiceImpl
  * -----------------------------------------------------------------------------
- * Responsável pela transmissão dos XMLs de NF-e (versão 4.00) aos WebServices
- * da SEFAZ-SP, em ambiente de homologação (tpAmb=2) ou produção (tpAmb=1).
+ * Responsável pela transmissão de XMLs NF-e (versão 4.00) aos WebServices SEFAZ-SP.
+ * Utiliza comunicação SOAP 1.2 + TLS mútua com certificado A1 (.pfx).
  *
- * Executa comunicação SOAP 1.2 com autenticação mútua TLS via certificado
- * digital A1 (.pfx), garantindo integridade e rastreabilidade.
- *
- * =============================================================================
- * CONFIGURAÇÕES REQUERIDAS (application-dev.yml - módulo borurio-web)
- *
- * sefaz:
- *   url-autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
- *   url-retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
- *
- * fiscal:
- *   cert:
- *     path: C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx
- *     pass: 1234
+ * Ambientes suportados:
+ *  - Homologação (tpAmb=2)
+ *  - Produção (tpAmb=1)
  *
  * =============================================================================
- * Autor: Bruno Ribeiro — Desenvolvedor Java / DevSecOps
- * Versão: 3.2 (Sprint Fiscal – Integração SEFAZ-SP)
+ * CONFIGURAÇÃO REQUERIDA (application-<perfil>.yml):
+ *
+ * borurio:
+ *   sefaz:
+ *     urlAutorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
+ *     urlRetAutorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
+ *   certificado:
+ *     caminho: certs/borurio-hom.pfx
+ *     senha: SENHA_DO_CERTIFICADO
+ *
+ * =============================================================================
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Versão: 3.3 (Homologação SEFAZ-SP)
  * =============================================================================
  */
 @Slf4j
@@ -51,28 +51,47 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
 
     private final NfeLogMapper nfeLogMapper;
     private final CertificadoService certificadoService;
+
+    // URLs SEFAZ (injeção via application-hom.yml)
     private final String sefazUrlAutorizacao;
-    private final String sefazUrlRetorno;
-    private final String certificadoPath;
+    private final String sefazUrlRetAutorizacao;
+    private final String sefazUrlStatusServico;
+    private final String sefazUrlConsultaProtocolo;
+    private final String sefazUrlInutilizacao;
+    private final String sefazUrlRecepcaoEvento;
+
+    // Certificado digital (injeção via application-hom.yml)
+    private final String certificadoCaminho;
     private final String certificadoSenha;
 
     @Autowired
     public NfeTransmitServiceImpl(
             NfeLogMapper nfeLogMapper,
             CertificadoService certificadoService,
-            @Value("${sefaz.url-autorizacao}") String sefazUrlAutorizacao,
-            @Value("${sefaz.url-retorno}") String sefazUrlRetorno,
-            @Value("${fiscal.cert.path}") String certificadoPath,
-            @Value("${fiscal.cert.pass}") String certificadoSenha
+            @Value("${borurio.sefaz.urlAutorizacao}") String sefazUrlAutorizacao,
+            @Value("${borurio.sefaz.urlRetAutorizacao}") String sefazUrlRetAutorizacao,
+            @Value("${borurio.sefaz.urlStatusServico}") String sefazUrlStatusServico,
+            @Value("${borurio.sefaz.urlConsultaProtocolo}") String sefazUrlConsultaProtocolo,
+            @Value("${borurio.sefaz.urlInutilizacao}") String sefazUrlInutilizacao,
+            @Value("${borurio.sefaz.urlRecepcaoEvento}") String sefazUrlRecepcaoEvento,
+            @Value("${borurio.certificado.caminho}") String certificadoCaminho,
+            @Value("${borurio.certificado.senha}") String certificadoSenha
     ) {
         this.nfeLogMapper = nfeLogMapper;
         this.certificadoService = certificadoService;
         this.sefazUrlAutorizacao = sefazUrlAutorizacao;
-        this.sefazUrlRetorno = sefazUrlRetorno;
-        this.certificadoPath = certificadoPath;
+        this.sefazUrlRetAutorizacao = sefazUrlRetAutorizacao;
+        this.sefazUrlStatusServico = sefazUrlStatusServico;
+        this.sefazUrlConsultaProtocolo = sefazUrlConsultaProtocolo;
+        this.sefazUrlInutilizacao = sefazUrlInutilizacao;
+        this.sefazUrlRecepcaoEvento = sefazUrlRecepcaoEvento;
+        this.certificadoCaminho = certificadoCaminho;
         this.certificadoSenha = certificadoSenha;
     }
 
+    // =========================================================================
+    // ENVIO DE NF-E
+    // =========================================================================
     @Override
     public String transmitirXml(String xmlAssinado, String cnpjEmitente) {
         NfeLog logFiscal = NfeLog.builder()
@@ -95,32 +114,37 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
             logFiscal.setDataEvento(LocalDateTime.now());
             nfeLogMapper.insertLog(logFiscal);
 
-            log.info("NF-e transmitida com sucesso. CNPJ: {}", cnpjEmitente);
+            log.info("[NF-e] Transmissão bem-sucedida para SEFAZ-SP — CNPJ: {}", cnpjEmitente);
             return respostaSefaz;
 
         } catch (Exception ex) {
             logFiscal.setStatus("ERROR");
             logFiscal.setDescricao("Falha na transmissão NF-e: " + ex.getMessage());
-            logFiscal.setXmlRetorno(null);
             logFiscal.setDataEvento(LocalDateTime.now());
             nfeLogMapper.insertLog(logFiscal);
 
-            log.error("Erro ao transmitir NF-e para SEFAZ-SP: {}", ex.getMessage(), ex);
+            log.error("[NF-e] Erro ao transmitir NF-e para SEFAZ-SP: {}", ex.getMessage(), ex);
             return null;
         }
     }
 
+    // =========================================================================
+    // CONSULTA DE STATUS
+    // =========================================================================
     @Override
     public String consultarStatus() {
         try {
-            log.info("Consultando status do serviço SEFAZ-SP em {}", sefazUrlAutorizacao);
+            log.info("[NF-e] Consultando status do serviço SEFAZ-SP em {}", sefazUrlStatusServico);
             return "Serviço NF-e ativo (mock SEFAZ-SP)";
         } catch (Exception e) {
-            log.error("Falha ao consultar status da SEFAZ-SP: {}", e.getMessage(), e);
+            log.error("[NF-e] Falha ao consultar status da SEFAZ-SP: {}", e.getMessage(), e);
             return "Serviço NF-e indisponível";
         }
     }
 
+    // =========================================================================
+    // UTILITÁRIOS INTERNOS
+    // =========================================================================
     private String criarEnvelopeSoap(String xmlAssinado) {
         return """
             <soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
@@ -134,14 +158,13 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     }
 
     /**
-     * Envia o envelope SOAP via HTTPS ao endpoint da SEFAZ-SP,
-     * utilizando o certificado A1 já carregado via CertificadoService.
+     * Envia o envelope SOAP via HTTPS com autenticação mútua (TLS) para SEFAZ-SP.
      */
     private String enviarSoap(String soapEnvelope) throws IOException {
         URL url = new URL(sefazUrlAutorizacao);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
 
-        // Configuração SSL obtida do serviço de certificado já inicializado
+        // SSL do certificado A1 carregado via CertificadoService
         connection.setSSLSocketFactory(certificadoService.getSslContext().getSocketFactory());
 
         // Configurações HTTP
@@ -151,10 +174,12 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(25000);
 
+        // Envio do envelope SOAP
         try (OutputStream os = connection.getOutputStream()) {
             os.write(soapEnvelope.getBytes(StandardCharsets.UTF_8));
         }
 
+        // Leitura da resposta SEFAZ
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
             StringBuilder response = new StringBuilder();
