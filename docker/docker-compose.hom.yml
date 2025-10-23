@@ -1,7 +1,8 @@
 # =============================================================================
-# Docker Compose - Ambiente de Homologação (SEFAZ-SP)
+# DOCKER COMPOSE — AMBIENTE DE HOMOLOGAÇÃO (SEFAZ-SP)
 # Projeto: Borurio ERP Fiscal BR
-# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+# Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+# Data: 23/10/2025
 # =============================================================================
 # Estrutura: Monólito Modular (borurio-web + core + app + fiscal)
 # Objetivo: Testes de integração real com SEFAZ-SP (Homologação)
@@ -11,7 +12,7 @@ version: "3.9"
 services:
 
   # ---------------------------------------------------------------------------
-  # MySQL - Banco de Dados (Homologação)
+  # MYSQL — Banco de Dados Homologação
   # ---------------------------------------------------------------------------
   mysql:
     container_name: borurio-mysql-hom
@@ -20,10 +21,10 @@ services:
     ports:
       - "3310:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: SENHA_NOVA_DO_ROOT
-      MYSQL_DATABASE: borurio_fiscal_hom
-      MYSQL_USER: borurio
-      MYSQL_PASSWORD: H4ck3r123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-SENHA_NOVA_DO_ROOT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal_hom}
+      MYSQL_USER: ${MYSQL_USER:-borurio}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
       TZ: America/Sao_Paulo
     volumes:
       - mysql_hom_data:/var/lib/mysql:rw
@@ -40,7 +41,7 @@ services:
       - no-new-privileges:true
 
   # ---------------------------------------------------------------------------
-  # Redis - Cache e Sessões (Homologação)
+  # REDIS — Cache e Sessões
   # ---------------------------------------------------------------------------
   redis:
     container_name: borurio-redis-hom
@@ -63,17 +64,17 @@ services:
       - no-new-privileges:true
 
   # ---------------------------------------------------------------------------
-  # Web - Aplicação Principal (borurio-web)
+  # BORURIO-WEB — Aplicação Principal (API REST + Actuator + Swagger)
   # ---------------------------------------------------------------------------
   web:
     container_name: borurio-web-hom
     build:
-      context: ../                  # Contexto: raiz do monorepo
+      context: ../                         # Contexto: raiz do monorepo
       dockerfile: ./borurio-web/Dockerfile
     restart: unless-stopped
     ports:
-      - "8282:8282"   # API principal (Swagger, Controllers)
-      - "8181:8181"   # Actuator / Health
+      - "8282:8282"   # API principal (Controllers, Swagger)
+      - "8283:8283"   # Actuator / Health / Metrics
     env_file:
       - ./env/.env.hom
     environment:
@@ -81,16 +82,23 @@ services:
       TZ: America/Sao_Paulo
       DB_HOST: mysql
       DB_PORT: 3306
-      DB_USER: borurio
-      DB_PASS: H4ck3r123
+      DB_USER: ${MYSQL_USER:-borurio}
+      DB_PASS: ${MYSQL_PASSWORD:-H4ck3r123}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+
+      # URLs SEFAZ Homologação (necessárias para placeholders Spring)
+      BORURIO_SEFAZ_URLAUTORIZACAO: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+      BORURIO_SEFAZ_URLRETAUTORIZACAO: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+
+      # Força leitura explícita do YAML no classpath
+      JAVA_OPTS: "-Dspring.config.additional-location=classpath:/application-hom.yml"
     volumes:
-      # Certificado A1 (.pfx) montado a partir do módulo fiscal
-      - ../borurio-fiscal/src/main/resources/certs:/certs:ro
+      # Certificado Digital A1 (.pfx) do módulo fiscal
+      - ../borurio-fiscal/src/main/resources/certs:/app/certs:ro
 
       # Logs e cache Maven compartilhado
-      - ./logs:/logs:rw
+      - ./logs:/app/logs:rw
       - ~/.m2:/root/.m2:rw
     depends_on:
       mysql:
@@ -102,7 +110,7 @@ services:
     tty: true
     stdin_open: true
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8181/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8283/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -111,12 +119,12 @@ services:
       - no-new-privileges:true
 
   # ---------------------------------------------------------------------------
-  # Fiscal - Módulo NF-e (Build/Teste Unitário SEFAZ-SP)
+  # BORURIO-FISCAL — Módulo NF-e (Build e Testes SEFAZ-SP)
   # ---------------------------------------------------------------------------
   fiscal:
     container_name: borurio-fiscal-hom
     build:
-      context: ../                  # Contexto: raiz do monorepo
+      context: ../
       dockerfile: ./borurio-fiscal/Dockerfile
     restart: "no"
     env_file:
@@ -124,14 +132,14 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-    command: ["echo", "Container fiscal buildado para testes unitários e integração SEFAZ"]
+    command: ["echo", "Container fiscal buildado para testes unitários e integração SEFAZ-SP"]
     networks:
       - borurio-net-hom
     security_opt:
       - no-new-privileges:true
 
 # =============================================================================
-# Rede e Volumes
+# REDE E VOLUMES
 # =============================================================================
 networks:
   borurio-net-hom:

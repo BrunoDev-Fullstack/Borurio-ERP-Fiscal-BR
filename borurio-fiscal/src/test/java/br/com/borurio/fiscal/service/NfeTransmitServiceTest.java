@@ -23,7 +23,7 @@ import static org.mockito.Mockito.*;
 /**
  * =============================================================================
  * TESTE UNITÁRIO: NfeTransmitServiceTest
- * -----------------------------------------------------------------------------
+ * =============================================================================
  * Verifica o comportamento do componente {@link NfeTransmitServiceImpl},
  * responsável pela transmissão dos XMLs NF-e (v4.00) aos WebServices da SEFAZ-SP.
  *
@@ -59,15 +59,25 @@ public class NfeTransmitServiceTest {
         when(sslContext.getSocketFactory()).thenReturn(socketFactory);
         when(certificadoService.getSslContext()).thenReturn(sslContext);
 
-        service = new NfeTransmitServiceImpl(logMapper, certificadoService,
-                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx");
+        // Instancia completa com 10 argumentos (ajustada ao novo construtor)
+        service = new NfeTransmitServiceImpl(
+                logMapper,
+                certificadoService,
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx",
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx",
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx",
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx",
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx",
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/RecepcaoEvento4.asmx",
+                "/app/certs/borurio-hom.pfx",
+                "SENHA_DO_CERTIFICADO"
+        );
     }
 
     @Test
     @DisplayName("Deve transmitir NF-e com sucesso e registrar log fiscal (status SUCCESS)")
     void testTransmitirComSucesso() throws Exception {
         try (MockedStatic<SSLContext> ignored = Mockito.mockStatic(SSLContext.class)) {
-            // Simula sucesso (sem exceções)
             NfeTransmitServiceImpl spyService = Mockito.spy(service);
             doReturn("<retEnviNFe><cStat>100</cStat></retEnviNFe>")
                     .when(spyService).transmitirXml(anyString(), anyString());
@@ -89,7 +99,8 @@ public class NfeTransmitServiceTest {
     @DisplayName("Deve registrar falha de SSLException e retornar null")
     void testFalhaSsl() throws Exception {
         NfeTransmitServiceImpl spyService = Mockito.spy(service);
-        doThrow(new SSLException("Falha no handshake")).when(spyService).transmitirXml(anyString(), anyString());
+        doThrow(new SSLException("Falha no handshake")).when(spyService)
+                .transmitirXml(anyString(), anyString());
 
         String resultado = spyService.transmitirXml(XML_MOCK, "12345678000190");
         assertNull(resultado, "Em caso de SSLException, o retorno deve ser null.");
@@ -113,7 +124,8 @@ public class NfeTransmitServiceTest {
     @DisplayName("Deve registrar falha genérica (IOException)")
     void testFalhaIo() throws Exception {
         NfeTransmitServiceImpl spyService = Mockito.spy(service);
-        doThrow(new IOException("Erro de rede")).when(spyService).transmitirXml(anyString(), anyString());
+        doThrow(new IOException("Erro de rede")).when(spyService)
+                .transmitirXml(anyString(), anyString());
 
         String resultado = spyService.transmitirXml(XML_MOCK, "12345678000190");
         assertNull(resultado);

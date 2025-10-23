@@ -159,11 +159,13 @@
     <build>
         <finalName>${project.artifactId}-${project.version}</finalName>
 
-        <!-- Recursos -->
+        <!-- Recursos (inclui scripts de migração e arquivos de schema fiscal) -->
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
                 <includes>
+                    <include>db/migration/**</include>
+                    <include>flyway.conf</include>
                     <include>**/*.xsd</include>
                     <include>**/*.xml</include>
                     <include>**/*.yml</include>
@@ -172,7 +174,6 @@
             </resource>
         </resources>
 
-        <!-- Testes (mantido mas ignorado no build) -->
         <testResources>
             <testResource>
                 <directory>src/test/resources</directory>
@@ -195,10 +196,6 @@
                     <source>${java.version}</source>
                     <target>${java.version}</target>
                     <encoding>${project.build.sourceEncoding}</encoding>
-                    <testExcludes>
-                        <testExclude>**/test/**</testExclude>
-                        <testExclude>**/*Test.java</testExclude>
-                    </testExcludes>
                 </configuration>
             </plugin>
 
@@ -211,9 +208,6 @@
                 <version>${surefire.version}</version>
                 <configuration>
                     <skipTests>true</skipTests>
-                    <excludes>
-                        <exclude>**/*Test.java</exclude>
-                    </excludes>
                 </configuration>
             </plugin>
 

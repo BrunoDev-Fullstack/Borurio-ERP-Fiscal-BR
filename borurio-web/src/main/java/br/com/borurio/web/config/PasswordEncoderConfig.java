@@ -7,30 +7,44 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * =============================================================================
- * CONFIGURAÇÃO GLOBAL — PasswordEncoder (BCrypt)
+ * CONFIGURAÇÃO GLOBAL DE SENHAS — PasswordEncoder (BCrypt)
  * =============================================================================
- * Finalidade:
- *   - Centralizar a definição do codificador de senhas da aplicação.
- *   - Evitar duplicação e ciclos de dependência entre SecurityConfig e
- *     UserDetailsServiceImpl.
+ * Responsável por fornecer o codificador de senhas padrão da aplicação.
  *
- * Boas práticas:
- *   - Define um único bean global reutilizável em todo o contexto Spring.
- *   - Utiliza o algoritmo BCrypt (robusto e seguro para aplicações corporativas).
- *   - Facilita auditorias e manutenções de segurança.
+ * Funções principais:
+ *   - Criptografar senhas de usuários ao salvar no banco.
+ *   - Validar senhas informadas no login (BCrypt matches).
+ *   - Evitar duplicações e dependências circulares entre SecurityConfig
+ *     e UserDetailsServiceImpl.
+ *
+ * Padrões e recomendações:
+ *   - Utiliza o algoritmo BCrypt com sal interno e fator de custo adaptativo.
+ *   - Implementação compatível com OWASP ASVS e LGPD (proteção de credenciais).
+ *   - Força padrão de 10 rounds (ajustável via construtor, se necessário).
+ *
  * =============================================================================
- * Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
- * Data: 22/10/2025
+ * Projeto: Borurio ERP Fiscal BR
+ * Módulo: borurio-web
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Data: 23/10/2025
  * =============================================================================
  */
 @Configuration
 public class PasswordEncoderConfig {
 
     /**
-     * Bean global responsável por criptografar e validar senhas.
-     * Utiliza o algoritmo BCrypt com sal interno e força adaptativa.
+     * Bean global de codificação de senhas.
      *
-     * @return instância de PasswordEncoder (BCrypt)
+     * O BCrypt é uma função de hash adaptativa — conforme o hardware evolui,
+     * o custo (fator de trabalho) pode ser aumentado para reforçar a segurança.
+     *
+     * Exemplo de uso:
+     * <pre>
+     *   String hash = passwordEncoder.encode("senha123");
+     *   boolean ok = passwordEncoder.matches("senha123", hash);
+     * </pre>
+     *
+     * @return instância singleton de {@link PasswordEncoder} configurada com BCrypt.
      */
     @Bean
     public PasswordEncoder passwordEncoder() {

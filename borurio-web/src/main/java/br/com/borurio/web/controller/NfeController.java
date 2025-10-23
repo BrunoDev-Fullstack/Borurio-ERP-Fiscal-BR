@@ -11,21 +11,28 @@ import org.springframework.web.bind.annotation.*;
 /**
  * =============================================================================
  * CONTROLADOR NF-E (BORURIO FISCAL)
- * -----------------------------------------------------------------------------
+ * =============================================================================
  * Responsável por expor endpoints REST para operações fiscais da NF-e.
- * Integra o módulo Web com o módulo Fiscal (borurio-fiscal), permitindo
- * a transmissão de XMLs assinados e a consulta de status da SEFAZ-SP.
+ * Integra o módulo Web com o módulo Fiscal (borurio-fiscal), permitindo:
+ *   - Transmissão de XMLs assinados para a SEFAZ-SP (mock ou real).
+ *   - Consulta de status de serviço SEFAZ (tpAmb=2 / tpAmb=1).
  *
  * Padrões aplicados:
- * - Arquitetura em camadas (Controller → Service → Mapper)
- * - Boas práticas RESTful com retorno padronizado {code, message, data}
- * - Logging estruturado via SLF4J
- * - Tratamento resiliente de exceções
+ *   - Arquitetura em camadas (Controller → Service → Mapper)
+ *   - Boas práticas RESTful com retorno padronizado {code, message, data}
+ *   - Logging estruturado via SLF4J
+ *   - Tratamento resiliente de exceções
  *
  * Compatibilidade:
- * - Java 17
- * - Spring Boot 3.3.x
- * - Maven 3.9.x
+ *   - Java 17
+ *   - Spring Boot 3.3.x
+ *   - Maven 3.9.x
+ *
+ * =============================================================================
+ * Projeto: Borurio ERP Fiscal BR
+ * Módulo: borurio-web
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Data: 23/10/2025
  * =============================================================================
  */
 @Slf4j
@@ -34,7 +41,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class NfeController {
 
-    /** Serviço responsável pela transmissão e status da NF-e */
+    /** Serviço responsável pela transmissão e consulta NF-e */
     private final NfeTransmitService nfeTransmitService;
 
     // =========================================================================
@@ -70,8 +77,11 @@ public class NfeController {
 
         if (xmlAssinado == null || xmlAssinado.isBlank()) {
             log.warn("XML vazio ou ausente | CNPJ: {}", cnpjEmitente);
-            return buildResponse(HttpStatus.BAD_REQUEST,
-                    "O corpo da requisição (XML) não pode estar vazio.", null);
+            return buildResponse(
+                    HttpStatus.BAD_REQUEST,
+                    "O corpo da requisição (XML) não pode estar vazio.",
+                    null
+            );
         }
 
         try {
@@ -79,23 +89,35 @@ public class NfeController {
 
             if (respostaSefaz == null) {
                 log.error("Falha ao transmitir NF-e | CNPJ: {}", cnpjEmitente);
-                return buildResponse(HttpStatus.BAD_GATEWAY,
-                        "Falha ao comunicar com a SEFAZ-SP", null);
+                return buildResponse(
+                        HttpStatus.BAD_GATEWAY,
+                        "Falha ao comunicar com a SEFAZ-SP",
+                        null
+                );
             }
 
             log.info("NF-e transmitida com sucesso | CNPJ: {}", cnpjEmitente);
-            return buildResponse(HttpStatus.OK,
-                    "NF-e enviada com sucesso à SEFAZ-SP", respostaSefaz);
+            return buildResponse(
+                    HttpStatus.OK,
+                    "NF-e enviada com sucesso à SEFAZ-SP",
+                    respostaSefaz
+            );
 
         } catch (IllegalArgumentException ex) {
             log.error("Parâmetros inválidos | CNPJ: {} | Erro: {}", cnpjEmitente, ex.getMessage());
-            return buildResponse(HttpStatus.BAD_REQUEST,
-                    "Parâmetros inválidos: " + ex.getMessage(), null);
+            return buildResponse(
+                    HttpStatus.BAD_REQUEST,
+                    "Parâmetros inválidos: " + ex.getMessage(),
+                    null
+            );
 
         } catch (Exception ex) {
             log.error("Erro interno ao transmitir NF-e | CNPJ: {} | Erro: {}", cnpjEmitente, ex.getMessage(), ex);
-            return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Erro interno ao transmitir NF-e: " + ex.getMessage(), null);
+            return buildResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Erro interno ao transmitir NF-e: " + ex.getMessage(),
+                    null
+            );
         }
     }
 
@@ -104,14 +126,14 @@ public class NfeController {
     // =========================================================================
 
     /**
-     * Verifica a disponibilidade do serviço fiscal (mock SEFAZ-SP).
+     * Verifica a disponibilidade do serviço fiscal (mock SEFAZ-SP ou real).
      *
      * Exemplo:
      * <pre>
      * GET /nfe/status
      * </pre>
      *
-     * @return Status atual do serviço NF-e.
+     * @return Status atual do serviço NF-e (ex.: “Serviço NF-e ativo”).
      */
     @GetMapping("/status")
     public ResponseEntity<ApiResponse> status() {
@@ -121,8 +143,11 @@ public class NfeController {
             return buildResponse(HttpStatus.OK, status, null);
         } catch (Exception e) {
             log.error("Falha ao consultar status da SEFAZ-SP: {}", e.getMessage(), e);
-            return buildResponse(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Serviço NF-e indisponível", null);
+            return buildResponse(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Serviço NF-e indisponível",
+                    null
+            );
         }
     }
 

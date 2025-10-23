@@ -1,81 +1,178 @@
 ###################################################################################################
-# AMBIENTE: HOMOLOGAÇÃO — SEFAZ-SP
-# Projeto: Borurio ERP Fiscal BR
-# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
-# Data: 22/10/2025
+# AMBIENTE DE HOMOLOGAÇÃO – BORURIO ERP FISCAL BR
+# -----------------------------------------------------------------------------------------------
+# Módulo: borurio-web (API REST principal)
+# Integrações: MySQL, Redis, SEFAZ-SP (NF-e 4.00 Homologação)
+# Stack: Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
+# Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
 ###################################################################################################
-# Descrição:
-# Arquivo de configuração Spring Boot para o ambiente de homologação.
-# Utiliza containers Docker de MySQL, Redis e certificado PFX dedicado.
-###################################################################################################
+
+server:
+  port: 8282                                   # Porta principal da API REST
+  servlet:
+    context-path: /api                         # Contexto base da API (ex.: /api/nfe/status)
+  error:
+    include-message: always
+    include-binding-errors: always
 
 spring:
+  application:
+    name: borurio-web-hom
+
+  ################################################################################################
+  # BANCO DE DADOS – MySQL 8.4 (container: borurio-mysql-hom)
+  ################################################################################################
   datasource:
-    url: jdbc:mysql://${DB_HOST:borurio-mysql-hom}:${DB_PORT:3306}/borurio_fiscal_hom?useSSL=false&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:borurio-mysql-hom}:${DB_PORT:3306}/borurio_fiscal_hom?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
     username: ${DB_USER:borurio}
     password: ${DB_PASS:H4ck3r123}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: BorurioWebHikariPoolHom
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
 
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate.format_sql: true
+      hibernate.show_sql: false
+      hibernate.dialect: org.hibernate.dialect.MySQLDialect
+
+  ################################################################################################
+  # FLYWAY – MIGRAÇÕES AUTOMÁTICAS (SCHEMA: BORURIO_FISCAL_HOM)
+  ################################################################################################
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    clean-disabled: true
+    encoding: UTF-8
+    mixed: true
+    locations:
+      - classpath:db/migration
+    # O Flyway buscará automaticamente os scripts empacotados no JAR do módulo borurio-fiscal.
+
+  ################################################################################################
+  # REDIS – Cache e Sessões (container: borurio-redis-hom)
+  ################################################################################################
   data:
     redis:
       host: ${REDIS_HOST:borurio-redis-hom}
       port: ${REDIS_PORT:6379}
+      timeout: 2000
+      connect-timeout: 2000
 
-  jpa:
-    hibernate:
-      ddl-auto: none
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.MySQLDialect
-    show-sql: false
+  ################################################################################################
+  # JACKSON – Serialização JSON
+  ################################################################################################
+  jackson:
+    serialization:
+      indent_output: true
+    date-format: yyyy-MM-dd'T'HH:mm:ss
+    time-zone: America/Sao_Paulo
+    locale: pt_BR
+    default-property-inclusion: non_null
 
-  flyway:
-    enabled: true
-    baseline-on-migrate: true
-    locations: classpath:db/migration
+  ################################################################################################
+  # SPRING CORE – MVC e CORS
+  ################################################################################################
+  main:
+    allow-bean-definition-overriding: true
+    banner-mode: console
+  mvc:
+    throw-exception-if-no-handler-found: true
+    static-path-pattern: /static/**
+  web:
+    resources:
+      add-mappings: true
+    cors:
+      allowed-origins: "*"
+      allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
+      allowed-headers: "*"
 
-server:
-  port: ${SERVER_PORT:8282}
-
-borurio:
-  ambiente: homologacao
-  certificado:
-    caminho: ${CERT_PATH:certs/borurio-hom.pfx}
-    senha: ${CERT_PASS:SENHA_DO_CERTIFICADO}
-  sefaz:
-    uf: ${SEFAZ_UF:SP}
-    tpAmb: ${TP_AMB:2}
-    versao: 4.00
-    urlAutorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
-    urlRetAutorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
-    urlStatusServico: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx
-    urlConsultaProtocolo: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx
-    urlInutilizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx
-    urlRecepcaoEvento: https://homologacao.nfe.fazenda.sp.gov.br/ws/RecepcaoEvento4.asmx
-
+###################################################################################################
+# LOGGING – Auditoria e Observabilidade
+###################################################################################################
 logging:
   file:
-    name: ${LOG_PATH:logs/borurio-hom.log}
+    name: ${LOG_PATH:/app/logs/borurio-hom.log}
   level:
     root: INFO
+    org.springframework: INFO
+    org.hibernate: WARN
+    org.flywaydb: INFO
     br.com.borurio: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
+###################################################################################################
+# BORURIO – Configurações Fiscais e SEFAZ-SP (Ambiente Homologação)
+###################################################################################################
+borurio:
+  ambiente: homologacao
+
+  sefaz:
+    uf: SP
+    tpAmb: 2
+    versao: 4.00
+    urlAutorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+    urlRetAutorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+    urlStatusServico: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+    urlConsultaProtocolo: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+    urlInutilizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
+    urlRecepcaoEvento: "https://homologacao.nfe.fazenda.sp.gov.br/ws/RecepcaoEvento4.asmx"
+
+  certificado:
+    caminho: ${CERT_PATH:/app/certs/borurio-hom.pfx}
+    senha: ${CERT_PASS:SENHA_DO_CERTIFICADO}
+
+  web:
+    internal-port: 8282
+    actuator-port: 8283
+
+###################################################################################################
+# FISCAL – Certificado Digital A1 (referência alternativa)
+###################################################################################################
+fiscal:
+  cert:
+    path: ${CERT_PATH:/app/certs/borurio-hom.pfx}
+    pass: ${CERT_PASS:SENHA_DO_CERTIFICADO}
+
+###################################################################################################
+# ACTUATOR – Monitoramento e Observabilidade
+###################################################################################################
 management:
+  server:
+    port: 8283                               # Porta dedicada aos endpoints de monitoramento
   endpoints:
     web:
+      base-path: /actuator
       exposure:
-        include: health,info,env,metrics,beans,loggers
+        include: "health,info,metrics,env,beans,loggers"
   endpoint:
     health:
       show-details: always
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+    ping:
+      enabled: true
 
 ###################################################################################################
-# Observações:
-# - Porta padrão: 8282
-# - Banco de dados: borurio_fiscal_hom (MySQL 8.4, container: borurio-mysql-hom)
-# - Redis: borurio-redis-hom (porta interna 6379)
-# - Certificado digital: certs/borurio-hom.pfx
-# - Ambiente SEFAZ: Homologação (tpAmb=2)
-# - Flyway habilitado para versionamento de schema
-# - Logs persistidos em logs/borurio-hom.log
+# PERFIL ATIVO E METADADOS DO AMBIENTE
+###################################################################################################
+app:
+  profile: hom
+  description: "Ambiente de Homologação NF-e SEFAZ-SP (tpAmb=2)"
+  version: ${project.version:1.0.0}
+  owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
 ###################################################################################################

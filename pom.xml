@@ -3,25 +3,29 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <!-- ================================================================
-         BORURIO ERP FISCAL BR – PROJETO MODULAR NACIONALIZADO
+    <!-- =============================================================================
+         BORURIO ERP FISCAL BR — PROJETO MODULAR NACIONALIZADO
          Módulos: Core / App / Fiscal / Web (Main)
-         Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis
+         Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway
+         Padrões: DevSecOps | CI/CD | OWASP | Docker | UTF-8
          Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
-         ================================================================ -->
+         Data: 23/10/2025
+         ============================================================================= -->
 
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- Identificação do projeto -->
     <groupId>br.com.borurio</groupId>
     <artifactId>borurio-erp-br</artifactId>
     <version>1.0.0</version>
     <packaging>pom</packaging>
+
     <name>Borurio ERP Fiscal BR</name>
     <description>ERP Fiscal nacionalizado — Java 17 | Spring Boot 3.3.2 | MyBatis | DevSecOps</description>
 
-    <!-- ================================================================
-         ESTRUTURA DE MÓDULOS
-         ================================================================ -->
+    <!-- =============================================================================
+         ESTRUTURA DE MÓDULOS (Monorepo Maven)
+         ============================================================================= -->
     <modules>
         <module>borurio-core</module>
         <module>borurio-app</module>
@@ -29,9 +33,9 @@
         <module>borurio-web</module>
     </modules>
 
-    <!-- ================================================================
+    <!-- =============================================================================
          PROPRIEDADES GLOBAIS
-         ================================================================ -->
+         ============================================================================= -->
     <properties>
         <java.version>17</java.version>
         <spring.boot.version>3.3.2</spring.boot.version>
@@ -42,12 +46,12 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
     </properties>
 
-    <!-- ================================================================
+    <!-- =============================================================================
          GERENCIAMENTO CENTRAL DE DEPENDÊNCIAS
-         ================================================================ -->
+         ============================================================================= -->
     <dependencyManagement>
         <dependencies>
-            <!-- Spring Boot – versão padrão para todos os módulos -->
+            <!-- Spring Boot - BOM (gerencia versões para todos os módulos) -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -58,15 +62,14 @@
         </dependencies>
     </dependencyManagement>
 
-    <!-- ================================================================
+    <!-- =============================================================================
          CONFIGURAÇÃO DE BUILD E PLUGINS
-         ================================================================ -->
+         ============================================================================= -->
     <build>
         <pluginManagement>
             <plugins>
 
-                <!-- Spring Boot (empacotamento e reempacotamento)
-                     Apenas o módulo Web gera o JAR executável -->
+                <!-- Spring Boot Plugin (apenas borurio-web gera o JAR executável) -->
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
@@ -117,7 +120,7 @@
                     </configuration>
                 </plugin>
 
-                <!-- Recursos / Codificação -->
+                <!-- Resources Plugin -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-resources-plugin</artifactId>
@@ -131,9 +134,9 @@
         </pluginManagement>
     </build>
 
-    <!-- ================================================================
+    <!-- =============================================================================
          REPOSITÓRIOS MAVEN
-         ================================================================ -->
+         ============================================================================= -->
     <repositories>
         <repository>
             <id>maven-central</id>
@@ -148,12 +151,12 @@
         </pluginRepository>
     </pluginRepositories>
 
-    <!-- ================================================================
+    <!-- =============================================================================
          PERFIS DE BUILD
-         ================================================================ -->
+         ============================================================================= -->
     <profiles>
 
-        <!-- Desenvolvimento local e Docker -->
+        <!-- Desenvolvimento (local / Docker) -->
         <profile>
             <id>dev</id>
             <activation>
@@ -164,7 +167,15 @@
             </properties>
         </profile>
 
-        <!-- Produção (CI/CD e Deploy) -->
+        <!-- Homologação -->
+        <profile>
+            <id>hom</id>
+            <properties>
+                <spring.profiles.active>hom</spring.profiles.active>
+            </properties>
+        </profile>
+
+        <!-- Produção -->
         <profile>
             <id>prd</id>
             <properties>
@@ -172,7 +183,7 @@
             </properties>
         </profile>
 
-        <!-- Varredura de segurança OWASP (pipeline) -->
+        <!-- Pipeline DevSecOps (OWASP Scan) -->
         <profile>
             <id>security-scan</id>
             <build>
@@ -196,9 +207,9 @@
 
     </profiles>
 
-    <!-- ================================================================
+    <!-- =============================================================================
          DISTRIBUIÇÃO (CI/CD – GitHub Packages)
-         ================================================================ -->
+         ============================================================================= -->
     <distributionManagement>
         <repository>
             <id>borurio-releases</id>

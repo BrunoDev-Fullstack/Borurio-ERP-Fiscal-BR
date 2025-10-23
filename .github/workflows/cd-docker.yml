@@ -1,8 +1,16 @@
 # =============================================================================
-# Workflow CD - Deploy Automatizado Multiambiente
+# WORKFLOW CD - DEPLOY AUTOMATIZADO MULTIAMBIENTE
 # Projeto: Borurio ERP Fiscal BR
-# Objetivo: Construir imagens Docker e implantar automaticamente em DEV e PRD
-# Disparo: Push nos branches main e dev, ou execução manual (workflow_dispatch)
+# Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+# =============================================================================
+# Objetivo:
+#   - Compilar e empacotar o ERP Fiscal (Java 17 / Spring Boot 3.3.x)
+#   - Construir imagens Docker multi-módulo
+#   - Subir containers em ambientes DEV (Homologação) e PRD (Produção)
+#
+# Disparo:
+#   - push para os branches main (PRD) e dev (Homologação)
+#   - manual via workflow_dispatch
 # =============================================================================
 
 name: CD - Deploy Automatizado Multiambiente
@@ -14,10 +22,16 @@ on:
 
 permissions:
   contents: read
+  packages: write
+  id-token: write
+
+env:
+  JAVA_VERSION: 17
+  MAVEN_OPTS: "-DskipTests=true -B -ntp"
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Deploy em ambiente de desenvolvimento / homologação
+  # DEPLOY — AMBIENTE DE HOMOLOGAÇÃO (DEV)
   # ---------------------------------------------------------------------------
   deploy-dev:
     name: Deploy em Ambiente de Homologação (DEV)
@@ -32,24 +46,22 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      - name: Compilar módulos do ERP Fiscal (DEV)
-        run: mvn clean package -DskipTests=true -B
+      - name: Compilar módulos (DEV)
+        run: mvn clean package ${{ env.MAVEN_OPTS }}
 
       - name: Instalar Docker e Docker Compose
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y docker.io docker-compose
-          sudo systemctl enable docker
           sudo systemctl start docker
           docker --version
           docker-compose --version
 
       - name: Construir imagens Docker (DEV)
-        run: |
-          docker-compose -f docker/docker-compose.dev.yml build --no-cache
+        run: docker-compose -f docker/docker-compose.dev.yml build --no-cache
 
       - name: Subir containers DEV
         run: |
@@ -57,9 +69,9 @@ jobs:
           docker ps -a
 
       - name: Verificar logs do container WEB (DEV)
-        run: docker logs vboot-web-dev || true
+        run: docker logs borurio-web-dev || true
 
-      - name: Arquivar logs do ambiente DEV
+      - name: Exportar logs do ambiente DEV
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -67,7 +79,7 @@ jobs:
           path: /var/lib/docker/containers/
 
   # ---------------------------------------------------------------------------
-  # Deploy em ambiente de produção
+  # DEPLOY — AMBIENTE DE PRODUÇÃO (PRD)
   # ---------------------------------------------------------------------------
   deploy-prd:
     name: Deploy em Ambiente de Produção (PRD)
@@ -82,24 +94,22 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      - name: Compilar módulos do ERP Fiscal (PRD)
-        run: mvn clean package -DskipTests=true -B
+      - name: Compilar módulos (PRD)
+        run: mvn clean package ${{ env.MAVEN_OPTS }}
 
       - name: Instalar Docker e Docker Compose
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y docker.io docker-compose
-          sudo systemctl enable docker
           sudo systemctl start docker
           docker --version
           docker-compose --version
 
       - name: Construir imagens Docker (PRD)
-        run: |
-          docker-compose -f docker/docker-compose.yml build --no-cache
+        run: docker-compose -f docker/docker-compose.yml build --no-cache
 
       - name: Subir containers PRD
         run: |
@@ -107,9 +117,9 @@ jobs:
           docker ps -a
 
       - name: Verificar logs do container WEB (PRD)
-        run: docker logs vboot-web || true
+        run: docker logs borurio-web || true
 
-      - name: Arquivar logs do ambiente PRD
+      - name: Exportar logs do ambiente PRD
         if: always()
         uses: actions/upload-artifact@v4
         with:

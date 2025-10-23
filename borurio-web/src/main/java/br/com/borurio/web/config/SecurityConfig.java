@@ -16,16 +16,24 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * CONFIGURAÇÃO DE SEGURANÇA — SPRING SECURITY + JWT
  * =============================================================================
  * Finalidade:
- *   - Define as regras de autenticação/autorização globais da aplicação.
- *   - Habilita autenticação Stateless via token JWT.
- *   - Libera rotas públicas como Swagger, Actuator e endpoints de teste.
+ *   - Define políticas globais de autenticação e autorização da aplicação.
+ *   - Implementa autenticação Stateless baseada em token JWT.
+ *   - Libera rotas públicas específicas para observabilidade e integração SEFAZ.
  *
- * Boas práticas:
- *   - PasswordEncoder é definido globalmente em PasswordEncoderConfig.
- *   - Autenticação é gerenciada via AuthenticationManager (injeção segura).
+ * Diretrizes técnicas:
+ *   - PasswordEncoder definido em {@link PasswordEncoderConfig}.
+ *   - AuthenticationManager exposto para uso em controladores de autenticação.
+ *   - Rotas públicas declaradas explicitamente para evitar falsos positivos.
+ *   - Filtro JWT inserido antes do UsernamePasswordAuthenticationFilter.
+ *
+ * Boas práticas DevSecOps:
+ *   - Princípio de privilégio mínimo.
+ *   - Separação entre rotas públicas e autenticadas.
+ *   - Stateless Session Policy (segurança e escalabilidade).
  * =============================================================================
- * Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
- * Data: 22/10/2025
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Projeto: Borurio ERP Fiscal BR
+ * Data: 23/10/2025
  * =============================================================================
  */
 @Configuration
@@ -39,38 +47,68 @@ public class SecurityConfig {
     }
 
     /**
-     * Define as regras de segurança da aplicação.
-     * - Desabilita CSRF (aplicação REST).
-     * - Configura autenticação Stateless (sem sessão).
-     * - Permite acesso às rotas públicas (Swagger, Actuator, Auth, etc.).
-     * - Aplica o filtro JWT às rotas protegidas.
+     * =============================================================================
+     * MÉTODO: securityFilterChain
+     * -----------------------------------------------------------------------------
+     * - Desabilita CSRF (não aplicável em APIs REST).
+     * - Define o gerenciamento de sessão como Stateless.
+     * - Libera rotas públicas (Swagger, Actuator, Ping e endpoints SEFAZ).
+     * - Aplica autenticação JWT a todas as demais requisições.
+     * =============================================================================
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                // Desabilita CSRF (não aplicável para APIs REST)
                 .csrf(csrf -> csrf.disable())
+
+                // Define gerenciamento de sessão Stateless (sem estado no servidor)
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                // Configura as políticas de autorização
                 .authorizeHttpRequests(auth -> auth
+                        // ================================
+                        // ROTAS PÚBLICAS LIBERADAS
+                        // ================================
                         .requestMatchers(
+                                // Autenticação e Swagger
                                 "/auth/**",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
+
+                                // Observabilidade
                                 "/actuator/**",
+                                "/api/actuator/**",
+
+                                // Testes e monitoramento
                                 "/api/test/**",
-                                "/api/nfe/status",
-                                "/nfe/status",
-                                "/ping"
+                                "/ping",
+                                "/health",
+
+                                // Endpoints fiscais e mock SEFAZ-SP
+                                "/api/nfe/**",
+                                "/nfe/**"
                         ).permitAll()
+
+                        // ================================
+                        // ROTAS RESTRITAS (JWT)
+                        // ================================
                         .anyRequest().authenticated()
                 )
-                .addFilterAfter(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+
+                // Adiciona o filtro JWT antes do filtro padrão de autenticação
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
     /**
-     * Exponibiliza o AuthenticationManager do contexto Spring Security.
-     * Necessário para autenticação customizada (ex.: AuthController).
+     * =============================================================================
+     * MÉTODO: authenticationManager
+     * -----------------------------------------------------------------------------
+     * Expõe o AuthenticationManager do contexto Spring Security.
+     * Necessário para autenticação customizada via AuthController.
+     * =============================================================================
      */
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {

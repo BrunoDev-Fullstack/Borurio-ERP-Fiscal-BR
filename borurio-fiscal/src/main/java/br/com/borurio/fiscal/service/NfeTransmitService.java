@@ -1,44 +1,50 @@
 package br.com.borurio.fiscal.service;
 
 /**
- * Serviço responsável pela transmissão de NF-e (Nota Fiscal Eletrônica)
- * ao WebService da SEFAZ-SP (versão 4.00).
+ * =============================================================================
+ * SERVIÇO: NfeTransmitService
+ * =============================================================================
+ * Responsável pela transmissão de Notas Fiscais Eletrônicas (NF-e)
+ * para os WebServices oficiais da SEFAZ-SP (versão 4.00).
  *
- * Esta interface define o contrato para componentes de comunicação fiscal,
- * abrangendo envio, consulta, auditoria e retentativas automáticas
- * de autorização junto à Secretaria da Fazenda.
+ * Este contrato define as operações essenciais para comunicação fiscal:
+ * - Transmissão segura de NF-e assinadas digitalmente;
+ * - Consulta de status de autorização e disponibilidade da SEFAZ;
+ * - Auditoria e persistência dos eventos fiscais.
  *
- * Padrões e boas práticas aplicadas:
- * <ul>
- *     <li>Java 17 / Spring Boot 3.3.x</li>
- *     <li>ISP — Interface Segregation Principle</li>
- *     <li>Comunicação SOAP/HTTPS conforme layout NF-e 4.00</li>
- *     <li>Compatível com Schemas PL009 / NT2025</li>
- *     <li>Padrão de codificação UTF-8 (sem BOM)</li>
- * </ul>
+ * =============================================================================
+ * Padrões técnicos e práticas aplicadas:
+ * -----------------------------------------------------------------------------
+ * • Java 17 / Spring Boot 3.3.x / UTF-8 sem BOM
+ * • ISP — Interface Segregation Principle
+ * • Comunicação SOAP/HTTPS (TLS 1.2+) conforme layout NF-e 4.00
+ * • Compatível com schemas PL_010b / NT 2025.002 / v1.30
+ * • Princípios DevSecOps (segurança, rastreabilidade, automação)
+ * =============================================================================
  *
  * Requisitos das implementações concretas:
- * <ol>
- *     <li>Assinatura digital válida (XMLDSig / padrão ICP-Brasil).</li>
- *     <li>Envio SOAP seguro via TLS 1.2 ou superior.</li>
- *     <li>Tratamento robusto de exceções e auditoria fiscal (logs, persistência e retentativas).</li>
- * </ol>
+ * -----------------------------------------------------------------------------
+ * 1. Assinatura digital (XMLDSig / ICP-Brasil A1 ou A3).
+ * 2. Envio via HTTPS (TLS >= 1.2) e SOAPAction válida.
+ * 3. Tratamento robusto de exceções e logs fiscais (auditoria e retentativas).
+ * 4. Persistência do log fiscal no banco (tabela nfe_log via MyBatis).
  *
+ * =============================================================================
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Módulo: Fiscal (NF-e / SEFAZ-SP / Auditoria)
+ * Módulo: borurio-fiscal
  * Versão: 1.0.0
+ * =============================================================================
  */
 public interface NfeTransmitService {
 
     /**
      * Transmite o XML assinado da NF-e para o WebService SEFAZ-SP.
      *
-     * Este método deve:
-     * <ul>
-     *     <li>Enviar o XML da NF-e devidamente assinado digitalmente.</li>
-     *     <li>Retornar a resposta SOAP completa da SEFAZ (autorização, rejeição ou erro).</li>
-     *     <li>Registrar o evento fiscal no log e persistir o resultado no banco de dados.</li>
-     * </ul>
+     * Fluxo de responsabilidade:
+     * 1. Assinar o XML conforme o certificado digital configurado;
+     * 2. Enviar o XML via SOAP para o endpoint de autorização (tpAmb=2 ou 1);
+     * 3. Capturar e interpretar o XML de resposta (autorizado, rejeitado, erro);
+     * 4. Registrar log fiscal e salvar o resultado no banco de dados.
      *
      * @param xmlAssinado  Conteúdo integral do XML assinado digitalmente.
      * @param cnpjEmitente CNPJ do emitente da NF-e.
@@ -47,13 +53,12 @@ public interface NfeTransmitService {
     String transmitirXml(String xmlAssinado, String cnpjEmitente);
 
     /**
-     * Consulta o status de disponibilidade do serviço de autorização da SEFAZ.
+     * Consulta o status de disponibilidade do serviço SEFAZ-SP.
      *
-     * Este método é utilizado para:
-     * <ul>
-     *     <li>Verificar a conectividade e operação do serviço SEFAZ antes de transmitir NF-e.</li>
-     *     <li>Rotinas automáticas de monitoramento e health check fiscal.</li>
-     * </ul>
+     * Este método deve ser utilizado em:
+     * - Rotinas de monitoramento fiscal (health check);
+     * - Validação antes de transmissões em lote;
+     * - Diagnóstico de conectividade ou indisponibilidade.
      *
      * @return Mensagem textual com o status atual do serviço SEFAZ-SP.
      */

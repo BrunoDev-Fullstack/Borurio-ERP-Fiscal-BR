@@ -33,7 +33,7 @@
         <flyway.version>10.18.0</flyway.version>
         <mysql.connector.version>8.4.0</mysql.connector.version>
         <springdoc.version>2.6.0</springdoc.version>
-        <owasp.version>9.0.9</owasp.version>
+        <owasp.version>10.0.4</owasp.version>
         <surefire.version>3.2.5</surefire.version>
         <jjwt.version>0.11.5</jjwt.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -95,7 +95,7 @@
         </dependency>
 
         <!-- ===========================================================
-             SPRING SECURITY + JWT (Autenticação e Autorização)
+             SPRING SECURITY + JWT
              =========================================================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -127,7 +127,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
             <exclusions>
-                <!-- Evita duplicação de Flyway -->
                 <exclusion>
                     <groupId>org.flywaydb</groupId>
                     <artifactId>flyway-core</artifactId>
@@ -152,7 +151,6 @@
             <version>${mysql.connector.version}</version>
         </dependency>
 
-        <!-- MinIO (Armazenamento de Arquivos Fiscais e Certificados) -->
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
@@ -169,16 +167,13 @@
         </dependency>
 
         <!-- ===========================================================
-             LOGGING (Logback - provider SLF4J)
+             LOGGING / UTILITÁRIOS
              =========================================================== -->
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
         </dependency>
 
-        <!-- ===========================================================
-             UTILITÁRIOS PADRÕES (Java Nativo e Apache)
-             =========================================================== -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -191,7 +186,6 @@
             <version>4.5.0-M2</version>
         </dependency>
 
-        <!-- Lombok (somente em tempo de compilação) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -200,7 +194,7 @@
         </dependency>
 
         <!-- ===========================================================
-             TESTES UNITÁRIOS E INTEGRAÇÃO (JUnit 5)
+             TESTES UNITÁRIOS / INTEGRAÇÃO
              =========================================================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -260,9 +254,6 @@
                 <configuration>
                     <mainClass>br.com.borurio.web.Application</mainClass>
                     <jvmArguments>-Dfile.encoding=UTF-8</jvmArguments>
-                    <layers>
-                        <enabled>true</enabled>
-                    </layers>
                 </configuration>
                 <executions>
                     <execution>
@@ -273,7 +264,7 @@
                 </executions>
             </plugin>
 
-            <!-- OWASP Dependency Check -->
+            <!-- OWASP Dependency Check (segurança de dependências) -->
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>
@@ -283,6 +274,7 @@
                     <format>HTML</format>
                     <outputDirectory>${project.build.directory}/security-reports</outputDirectory>
                     <skipProvidedScope>true</skipProvidedScope>
+                    <autoUpdate>true</autoUpdate>
                 </configuration>
             </plugin>
 
