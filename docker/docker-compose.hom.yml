@@ -1,0 +1,199 @@
+# =============================================================================
+# Docker Compose - Ambiente HOMOLOGAÇÃO (SEFAZ-SP)
+# =============================================================================
+# Projeto: Borurio ERP Fiscal BR
+# Arquitetura: Monólito Modular (Web integra Core, App e Fiscal)
+# Stack: Java 17 | Spring Boot 3.3.x | MySQL 8.4 | Redis 7.2 | MinIO | Mailpit
+# Padrões: DevSecOps | Multi-stage | Least Privilege | Healthcheck
+# Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+# =============================================================================
+# Objetivo:
+# Ambiente de HOMOLOGAÇÃO REAL junto à SEFAZ-SP (tpAmb=2)
+# Replica o ambiente DEV com variáveis e endpoints oficiais de homologação.
+# =============================================================================
+
+version: "3.9"
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # MySQL - Banco de Dados Homologação
+  # ---------------------------------------------------------------------------
+  borurio-mysql-hom:
+    image: mysql:8.4
+    container_name: borurio-mysql-hom
+    restart: unless-stopped
+    env_file:
+      - ./env/.env.hom
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-SENHA_NOVA_DO_ROOT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal_hom}
+      MYSQL_USER: ${MYSQL_USER:-borurio}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
+      TZ: America/Sao_Paulo
+    ports:
+      - "3310:3306"
+    volumes:
+      - ./mysql/data-hom:/var/lib/mysql:rw
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - borurio-net-hom
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+
+  # ---------------------------------------------------------------------------
+  # Redis - Cache e Sessões
+  # ---------------------------------------------------------------------------
+  borurio-redis-hom:
+    image: redis:7.2
+    container_name: borurio-redis-hom
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - ./redis/data-hom:/data:rw
+    networks:
+      - borurio-net-hom
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # MinIO - Armazenamento S3 (Homologação)
+  # ---------------------------------------------------------------------------
+  borurio-minio-hom:
+    image: minio/minio:latest
+    container_name: borurio-minio-hom
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    env_file:
+      - ./env/.env.hom
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
+      TZ: America/Sao_Paulo
+    ports:
+      - "9100:9000"
+      - "9101:9001"
+    volumes:
+      - ./minio/data-hom:/data:rw
+    networks:
+      - borurio-net-hom
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Mailpit - SMTP e Painel Web
+  # ---------------------------------------------------------------------------
+  borurio-mailpit-hom:
+    image: axllent/mailpit:latest
+    container_name: borurio-mailpit-hom
+    restart: unless-stopped
+    ports:
+      - "1125:1025"
+      - "8125:8025"
+    networks:
+      - borurio-net-hom
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 1025 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Web (API Principal + Core / App / Fiscal)
+  # ---------------------------------------------------------------------------
+  borurio-web-hom:
+    build:
+      context: ../
+      dockerfile: ./Dockerfile
+      args:
+        SPRING_PROFILES_ACTIVE: "hom"
+        DB_HOST: "borurio-mysql-hom"
+        DB_PORT: 3306
+        DB_NAME: "borurio_fiscal_hom"
+        DB_USER: "borurio"
+        DB_PASS: "H4ck3r123"
+        REDIS_HOST: "borurio-redis-hom"
+        REDIS_PORT: 6379
+    container_name: borurio-web-hom
+    restart: unless-stopped
+    depends_on:
+      borurio-mysql-hom:
+        condition: service_healthy
+      borurio-redis-hom:
+        condition: service_healthy
+      borurio-minio-hom:
+        condition: service_healthy
+      borurio-mailpit-hom:
+        condition: service_healthy
+    env_file:
+      - ./env/.env.hom
+    environment:
+      SPRING_PROFILES_ACTIVE: hom
+      TZ: America/Sao_Paulo
+      DB_HOST: borurio-mysql-hom
+      DB_PORT: 3306
+      DB_NAME: borurio_fiscal_hom
+      DB_USER: borurio
+      DB_PASS: H4ck3r123
+      REDIS_HOST: borurio-redis-hom
+      REDIS_PORT: 6379
+      CERT_PATH: /app/certificados/certificado-hom.pfx     # <-- Nome real do arquivo no host
+      CERT_PASS: sua_senha_a1
+      MANAGEMENT_SERVER_PORT: 8281
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,env,beans,loggers"
+    ports:
+      - "8080:8080"
+      - "8282:8282"
+      - "8281:8281"
+    networks:
+      - borurio-net-hom
+    volumes:
+      - ../logs:/var/log/borurio:rw
+      - ../certificados:/app/certificados:ro                # <-- Volume montado corretamente
+    command: ["sh", "-c", "java -Dspring.profiles.active=hom -jar borurio-web.jar"]
+    security_opt:
+      - no-new-privileges:true
+    tty: true
+    stdin_open: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8281/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+# =============================================================================
+# Volumes e Rede de Homologação
+# =============================================================================
+volumes:
+  mysql_hom_data:
+  redis_hom_data:
+  minio_hom_data:
+  logs:
+
+networks:
+  borurio-net-hom:
+    driver: bridge

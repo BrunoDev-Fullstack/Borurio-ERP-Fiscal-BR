@@ -1,18 +1,103 @@
-# Ignorar diretórios e arquivos temporários
+###################################################################################################
+# BORURIO ERP FISCAL BR – .dockerignore
+# -----------------------------------------------------------------------------------------------
+# Objetivo: reduzir o contexto de build Docker, excluir artefatos temporários, volumes de dados,
+# sockets e caches locais. Garante builds limpos e seguros em Dev / Hom / Prd.
+# Autor: Bruno Ribeiro – DevSecOps / Fullstack Java
+###################################################################################################
+
+# ===============================================================================================
+# 1. Diretórios de build e IDE
+# -----------------------------------------------------------------------------------------------
 **/target/
 **/logs/
 **/.idea/
 **/.vscode/
-**/.git/
+**/.settings/
+**/.classpath
+**/.project
+**/.factorypath
 **/.m2/
+**/.git/
+**/.github/
 **/.DS_Store
+**/Thumbs.db
 
-# Ignorar arquivos de banco e runtime
-docker/mysql/data-dev/*
-docker/mysql/data/*
-docker/redis/data-dev/*
-docker/minio/data-dev/*
-*.sock
+# ===============================================================================================
+# 2. Arquivos de sistema e temporários
+# -----------------------------------------------------------------------------------------------
+*.iml
 *.pid
 *.tmp
 *.lock
+*.sock
+*.swp
+*.bak
+*.old
+*.orig
+*.log
+
+# ===============================================================================================
+# 3. Diretórios de dados e volumes persistentes
+# -----------------------------------------------------------------------------------------------
+# MySQL
+docker/mysql/data/
+docker/mysql/data-dev/
+docker/mysql/data-hom/
+docker/mysql/data-prd/
+
+# Redis
+docker/redis/data/
+docker/redis/data-dev/
+docker/redis/data-hom/
+docker/redis/data-prd/
+
+# MinIO
+docker/minio/data/
+docker/minio/data-dev/
+docker/minio/data-hom/
+docker/minio/data-prd/
+
+# Mailpit
+docker/mailpit/data/
+docker/mailpit/data-dev/
+docker/mailpit/data-hom/
+docker/mailpit/data-prd/
+
+# ===============================================================================================
+# 4. Arquivos sensíveis e certificados locais
+# -----------------------------------------------------------------------------------------------
+certificados/
+**/*.pfx
+**/*.jks
+**/*.pem
+**/*.crt
+**/*.key
+
+# ===============================================================================================
+# 5. Artefatos temporários de CI/CD e Docker
+# -----------------------------------------------------------------------------------------------
+**/docker-compose.override.yml
+**/docker-compose.dev.yml.backup
+**/docker-compose.hom.yml.backup
+**/docker-compose.prd.yml.backup
+**/Dockerfile.old
+**/Dockerfile.bak
+**/tmp/
+**/cache/
+**/node_modules/
+**/dist/
+
+# ===============================================================================================
+# 6. Arquivos gerados em runtime
+# -----------------------------------------------------------------------------------------------
+*.log
+*.out
+*.err
+*.hprof
+hs_err_pid*
+replay_pid*
+
+###################################################################################################
+# FIM DO ARQUIVO
+###################################################################################################

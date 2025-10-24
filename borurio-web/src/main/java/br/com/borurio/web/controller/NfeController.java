@@ -27,11 +27,14 @@ import org.springframework.web.bind.annotation.*;
  * - Spring Boot 3.3.x
  * - Maven 3.9.x
  * =============================================================================
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * =============================================================================
  */
 @Slf4j
 @RestController
-@RequestMapping("/nfe")
+@RequestMapping("/api/fiscal/nfe") // Padronização: todos os endpoints fiscais usam /api/fiscal/nfe
 @RequiredArgsConstructor
+@CrossOrigin(origins = "*") // Permite acesso do Swagger e clientes externos
 public class NfeController {
 
     /** Serviço responsável pela transmissão e status da NF-e */
@@ -47,7 +50,7 @@ public class NfeController {
      *
      * Exemplo:
      * <pre>
-     * POST /nfe/enviar
+     * POST /api/fiscal/nfe/enviar
      * Header: CNPJ-Emitente: 12345678000199
      * Content-Type: text/plain ou application/xml
      * Body: XML assinado da NF-e (versão 4.00)
@@ -66,7 +69,7 @@ public class NfeController {
             @RequestBody String xmlAssinado,
             @RequestHeader("CNPJ-Emitente") String cnpjEmitente) {
 
-        log.info("Requisição recebida | Operação: Envio NF-e | CNPJ: {}", cnpjEmitente);
+        log.info("[NF-e Controller] Requisição recebida | Operação: Envio NF-e | CNPJ: {}", cnpjEmitente);
 
         if (xmlAssinado == null || xmlAssinado.isBlank()) {
             log.warn("XML vazio ou ausente | CNPJ: {}", cnpjEmitente);
@@ -80,12 +83,12 @@ public class NfeController {
             if (respostaSefaz == null) {
                 log.error("Falha ao transmitir NF-e | CNPJ: {}", cnpjEmitente);
                 return buildResponse(HttpStatus.BAD_GATEWAY,
-                        "Falha ao comunicar com a SEFAZ-SP", null);
+                        "Falha ao comunicar com a SEFAZ-SP.", null);
             }
 
             log.info("NF-e transmitida com sucesso | CNPJ: {}", cnpjEmitente);
             return buildResponse(HttpStatus.OK,
-                    "NF-e enviada com sucesso à SEFAZ-SP", respostaSefaz);
+                    "NF-e enviada com sucesso à SEFAZ-SP.", respostaSefaz);
 
         } catch (IllegalArgumentException ex) {
             log.error("Parâmetros inválidos | CNPJ: {} | Erro: {}", cnpjEmitente, ex.getMessage());
@@ -108,21 +111,21 @@ public class NfeController {
      *
      * Exemplo:
      * <pre>
-     * GET /nfe/status
+     * GET /api/fiscal/nfe/status
      * </pre>
      *
      * @return Status atual do serviço NF-e.
      */
     @GetMapping("/status")
     public ResponseEntity<ApiResponse> status() {
-        log.info("Verificando status do serviço NF-e (módulo fiscal)");
+        log.info("[NF-e Controller] Verificando status do serviço NF-e (módulo fiscal)");
         try {
             String status = nfeTransmitService.consultarStatus();
             return buildResponse(HttpStatus.OK, status, null);
         } catch (Exception e) {
             log.error("Falha ao consultar status da SEFAZ-SP: {}", e.getMessage(), e);
             return buildResponse(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Serviço NF-e indisponível", null);
+                    "Serviço NF-e indisponível no momento.", null);
         }
     }
 
