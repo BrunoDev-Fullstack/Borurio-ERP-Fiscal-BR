@@ -8,7 +8,7 @@
 ###################################################################################################
 
 server:
-  port: 8082                                  # Porta interna da API principal (exposta como 8082 no Docker)
+  port: 8082
   servlet:
     context-path: /
   error:
@@ -20,7 +20,7 @@ spring:
     name: borurio-web-dev
 
   ################################################################################################
-  # BANCO DE DADOS – MySQL 8.4 (ambiente de homologação / dev)
+  # BANCO DE DADOS – MySQL 8.4 (ambiente de desenvolvimento / homologação)
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -34,6 +34,7 @@ spring:
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
+
   jpa:
     open-in-view: false
     hibernate:
@@ -95,15 +96,23 @@ logging:
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 ###################################################################################################
-# SEFAZ-SP – Integração NF-e (Homologação tpAmb=2)
+# BORURIO – Configurações fiscais e de certificado digital
 ###################################################################################################
-sefaz:
-  ambiente: homologacao
-  tpAmb: 2
-  url-autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-  url-retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-  url-consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-  url-status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+borurio:
+  sefaz:
+    ambiente: HOMOLOGACAO
+    tpAmb: 2
+    urlAutorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+    urlRetAutorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+    urlConsultaProtocolo: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+    urlInutilizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
+    urlStatusServico: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+    urlConsultaCadastro: "https://homologacao.nfe.fazenda.sp.gov.br/ws/CadConsultaCadastro4.asmx"
+    urlRecepcaoEvento: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRecepcaoEvento4.asmx"
+
+  certificado:
+    caminho: ${CERT_PATH:C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx}
+    senha: ${CERT_PASS:1234}
 
 ###################################################################################################
 # LEGADO DE COMPATIBILIDADE – Variáveis esperadas por NfeTransmitServiceImpl
@@ -131,7 +140,7 @@ fiscal:
 ###################################################################################################
 management:
   server:
-    port: 8081                             # Porta separada do servidor principal (8082) para monitoramento
+    port: 8081
   endpoints:
     web:
       base-path: /actuator
