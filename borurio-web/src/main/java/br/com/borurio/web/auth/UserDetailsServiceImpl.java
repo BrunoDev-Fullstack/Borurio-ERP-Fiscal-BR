@@ -18,16 +18,17 @@ import org.springframework.stereotype.Service;
  * -----------------------------------------------------------------------------
  * Serviço responsável por carregar os dados de autenticação do usuário.
  *
- * - Modo DEV: fornece um usuário mock ("admin" / "admin123") para testes locais.
+ * - Modo DEV: fornece um usuário mock ("admin" / "123456") para testes locais.
  * - Modo HOM/PRD: realiza a autenticação real consultando a tabela user_account.
  *
  * Padrão técnico:
- *   - Spring Security 6
+ *   - Spring Security 6 / Java 17
  *   - PasswordEncoder: BCrypt
  *   - Repositório JPA: UserAccountRepository
  *
+ * Projeto: Borurio ERP Fiscal BR
+ * Módulo: borurio-web
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Projeto: ERP Fiscal Borurio BR
  * =============================================================================
  */
 @Service
@@ -68,9 +69,12 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 throw new UsernameNotFoundException("Usuário não encontrado no modo DEV: " + username);
             }
 
+            // Senha fixa '123456' para ambiente de desenvolvimento
+            String encodedPassword = passwordEncoder.encode("123456");
+
             return User.builder()
                     .username("admin")
-                    .password(passwordEncoder.encode("admin123"))
+                    .password(encodedPassword)
                     .roles("ADMIN")
                     .build();
         }

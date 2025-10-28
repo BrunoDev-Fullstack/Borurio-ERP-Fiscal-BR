@@ -1,6 +1,7 @@
 package br.com.borurio.web.config;
 
 import br.com.borurio.web.auth.JwtFilter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -14,35 +15,40 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 /**
  * =============================================================================
- * CONFIGURAÇÃO DE SEGURANÇA (Spring Security + JWT)
- * =============================================================================
- * - Libera rotas públicas (Swagger, Actuator, AuthController)
- * - Exige token JWT válido nas demais rotas (/nfe/**)
- * - Define política de sessão stateless (sem cookies)
+ * CONFIGURAÇÃO DE SEGURANÇA — BORURIO ERP FISCAL BR
+ * -----------------------------------------------------------------------------
+ * Controla autenticação JWT, sessões stateless e permissões por endpoint.
+ *
+ * Libera endpoints públicos:
+ *   - /auth/login
+ *   - /actuator/**
+ *   - /swagger-ui/**
+ *   - /v3/api-docs/**
+ *   - /api/test/**
+ *   - /api/fiscal/nfe/test/**
+ *
+ * Autor: Bruno Ribeiro — DevSecOps / Fullstack
  * =============================================================================
  */
 @Configuration
 public class SecurityConfig {
 
-    private final JwtFilter jwtFilter;
-
-    public SecurityConfig(JwtFilter jwtFilter) {
-        this.jwtFilter = jwtFilter;
-    }
+    @Autowired
+    private JwtFilter jwtFilter;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/auth/**",
+                                "/auth/login",
+                                "/actuator/**",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
-                                "/actuator/**",
                                 "/api/test/**",
-                                "/ping"
+                                "/api/fiscal/nfe/test/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
@@ -52,12 +58,12 @@ public class SecurityConfig {
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
-        return config.getAuthenticationManager();
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
     }
 }

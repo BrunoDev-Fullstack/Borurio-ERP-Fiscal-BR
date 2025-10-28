@@ -3,30 +3,35 @@ package br.com.borurio.web;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.env.Environment;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
- * Classe principal do ERP Fiscal Borurio Brasil.
+ * =============================================================================
+ * APLICAÇÃO PRINCIPAL — BORURIO ERP FISCAL BRASIL
+ * =============================================================================
+ * Responsável por inicializar o contexto Spring Boot, integrar os módulos
+ * principais (core, app, fiscal, web) e configurar o mapeamento MyBatis.
  *
- * Responsável por inicializar o contexto Spring Boot, realizar o
- * escaneamento de componentes dos módulos integrados e registrar
- * os mapeadores MyBatis do módulo de aplicação.
+ * Estrutura Modular:
+ *   - borurio-core   → Núcleo compartilhado (enums, DTOs, utilitários)
+ *   - borurio-app    → Camada de negócio e regras de domínio
+ *   - borurio-fiscal → Integração SEFAZ-SP / NF-e 4.00 / Auditoria Fiscal
+ *   - borurio-web    → API REST principal e ponto de entrada unificado
  *
- * Estrutura modular do sistema:
- *  - borurio-core   → Núcleo compartilhado (enums, DTOs, utilitários)
- *  - borurio-app    → Camada de negócio e regras de domínio
- *  - borurio-fiscal → Integração SEFAZ-SP / NF-e 4.00 / Auditoria Fiscal
- *  - borurio-web    → API REST principal e ponto de entrada unificado
- *
- * Boas práticas aplicadas:
- *  - @SpringBootApplication: inicializa o contexto global e ativa o component scan;
- *  - @MapperScan: registra apenas os mappers de negócio (borurio-app);
- *  - Modularização limpa e compatível com Java 17 / Spring Boot 3.3.x;
- *  - Perfis de ambiente controlados via application-*.yml (ex.: dev, prd);
- *  - Log de inicialização estruturado e auditável.
+ * Padrões Técnicos:
+ *   - Spring Boot 3.3.x / Java 17
+ *   - MyBatis-Plus para integração de mappers
+ *   - Component scan global e modular
+ *   - Perfis controlados via application-*.yml (dev, hom, prd)
+ *   - Log estruturado de inicialização (via STDOUT / Docker)
  *
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Sprint: Fiscal 2.6 – Correções MyBatis / Mock SEFAZ-SP
+ * Sprint: Fiscal 3.4 — Integração SEFAZ-SP Homologação Real
  * Data: Outubro/2025
+ * =============================================================================
  */
 @SpringBootApplication(scanBasePackages = {
         "br.com.borurio.core",
@@ -40,27 +45,45 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class Application {
 
     /**
-     * Ponto de entrada principal do ERP Fiscal Borurio Brasil.
+     * Método principal da aplicação ERP Fiscal Borurio Brasil.
+     * Inicializa o contexto Spring Boot, ativa os módulos integrados
+     * e exibe um banner de inicialização no console.
      *
-     * Modos de execução:
+     * Modo de execução:
      *  - Via Maven:
-     *    mvn spring-boot:run -pl borurio-web "-Dspring-boot.run.profiles=dev"
-     *
+     *      mvn spring-boot:run -pl borurio-web "-Dspring-boot.run.profiles=dev"
      *  - Via JAR:
-     *    java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
+     *      java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
      *
-     * O contexto carregará automaticamente os módulos Core, App e Fiscal.
-     *
-     * @param args argumentos de inicialização do Spring Boot.
+     * @param args Argumentos de inicialização do Spring Boot.
      */
     public static void main(String[] args) {
-        SpringApplication.run(Application.class, args);
+        var context = SpringApplication.run(Application.class, args);
+        Environment env = context.getEnvironment();
+
+        String profile = String.join(",", env.getActiveProfiles());
+        if (profile.isEmpty()) profile = "default";
+
+        String appName = env.getProperty("spring.application.name", "borurio-web");
+        String port = env.getProperty("server.port", "8080");
+        String startedAt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+
         System.out.println();
-        System.out.println("==============================================================");
-        System.out.println("ERP Fiscal Borurio Brasil iniciado com sucesso.");
-        System.out.println("Perfil ativo: application-dev.yml");
-        System.out.println("Módulos carregados: core | app | fiscal | web");
-        System.out.println("==============================================================");
+        System.out.println("###################################################################################################");
+        System.out.println("#                                                                                                 #");
+        System.out.printf ("#   %-90s #%n", "BORURIO ERP FISCAL BRASIL — API PRINCIPAL");
+        System.out.println("#                                                                                                 #");
+        System.out.println("#   Projeto: ERP Fiscal Borurio BR                                                                #");
+        System.out.println("#   Módulos ativos: core | app | fiscal | web                                                     #");
+        System.out.println("#   Aplicação: " + appName);
+        System.out.println("#   Perfil ativo: " + profile);
+        System.out.println("#   Porta interna: " + port);
+        System.out.println("#   Data de inicialização: " + startedAt);
+        System.out.println("#                                                                                                 #");
+        System.out.println("#   Desenvolvedor responsável: Bruno Ribeiro — Fullstack / DevSecOps                              #");
+        System.out.println("#   Repositório: github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR                              #");
+        System.out.println("#                                                                                                 #");
+        System.out.println("###################################################################################################");
         System.out.println();
     }
 }

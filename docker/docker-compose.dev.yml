@@ -5,7 +5,7 @@
 # Stack: Java 17 | Spring Boot 3.3.x | MySQL 8.4 | Redis 7.2 | MinIO | Mailpit
 # =============================================================================
 # Objetivo:
-# Ambiente de desenvolvimento e testes funcionais.
+# Ambiente de desenvolvimento e testes funcionais (Homologação SEFAZ-SP real)
 # Inclui todos os serviços (MySQL, Redis, MinIO, Mailpit)
 # e executa a aplicação principal "borurio-web-dev".
 # =============================================================================
@@ -30,7 +30,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
       TZ: America/Sao_Paulo
     ports:
-      - "3307:3306"   # Porta local ajustada para não conflitar com o MySQL global
+      - "3307:3306"
     volumes:
       - ./mysql/data-dev:/var/lib/mysql:rw
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -126,7 +126,7 @@ services:
   borurio-web-dev:
     build:
       context: ../
-      dockerfile: ./Dockerfile   # Usa o Dockerfile RAIZ unificado
+      dockerfile: ./Dockerfile   # Dockerfile raiz unificado
     container_name: borurio-web-dev
     restart: unless-stopped
     depends_on:
@@ -153,13 +153,15 @@ services:
       MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
       MANAGEMENT_SERVER_PORT: 8081
     ports:
-      - "8082:8082"   # Porta principal da API (Tomcat interno)
-      - "8081:8081"   # Actuator / Monitoramento
+      - "8080:8080"   # API REST principal (NF-e / SEFAZ-SP)
+      - "8081:8081"   # Actuator (monitoramento)
+      - "8082:8082"   # Porta secundária (testes)
     networks:
       - borurio-net-dev
     volumes:
-      - ~/.m2:/root/.m2:rw              # Cache Maven local
-      - ../logs:/var/log/borurio:rw     # Logs persistentes
+      - ../certificados:/app/certificados:ro   # Certificados A1 (Homologação SEFAZ)
+      - ~/.m2:/root/.m2:rw                     # Cache Maven
+      - ../logs:/var/log/borurio:rw            # Logs persistentes
     command: ["sh", "-c", "java -jar borurio-web.jar"]
     security_opt:
       - no-new-privileges:true
@@ -171,8 +173,12 @@ services:
       timeout: 10s
       retries: 5
       start_period: 45s
-    # API principal do ERP Fiscal: expõe endpoints REST,
-    # processa NF-e, controla o fluxo fiscal e integra com SEFAZ-SP (mock ou real).
+    # API principal do ERP Fiscal:
+    # - Expõe endpoints REST
+    # - Processa NF-e (Homologação SEFAZ-SP)
+    # - Controla o fluxo fiscal
+    # - Lê o certificado A1 de /app/certificados/certificado-hom.pfx
+    # - Integra com MySQL, Redis, Mailpit e MinIO
 
 # =============================================================================
 # Volumes e Rede de Desenvolvimento
