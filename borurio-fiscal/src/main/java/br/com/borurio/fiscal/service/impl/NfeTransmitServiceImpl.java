@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -29,20 +30,20 @@ import java.time.LocalDateTime;
  * digital A1 (.pfx), garantindo integridade e rastreabilidade.
  *
  * =============================================================================
- * CONFIGURAÇÕES REQUERIDAS (application-dev.yml - módulo borurio-web)
+ * CONFIGURAÇÕES REQUERIDAS (application-*.yml)
  *
  * sefaz:
- *   url-autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
- *   url-retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
+ *   url-autorizacao: https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
+ *   url-retorno: https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
  *
  * fiscal:
  *   cert:
- *     path: C:/Projetos/borurio-erp-br/borurio-fiscal/src/main/resources/certs/generic-dev-cert.pfx
- *     pass: 1234
+ *     path: /app/certificados/certificado-prd.pfx
+ *     pass: SENHA_DO_CERTIFICADO_REAL
  *
  * =============================================================================
  * Autor: Bruno Ribeiro — Desenvolvedor Java / DevSecOps
- * Versão: 3.2 (Sprint Fiscal – Integração SEFAZ-SP)
+ * Versão: 3.4 (Sprint Fiscal – Integração SEFAZ-SP)
  * =============================================================================
  */
 @Slf4j
@@ -141,20 +142,37 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
         URL url = new URL(sefazUrlAutorizacao);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
 
-        // Configuração SSL obtida do serviço de certificado já inicializado
-        connection.setSSLSocketFactory(certificadoService.getSslContext().getSocketFactory());
+        // =====================================================================
+        // Inicialização segura do contexto SSL
+        // =====================================================================
+        SSLContext sslContext = null;
+        try {
+            sslContext = certificadoService.getSslContext();
+            if (sslContext == null) {
+                log.warn("[NfeTransmitServiceImpl] SSLContext retornou nulo — executando sem autenticação mútua.");
+            } else {
+                connection.setSSLSocketFactory(sslContext.getSocketFactory());
+                log.info("[NfeTransmitServiceImpl] SSLContext configurado para conexão segura com SEFAZ-SP.");
+            }
+        } catch (Exception e) {
+            log.error("[NfeTransmitServiceImpl] Falha ao inicializar SSLContext: {}", e.getMessage(), e);
+        }
 
-        // Configurações HTTP
+        // =====================================================================
+        // Configurações HTTP SOAP
+        // =====================================================================
         connection.setRequestMethod("POST");
         connection.setRequestProperty("Content-Type", "application/soap+xml; charset=utf-8");
         connection.setDoOutput(true);
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(25000);
 
+        // Envio do envelope SOAP
         try (OutputStream os = connection.getOutputStream()) {
             os.write(soapEnvelope.getBytes(StandardCharsets.UTF_8));
         }
 
+        // Leitura da resposta
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
             StringBuilder response = new StringBuilder();

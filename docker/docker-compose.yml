@@ -1,9 +1,11 @@
-# =============================================================================
+# ==============================================================================
 # Docker Compose - Borurio ERP Fiscal BR
 # Ambiente: Produção / Homologação
 # Stack oficial dos módulos fiscais e serviços auxiliares
 # Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
 # =============================================================================
+
+version: "3.9"
 
 services:
 
@@ -18,15 +20,15 @@ services:
       - ./env/.env.prd
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-secure_root_2025}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal_prd}
       MYSQL_USER: ${MYSQL_USER:-borurio}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-secure_pass_2025}
       TZ: ${TZ:-America/Sao_Paulo}
     ports:
-      - "3307:3306"   # Porta alterada para evitar conflito local
+      - "3308:3306"   # Porta alterada para evitar conflito local
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - borurio-net
     healthcheck:
@@ -45,13 +47,13 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     networks:
       - borurio-net
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -72,8 +74,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-borurio@prd2025}
       TZ: ${TZ:-America/Sao_Paulo}
     ports:
-      - "9000:9000"   # API S3
-      - "9001:9001"   # Console Web
+      - "9002:9000"   # API S3
+      - "9003:9001"   # Console Web
     volumes:
       - minio_data:/data
     networks:
@@ -86,32 +88,13 @@ services:
       start_period: 20s
 
   # ---------------------------------------------------------------------------
-  # Mailpit - SMTP e Painel Web (para homologação)
+  # Web - API REST Principal (ERP Fiscal BR + Fiscal Integrado)
   # ---------------------------------------------------------------------------
-  borurio-mailpit:
-    image: axllent/mailpit:latest
-    container_name: borurio-mailpit
-    restart: unless-stopped
-    ports:
-      - "2526:1025"  # SMTP local
-      - "8026:8025"  # Painel web
-    networks:
-      - borurio-net
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8025/healthz || exit 1"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  # ---------------------------------------------------------------------------
-  # Fiscal - Módulo NF-e e Auditoria Fiscal (Spring Boot 3.3.x)
-  # ---------------------------------------------------------------------------
-  borurio-fiscal:
+  borurio-web:
     build:
       context: ..
-      dockerfile: ./borurio-fiscal/Dockerfile
-    container_name: borurio-fiscal-prd
+      dockerfile: ./Dockerfile    # Build unificado (core + app + fiscal + web)
+    container_name: borurio-web-prd
     restart: unless-stopped
     depends_on:
       borurio-mysql:
@@ -126,56 +109,21 @@ services:
       SPRING_PROFILES_ACTIVE: prd
       TZ: ${TZ:-America/Sao_Paulo}
     ports:
-      - "8082:8080"
+      - "8282:8080"   # Porta principal API REST
+      - "8281:8281"   # Porta de monitoramento Actuator
     networks:
       - borurio-net
     volumes:
       - ~/.m2:/root/.m2
-      - ../borurio-fiscal:/app
-      - ./certs:/opt/borurio/certs
-      - ./logs:/var/log/borurio
-    command: ["java", "-jar", "/app/target/borurio-fiscal-1.0.0.jar"]
+      - ../logs:/var/log/borurio
+      - ./certs:/app/certificados:ro
+    command: ["sh", "-c", "java -jar /app/borurio-web.jar"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
-      interval: 20s
-      timeout: 5s
+      test: ["CMD-SHELL", "curl -fs http://localhost:8281/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 40s
-
-  # ---------------------------------------------------------------------------
-  # Web - API REST Principal (ERP Fiscal BR)
-  # ---------------------------------------------------------------------------
-  borurio-web:
-    build:
-      context: ..
-      dockerfile: ./borurio-web/Dockerfile
-    container_name: borurio-web-prd
-    restart: unless-stopped
-    depends_on:
-      borurio-fiscal:
-        condition: service_healthy
-      borurio-mailpit:
-        condition: service_healthy
-    env_file:
-      - ./env/.env.prd
-    environment:
-      SPRING_PROFILES_ACTIVE: prd
-      TZ: ${TZ:-America/Sao_Paulo}
-    ports:
-      - "8080:8080"
-    networks:
-      - borurio-net
-    volumes:
-      - ~/.m2:/root/.m2
-      - ../borurio-web:/app
-      - ./logs:/var/log/borurio
-    command: ["java", "-jar", "/app/target/borurio-web-1.0.0.jar"]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
+      start_period: 45s
 
 # =============================================================================
 # Volumes Persistentes e Rede Compartilhada

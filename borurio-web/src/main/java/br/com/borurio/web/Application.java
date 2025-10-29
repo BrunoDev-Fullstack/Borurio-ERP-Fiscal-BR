@@ -3,6 +3,7 @@ package br.com.borurio.web;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.core.env.Environment;
 
 import java.time.LocalDateTime;
@@ -16,24 +17,25 @@ import java.time.format.DateTimeFormatter;
  * principais (core, app, fiscal, web) e configurar o mapeamento MyBatis.
  *
  * Estrutura Modular:
- *   - borurio-core   → Núcleo compartilhado (enums, DTOs, utilitários)
- *   - borurio-app    → Camada de negócio e regras de domínio
- *   - borurio-fiscal → Integração SEFAZ-SP / NF-e 4.00 / Auditoria Fiscal
- *   - borurio-web    → API REST principal e ponto de entrada unificado
+ *   • borurio-core   → Núcleo compartilhado (enums, DTOs, utilitários)
+ *   • borurio-app    → Camada de negócio e regras de domínio
+ *   • borurio-fiscal → Integração SEFAZ-SP / NF-e 4.00 / Auditoria Fiscal
+ *   • borurio-web    → API REST principal e ponto de entrada unificado
  *
  * Padrões Técnicos:
- *   - Spring Boot 3.3.x / Java 17
- *   - MyBatis-Plus para integração de mappers
- *   - Component scan global e modular
- *   - Perfis controlados via application-*.yml (dev, hom, prd)
- *   - Log estruturado de inicialização (via STDOUT / Docker)
+ *   • Spring Boot 3.3.x / Java 17
+ *   • MyBatis-Plus para integração de mappers
+ *   • Component Scan global e modular
+ *   • Perfis controlados via application-*.yml (dev, hom, prd)
+ *   • Log estruturado de inicialização (via STDOUT / Docker)
  *
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Sprint: Fiscal 3.4 — Integração SEFAZ-SP Homologação Real
+ * Sprint: Fiscal 3.5 — Integração SEFAZ-SP Real (Homologação)
  * Data: Outubro/2025
  * =============================================================================
  */
-@SpringBootApplication(scanBasePackages = {
+@SpringBootApplication
+@ComponentScan(basePackages = {
         "br.com.borurio.core",
         "br.com.borurio.app",
         "br.com.borurio.fiscal",
@@ -50,10 +52,10 @@ public class Application {
      * e exibe um banner de inicialização no console.
      *
      * Modo de execução:
-     *  - Via Maven:
-     *      mvn spring-boot:run -pl borurio-web "-Dspring-boot.run.profiles=dev"
-     *  - Via JAR:
-     *      java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
+     *   - Via Maven:
+     *       mvn spring-boot:run -pl borurio-web "-Dspring-boot.run.profiles=dev"
+     *   - Via JAR:
+     *       java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
      *
      * @param args Argumentos de inicialização do Spring Boot.
      */
@@ -75,13 +77,15 @@ public class Application {
         System.out.println("#                                                                                                 #");
         System.out.println("#   Projeto: ERP Fiscal Borurio BR                                                                #");
         System.out.println("#   Módulos ativos: core | app | fiscal | web                                                     #");
-        System.out.println("#   Aplicação: " + appName);
-        System.out.println("#   Perfil ativo: " + profile);
-        System.out.println("#   Porta interna: " + port);
-        System.out.println("#   Data de inicialização: " + startedAt);
+        System.out.printf ("#   Aplicação: %-85s #%n", appName);
+        System.out.printf ("#   Perfil ativo: %-83s #%n", profile);
+        System.out.printf ("#   Porta interna: %-82s #%n", port);
+        System.out.printf ("#   Data de inicialização: %-75s #%n", startedAt);
         System.out.println("#                                                                                                 #");
         System.out.println("#   Desenvolvedor responsável: Bruno Ribeiro — Fullstack / DevSecOps                              #");
         System.out.println("#   Repositório: github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR                              #");
+        System.out.println("#                                                                                                 #");
+        System.out.println("#   \"Segurança e automação são pilares da confiabilidade fiscal.\"                                 #");
         System.out.println("#                                                                                                 #");
         System.out.println("###################################################################################################");
         System.out.println();

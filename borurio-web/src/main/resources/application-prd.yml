@@ -1,15 +1,16 @@
 ###################################################################################################
-# AMBIENTE DE DESENVOLVIMENTO – BORURIO ERP FISCAL BR
+# AMBIENTE DE PRODUÇÃO – BORURIO ERP FISCAL BR
 # ________________________________________________________________________________________________
 # Módulo: borurio-web (API REST principal)
-# Integrações: MySQL, Redis, SEFAZ-SP (NF-e 4.00 Homologação Real)
+# Integrações: MySQL, Redis, SEFAZ-SP (NF-e 4.00 Produção Real)
 # Stack: Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
 # Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
+# Última revisão: 29/10/2025
 ###################################################################################################
 
 server:
   address: 0.0.0.0
-  port: 8080                               # Porta principal HTTP (exposta externamente como 8082 via Docker)
+  port: 8080                               # Porta interna (exposta externamente como 8282 via Docker)
   servlet:
     context-path: /
   error:
@@ -18,20 +19,20 @@ server:
 
 spring:
   application:
-    name: borurio-web-dev
+    name: borurio-web-prd
 
   ################################################################################################
-  # BANCO DE DADOS – MySQL 8.4 (ambiente de homologação / dev)
+  # BANCO DE DADOS – MySQL 8.4 (Produção Real)
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:borurio-mysql-dev}:${DB_PORT:3306}/${DB_NAME:borurio_fiscal_dev}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    url: jdbc:mysql://${DB_HOST:borurio-mysql}:${DB_PORT:3306}/${DB_NAME:borurio_fiscal_prd}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
     username: ${DB_USER:borurio}
-    password: ${DB_PASS:H4ck3r123}
+    password: ${DB_PASS:secure_pass_2025}
     hikari:
       pool-name: BorurioWebHikariPool
-      maximum-pool-size: 10
-      minimum-idle: 2
+      maximum-pool-size: 15
+      minimum-idle: 5
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
@@ -49,7 +50,7 @@ spring:
   ################################################################################################
   data:
     redis:
-      host: ${REDIS_HOST:borurio-redis-dev}
+      host: ${REDIS_HOST:borurio-redis}
       port: ${REDIS_PORT:6379}
       timeout: 2000
       connect-timeout: 2000
@@ -59,7 +60,7 @@ spring:
   ################################################################################################
   jackson:
     serialization:
-      indent_output: true
+      indent_output: false
     date-format: yyyy-MM-dd'T'HH:mm:ss
     time-zone: America/Sao_Paulo
     locale: pt_BR
@@ -78,83 +79,81 @@ spring:
     resources:
       add-mappings: true
     cors:
-      allowed-origins: "*"
+      allowed-origins: "https://erp.borurio.com.br"
       allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
-      allowed-headers: "*"
+      allowed-headers: "Content-Type,Authorization"
 
 ###################################################################################################
 # LOGGING – Auditoria e Rastreabilidade (via Logback)
 ###################################################################################################
 logging:
-  config: classpath:logback-dev.xml
+  config: classpath:logback-prd.xml
   level:
     root: INFO
-    org.springframework: INFO
+    org.springframework: WARN
     org.hibernate: WARN
-    br.com.borurio: DEBUG
+    br.com.borurio: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 ###################################################################################################
-# SEFAZ-SP – Integração NF-e (Homologação Real - tpAmb=2)
+# SEFAZ-SP – Integração NF-e (Produção Real - tpAmb=1)
 ###################################################################################################
 sefaz:
-  ambiente: HOMOLOGACAO
-  tpAmb: 2
+  ambiente: PRODUCAO
+  tpAmb: 1
   urls:
-    autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-    retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-    consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-    status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
-    inutilizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
-    recepcao-evento: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRecepcaoEvento4.asmx"
+    autorizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+    retorno: "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+    consulta: "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+    status: "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+    inutilizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
+    recepcao-evento: "https://nfe.fazenda.sp.gov.br/ws/NFeRecepcaoEvento4.asmx"
 
   # ---------------------------------------------------------------------------------------------
   # SUPORTE LEGADO – Compatibilidade com classes antigas (NfeTransmitServiceImpl)
   # ---------------------------------------------------------------------------------------------
-  url-autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-  url-retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-  url-consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-  url-status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+  url-autorizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+  url-retorno: "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+  url-consulta: "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+  url-status: "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
 
 ###################################################################################################
 # LEGADO – Estrutura esperada por NfeTransmitServiceImpl
 ###################################################################################################
 nfe:
   sefaz:
-    tpAmb: 2
-    certificado: ${NFE_SEFAZ_CERTIFICADO:/app/certificados/certificado-hom.pfx}
-    senha: ${NFE_SEFAZ_SENHA:123456}
-    url-autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-    url-retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-    url-consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-    url-status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+    tpAmb: 1
+    certificado: ${NFE_SEFAZ_CERTIFICADO:/app/certificados/certificado-prd.pfx}
+    senha: ${NFE_SEFAZ_SENHA:SENHA_DO_CERTIFICADO_REAL}
+    url-autorizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+    url-retorno: "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+    url-consulta: "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+    url-status: "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
 
 ###################################################################################################
-# FISCAL – Certificado Digital A1 (PFX)
+# FISCAL – Certificado Digital A1 (PFX Real)
 ###################################################################################################
 fiscal:
   cert:
-    path: ${CERT_PATH:/app/certificados/certificado-hom.pfx}
-    pass: ${CERT_PASS:123456}
+    path: ${CERT_PATH:/app/certificados/certificado-prd.pfx}
+    pass: ${CERT_PASS:SENHA_DO_CERTIFICADO_REAL}
 
 ###################################################################################################
-# ACTUATOR – Monitoramento e Observabilidade (liberado no DEV)
+# ACTUATOR – Monitoramento e Observabilidade (restrito em PRD)
 ###################################################################################################
 management:
   server:
-    port: 8081
+    port: 8281
   endpoints:
     web:
       base-path: /actuator
       exposure:
-        include: "*"
+        include: "health,info,metrics"
   endpoint:
     health:
-      show-details: always
-  security:
-    enabled: false
+      show-details: never
   health:
     db:
       enabled: true
@@ -167,19 +166,19 @@ management:
 # PERFIL ATIVO E METADADOS DO AMBIENTE
 ###################################################################################################
 app:
-  profile: dev
-  description: "Ambiente de Desenvolvimento e Homologação SEFAZ-SP (tpAmb=2)"
+  profile: prd
+  description: "Ambiente de Produção SEFAZ-SP (tpAmb=1)"
   version: ${project.version:1.0.0}
   owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
 
 ###################################################################################################
 # NOTAS TÉCNICAS
 # -----------------------------------------------------------------------------------------------
-# - Ambiente integrado Docker Compose (MySQL 3307 / Redis 6379 / MinIO / Mailpit)
-# - Comunicação direta com SEFAZ-SP (Homologação Real, tpAmb=2)
-# - Certificado Digital A1 mapeado via Docker volume /app/certificados/
+# - Ambiente integrado Docker Compose (MySQL 3308 / Redis 6380 / MinIO / SMTP real)
+# - Comunicação direta com SEFAZ-SP (Produção Real, tpAmb=1)
+# - Certificado Digital A1 montado via Docker volume /app/certificados/
 # - Flyway ativo no módulo fiscal, desativado no web
-# - API principal: 8080 | Actuator: 8081 | Exposta Docker: 8082
-# - Segurança: Spring Security + JWT ativo
-# - Actuator liberado publicamente SOMENTE neste profile (dev)
+# - API principal: 8080 | Actuator: 8281 | Exposta Docker: 8282
+# - Segurança: Spring Security + JWT obrigatório
+# - Actuator restrito (não público)
 ###################################################################################################
