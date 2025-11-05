@@ -1,11 +1,5 @@
 package br.com.borurio.web.config;
 
-import io.swagger.v3.oas.annotations.OpenAPIDefinition;
-import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
-import io.swagger.v3.oas.annotations.info.Info;
-import io.swagger.v3.oas.annotations.info.Contact;
-import io.swagger.v3.oas.annotations.info.License;
-import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import io.swagger.v3.oas.models.ExternalDocumentation;
 import io.swagger.v3.oas.models.OpenAPI;
 import org.springframework.context.annotation.Bean;
@@ -13,59 +7,32 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * =============================================================================
- * CONFIGURAÇÃO SWAGGER / OPENAPI 3.0 + AUTENTICAÇÃO JWT
- * =============================================================================
- * Módulo: borurio-web
- * Responsável: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * CONFIGURAÇÃO LEGADA — OpenApiConfig (DESATIVADA)
  * -----------------------------------------------------------------------------
- * Descrição:
- *   Fornece a documentação interativa da API Fiscal Borurio Brasil (NF-e 4.00),
- *   com integração ao padrão OpenAPI 3.0 e suporte ao esquema de segurança JWT.
+ * Esta classe fazia a configuração inicial do Swagger / OpenAPI 3.0.
+ * Atualmente, foi substituída pelo arquivo:
+ *    → {@link br.com.borurio.web.config.SwaggerConfig}
  *
- * Recursos:
- *   • Exposição automática de endpoints REST (Swagger UI)
- *   • Metadados completos (autor, licença, portal)
- *   • Suporte ao botão “Authorize” com Bearer Token (JWT)
+ * Motivo da desativação:
+ *   - Evitar conflito de múltiplos @OpenAPIDefinition no projeto.
+ *   - Centralizar o esquema de autenticação JWT no SwaggerConfig.
  *
- * URLs de acesso (ambiente DEV):
- *   ➜ Swagger UI:   http://localhost:8080/swagger-ui/index.html
- *   ➜ OpenAPI JSON: http://localhost:8080/v3/api-docs
- *   ➜ OpenAPI YAML: http://localhost:8080/v3/api-docs.yaml
+ * Mantida apenas como referência documental e para extensão futura.
+ * -----------------------------------------------------------------------------
+ * Projeto: ERP Fiscal Borurio BR
+ * Módulo: borurio-web
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Última revisão: 05/11/2025
  * =============================================================================
  */
 @Configuration
-@OpenAPIDefinition(
-        info = @Info(
-                title = "Borurio ERP Fiscal BR — API REST",
-                version = "v3.3.0",
-                description = """
-                        API central do ERP Fiscal Borurio Brasil (NF-e 4.00)
-                        Ambiente: Desenvolvimento / Homologação SEFAZ-SP
-                        """,
-                contact = @Contact(
-                        name = "Bruno Ribeiro — DevSecOps / Fullstack Java",
-                        url = "https://github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR",
-                        email = "contato@borurio.com.br"
-                ),
-                license = @License(
-                        name = "Licença Proprietária Borurio",
-                        url = "https://borurio.com.br/licenca"
-                )
-        )
-)
-@SecurityScheme(
-        name = "bearerAuth",
-        type = SecuritySchemeType.HTTP,
-        scheme = "bearer",
-        bearerFormat = "JWT"
-)
 public class OpenApiConfig {
 
     /**
-     * Bean principal do OpenAPI — configura documentação, links externos
-     * e complementa os metadados exibidos no Swagger UI.
+     * Bean auxiliar para manter o link de documentação externa
+     * (repositório GitHub do projeto Borurio).
      *
-     * @return Instância configurada de {@link OpenAPI}.
+     * @return instância configurada de {@link OpenAPI}
      */
     @Bean
     public OpenAPI customOpenAPI() {

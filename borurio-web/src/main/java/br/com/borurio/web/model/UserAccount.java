@@ -9,16 +9,23 @@ import jakarta.persistence.*;
  * Representa o usuário do sistema para autenticação e autorização.
  *
  * Estrutura da tabela (MySQL):
- *   CREATE TABLE user_account (
+ *   CREATE TABLE IF NOT EXISTS user_account (
  *       id BIGINT AUTO_INCREMENT PRIMARY KEY,
- *       username VARCHAR(100) UNIQUE NOT NULL,
+ *       username VARCHAR(100) NOT NULL UNIQUE,
  *       password VARCHAR(255) NOT NULL,
- *       role VARCHAR(50) DEFAULT 'ADMIN',
- *       ativo BOOLEAN DEFAULT TRUE
+ *       role VARCHAR(50) DEFAULT 'ROLE_ADMIN',
+ *       enabled BOOLEAN DEFAULT TRUE
  *   );
  *
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Requisitos:
+ *   - Integração com Spring Security e JWT.
+ *   - Campo "enabled" indica se o usuário está ativo no sistema.
+ *   - Campo "role" segue o padrão "ROLE_ADMIN", "ROLE_USER", etc.
+ *
  * Projeto: ERP Fiscal Borurio BR
+ * Módulo: borurio-web
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Última revisão: 04/11/2025
  * =============================================================================
  */
 @Entity
@@ -36,10 +43,24 @@ public class UserAccount {
     private String password;
 
     @Column(length = 50)
-    private String role = "ADMIN";
+    private String role = "ROLE_ADMIN";
 
     @Column(nullable = false)
-    private boolean ativo = true;
+    private boolean enabled = true;
+
+    // ============================================================
+    // CONSTRUTORES
+    // ============================================================
+
+    public UserAccount() {
+    }
+
+    public UserAccount(String username, String password, String role, boolean enabled) {
+        this.username = username;
+        this.password = password;
+        this.role = role;
+        this.enabled = enabled;
+    }
 
     // ============================================================
     // GETTERS E SETTERS
@@ -47,6 +68,10 @@ public class UserAccount {
 
     public Long getId() {
         return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
     }
 
     public String getUsername() {
@@ -73,11 +98,25 @@ public class UserAccount {
         this.role = role;
     }
 
-    public boolean isAtivo() {
-        return ativo;
+    public boolean isEnabled() {
+        return enabled;
     }
 
-    public void setAtivo(boolean ativo) {
-        this.ativo = ativo;
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    // ============================================================
+    // MÉTODOS AUXILIARES
+    // ============================================================
+
+    @Override
+    public String toString() {
+        return "UserAccount{" +
+                "id=" + id +
+                ", username='" + username + '\'' +
+                ", role='" + role + '\'' +
+                ", enabled=" + enabled +
+                '}';
     }
 }

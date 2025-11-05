@@ -12,7 +12,7 @@ import java.time.format.DateTimeFormatter;
 /**
  * =============================================================================
  * APLICAÇÃO PRINCIPAL — BORURIO ERP FISCAL BRASIL
- * =============================================================================
+ * _____________________________________________________________________________
  * Responsável por inicializar o contexto Spring Boot, integrar os módulos
  * principais (core, app, fiscal, web) e configurar o mapeamento MyBatis.
  *
@@ -31,7 +31,7 @@ import java.time.format.DateTimeFormatter;
  *
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
  * Sprint: Fiscal 3.5 — Integração SEFAZ-SP Real (Homologação)
- * Data: Outubro/2025
+ * Última revisão: 03/11/2025
  * =============================================================================
  */
 @SpringBootApplication
@@ -52,9 +52,9 @@ public class Application {
      * e exibe um banner de inicialização no console.
      *
      * Modo de execução:
-     *   - Via Maven:
+     *   • Via Maven:
      *       mvn spring-boot:run -pl borurio-web "-Dspring-boot.run.profiles=dev"
-     *   - Via JAR:
+     *   • Via JAR:
      *       java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
      *
      * @param args Argumentos de inicialização do Spring Boot.
@@ -68,8 +68,12 @@ public class Application {
 
         String appName = env.getProperty("spring.application.name", "borurio-web");
         String port = env.getProperty("server.port", "8080");
-        String startedAt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+        String startedAt = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
 
+        // =====================================================================
+        // Banner de inicialização (visível em logs e containers Docker)
+        // =====================================================================
         System.out.println();
         System.out.println("###################################################################################################");
         System.out.println("#                                                                                                 #");

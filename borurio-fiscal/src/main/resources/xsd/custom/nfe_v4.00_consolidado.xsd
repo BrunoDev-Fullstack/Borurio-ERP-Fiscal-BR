@@ -20,7 +20,7 @@ Escopo:
 
 Autor:
   Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
-  Revisão 3.1.3 — Correção definitiva de paths relativos (classpath seguro)
+  Revisão 3.1.4 — Estrutura validada e compatível com parser Xerces
 ==============================================================================
 -->
 
@@ -33,9 +33,12 @@ Autor:
 
     <!-- =============================================================
          1. IMPORTAÇÃO — Assinatura Digital (W3C XMLDSig v1.01 ajustado)
-         ============================================================= -->
+         =============================================================
+         Importa o schema XML Digital Signature ajustado para evitar
+         conflitos de namespace e permitir validação segura no Xerces.
+    -->
     <xs:import namespace="http://www.w3.org/2000/09/xmldsig#"
-               schemaLocation="../custom/xmldsig-core-schema_v1.01-ajustado.xsd"/>
+               schemaLocation="xmldsig-core-schema_v1.01-ajustado.xsd"/>
 
     <!-- =============================================================
          2. INCLUSÕES — Schemas nacionais padronizados
@@ -44,8 +47,8 @@ Autor:
            • leiauteNFe_v4.00-ajustado.xsd → estrutura principal e tipos
            • procNFe_v4.00.xsd              → processo completo (NF-e + protocolo)
     -->
-    <xs:include schemaLocation="../custom/leiauteNFe_v4.00-ajustado.xsd"/>
-    <xs:include schemaLocation="../custom/procNFe_v4.00.xsd"/>
+    <xs:include schemaLocation="leiauteNFe_v4.00-ajustado.xsd"/>
+    <xs:include schemaLocation="procNFe_v4.00.xsd"/>
 
     <!-- =============================================================
          3. ELEMENTOS RAIZ — Estruturas principais da NF-e 4.00
@@ -73,14 +76,16 @@ Autor:
         </xs:annotation>
     </xs:element>
 
-    <!-- 3.3 Processo completo da NF-e -->
-    <!--
-        O elemento "procNFe" é declarado em procNFe_v4.00.xsd,
-        incluído acima — não deve ser redeclarado.
+    <!-- =============================================================
+         4. ELEMENTO PROCNFE — Processo completo da NF-e
+         =============================================================
+         Observação:
+           O elemento "procNFe" é declarado em procNFe_v4.00.xsd
+           e incluído acima — não deve ser redeclarado aqui.
     -->
 
     <!-- =============================================================
-         4. ESTRUTURA OPCIONAL — Fallback para mocks e extensões
+         5. ESTRUTURA OPCIONAL — Fallback para mocks e extensões
          =============================================================
          Propósito:
            Evitar falhas durante testes unitários e mocks de integração

@@ -13,6 +13,12 @@ Correção:
   - Inclui apenas o schema de tipos diretamente (tiposNFe_v4.00.xsd).
   - Mantém compatibilidade com o consolidado (NT 2025.002 / PL_010b v1.30).
 
+Base técnica:
+  - Nota Técnica 2025.002 — NF-e v4.00
+  - Leiaute PL_010b v1.30
+  - Aderência W3C XMLSchema 1.0 (Xerces-J)
+  - Compatível com execução via Maven, Docker e ambiente empacotado (JAR)
+
 Autor:
   Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
   Revisão 3.2.0 — Remoção de loop de includes / Validação estável Xerces
@@ -27,12 +33,18 @@ Autor:
 
     <!-- =============================================================
          1. INCLUSÃO — Tipos principais da NF-e
-         ============================================================= -->
+         =============================================================
+         Inclui apenas o schema de tipos nacionalizado, evitando
+         dependências circulares com leiaute ou consolidado.
+    -->
     <xs:include schemaLocation="tiposNFe_v4.00.xsd"/>
 
     <!-- =============================================================
          2. DEFINIÇÃO — Tipo complexo TProcNFe
-         ============================================================= -->
+         =============================================================
+         Representa o processo completo da NF-e, composto pelo XML
+         original da nota e pelo protocolo retornado pela SEFAZ.
+    -->
     <xs:complexType name="TProcNFe">
         <xs:annotation>
             <xs:documentation>
@@ -49,7 +61,10 @@ Autor:
 
     <!-- =============================================================
          3. ELEMENTO RAIZ — procNFe
-         ============================================================= -->
+         =============================================================
+         Define o elemento raiz que representa o processo completo
+         da NF-e, combinando o XML da nota e o protocolo da SEFAZ.
+    -->
     <xs:element name="procNFe" type="TProcNFe">
         <xs:annotation>
             <xs:documentation>

@@ -16,14 +16,15 @@ import java.security.KeyStore;
 
 /**
  * =============================================================================
- * SERVIÇO: CertificadoServiceImpl (Unificado – HOM / PRD)
- * -----------------------------------------------------------------------------
+ * SERVIÇO: CertificadoServiceImpl (Unificado – DEV / HOM / PRD)
+ * ______________________________________________________________________________
  * Função:
  *   Carrega e inicializa o certificado digital A1 (.pfx) configurado via
  *   variáveis de ambiente ou application.yml, gerando um SSLContext válido
  *   para comunicação com os webservices da SEFAZ-SP (NF-e 4.00).
  *
  * Perfis suportados:
+ *   - dev : ambiente de desenvolvimento (carrega certificado mock, se existir)
  *   - hom : ambiente de homologação real SEFAZ-SP
  *   - prd : ambiente de produção real SEFAZ-SP
  *
@@ -33,10 +34,11 @@ import java.security.KeyStore;
  *
  * =============================================================================
  * Autor: Bruno Ribeiro — Desenvolvedor Java / DevSecOps
- * Data: 29/10/2025
+ * Última revisão: 03/11/2025
+ * =============================================================================
  */
 @Service
-@Profile({"hom", "prd"})
+@Profile({"dev", "hom", "prd"})
 public class CertificadoServiceImpl implements CertificadoService {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificadoServiceImpl.class);
@@ -94,6 +96,7 @@ public class CertificadoServiceImpl implements CertificadoService {
      *
      * @return String descritiva com o estado do certificado.
      */
+    @Override
     public String getStatus() {
         return (sslContext != null)
                 ? "CertificadoServiceImpl: SSLContext ativo — certificado carregado com sucesso"

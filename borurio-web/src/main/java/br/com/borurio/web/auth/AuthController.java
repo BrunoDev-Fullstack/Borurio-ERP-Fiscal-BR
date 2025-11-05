@@ -1,40 +1,40 @@
 package br.com.borurio.web.auth;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.*;
 
 /**
  * =============================================================================
- * CONTROLADOR DE AUTENTICAÇÃO
+ * CONTROLADOR DE AUTENTICAÇÃO (AuthController)
  * =============================================================================
- * Responsável por gerenciar o processo de login do sistema.
+ * Responsável por expor o endpoint público de login:
+ *    POST /auth/login
  *
- * Endpoint público: POST /auth/login
- * Retorna: token JWT válido para autenticação do tipo Bearer.
- * -----------------------------------------------------------------------------
- * Fluxo:
- *   1. Recebe credenciais (username e password).
- *   2. Autentica o usuário via AuthService.
- *   3. Retorna token JWT no corpo da resposta.
+ * Função:
+ *   - Recebe credenciais (username, password).
+ *   - Valida com AuthService.
+ *   - Retorna token JWT válido para uso com Bearer Authorization.
  *
- * Política de segurança:
- *   - Rota liberada em {@link br.com.borurio.web.config.SecurityConfig}
- *   - Protegida pelo {@link br.com.borurio.web.auth.JwtFilter} nas demais rotas.
+ * Padrões aplicados:
+ *   - Retorno padronizado {code, message, token}
+ *   - Tratamento centralizado de exceções
+ *   - Logging estruturado sem exposição de credenciais
+ *
  * =============================================================================
  * Projeto: Borurio ERP Fiscal BR
  * Módulo: borurio-web
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Data: 23/10/2025
  * =============================================================================
  */
+@Slf4j
 @RestController
 @RequestMapping("/auth")
-@CrossOrigin(origins = "*")
 public class AuthController {
 
-    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
     private final AuthService authService;
 
     public AuthController(AuthService authService) {
@@ -42,34 +42,74 @@ public class AuthController {
     }
 
     /**
-     * Endpoint de login.
+     * Endpoint: POST /auth/login
+     *
      * Exemplo de requisição:
-     * POST /auth/login
+     * <pre>
      * {
      *   "username": "admin",
-     *   "password": "123456"
+     *   "password": "admin123"
      * }
+     * </pre>
+     *
+     * Exemplo de resposta bem-sucedida:
+     * <pre>
+     * {
+     *   "code": 200,
+     *   "message": "Autenticação bem-sucedida",
+     *   "token": "eyJhbGciOiJIUzI1NiIsInR5..."
+     * }
+     * </pre>
+     *
+     * @param request credenciais do usuário
+     * @return token JWT válido ou mensagem de erro 401
      */
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request) {
-        log.info("Tentativa de login para usuário: {}", request.username());
+        log.info("Requisição de login recebida para usuário: {}", request.username());
+
         try {
             String token = authService.authenticate(request.username(), request.password());
-            log.info("Login bem-sucedido para usuário: {}", request.username());
-            return ResponseEntity.ok(new AuthResponse("Autenticação bem-sucedida", token));
+            log.info("Usuário autenticado com sucesso: {}", request.username());
+
+            return ResponseEntity.ok(
+                    new AuthResponse(
+                            HttpStatus.OK.value(),
+                            "Autenticação bem-sucedida",
+                            token
+                    )
+            );
+
         } catch (AuthenticationException e) {
-            log.warn("Falha de autenticação para usuário: {}", request.username());
-            return ResponseEntity.status(401).body(new AuthResponse("Credenciais inválidas", null));
+            log.warn("Falha de autenticação para usuário {}: {}", request.username(), e.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new AuthResponse(
+                            HttpStatus.UNAUTHORIZED.value(),
+                            "Credenciais inválidas",
+                            null
+                    ));
         } catch (Exception e) {
-            log.error("Erro interno ao processar login: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError()
-                    .body(new AuthResponse("Erro interno no servidor", null));
+            log.error("Erro inesperado durante autenticação: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new AuthResponse(
+                            HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                            "Erro interno de autenticação",
+                            null
+                    ));
         }
     }
 
-    /** DTO de requisição de autenticação. */
+    // =========================================================================
+    // DTOs internos (records)
+    // =========================================================================
+
+    /**
+     * Requisição de autenticação.
+     */
     public record AuthRequest(String username, String password) {}
 
-    /** DTO de resposta de autenticação. */
-    public record AuthResponse(String message, String token) {}
+    /**
+     * Resposta padronizada de autenticação.
+     */
+    public record AuthResponse(int code, String message, String token) {}
 }

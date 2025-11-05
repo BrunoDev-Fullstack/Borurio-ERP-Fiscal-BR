@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- =============================================================================
+         LOGBACK RAIZ – SELEÇÃO DINÂMICA POR PERFIL
+         _____________________________________________________________________________
+         Este arquivo faz a inclusão automática do Logback específico conforme
+         o perfil ativo no Spring Boot (dev, hom, prd).
+
+         Perfis disponíveis:
+           • dev → logback-dev.xml
+           • hom → logback-dev.xml (compartilhado com desenvolvimento)
+           • prd → logback-prd.xml
+         ============================================================================= -->
+
+    <springProfile name="dev,hom">
+        <include resource="logback-dev.xml"/>
+    </springProfile>
+
+    <springProfile name="prd">
+        <include resource="logback-prd.xml"/>
+    </springProfile>
+
+</configuration>

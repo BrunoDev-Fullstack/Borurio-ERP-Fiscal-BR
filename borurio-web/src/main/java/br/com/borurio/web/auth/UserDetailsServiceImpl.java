@@ -14,21 +14,23 @@ import org.springframework.stereotype.Service;
 
 /**
  * =============================================================================
- * USER DETAILS SERVICE
+ * USER DETAILS SERVICE — BORURIO ERP FISCAL BR
  * -----------------------------------------------------------------------------
- * Serviço responsável por carregar os dados de autenticação do usuário.
+ * Responsável por carregar os dados de autenticação de usuários.
  *
- * - Modo DEV: fornece um usuário mock ("admin" / "123456") para testes locais.
- * - Modo HOM/PRD: realiza a autenticação real consultando a tabela user_account.
+ * Perfis:
+ *  - dev → fornece um usuário mock ("admin" / "admin123") para testes locais.
+ *  - hom/prd → autenticação real via banco (tabela user_account).
  *
  * Padrão técnico:
  *   - Spring Security 6 / Java 17
  *   - PasswordEncoder: BCrypt
- *   - Repositório JPA: UserAccountRepository
+ *   - Entidade: UserAccount
+ *   - Campos esperados: username, password, role, enabled
  *
- * Projeto: Borurio ERP Fiscal BR
- * Módulo: borurio-web
+ * Projeto: ERP Fiscal Borurio BR
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Última revisão: 04/11/2025
  * =============================================================================
  */
 @Service
@@ -51,15 +53,13 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 : "default";
     }
 
-    /**
-     * Carrega o usuário pelo nome de login.
-     *
-     * @param username Nome de usuário informado no login
-     * @return Detalhes do usuário autenticado
-     * @throws UsernameNotFoundException caso o usuário não exista ou esteja inativo
-     */
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+
+        System.out.println("===========================================================");
+        System.out.println("[AUTH] Iniciando autenticação para usuário: " + username);
+        System.out.println("[AUTH] Perfil ativo: " + activeProfile);
+        System.out.println("===========================================================");
 
         // ============================================================
         // 1. MODO MOCK (DESENVOLVIMENTO)
@@ -69,12 +69,11 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 throw new UsernameNotFoundException("Usuário não encontrado no modo DEV: " + username);
             }
 
-            // Senha fixa '123456' para ambiente de desenvolvimento
-            String encodedPassword = passwordEncoder.encode("123456");
+            System.out.println("[AUTH] Modo DEV — usuário mock carregado: admin");
 
             return User.builder()
                     .username("admin")
-                    .password(encodedPassword)
+                    .password(passwordEncoder.encode("admin123"))
                     .roles("ADMIN")
                     .build();
         }
@@ -85,14 +84,29 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         UserAccount user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuário não encontrado: " + username));
 
-        if (!user.isAtivo()) {
+        // Adaptação para campos atuais (enabled / ativo)
+        boolean ativo;
+        try {
+            ativo = user.isEnabled(); // campo atual padrão
+        } catch (Exception e) {
+            // fallback caso a entidade tenha outro nome
+            try {
+                ativo = (boolean) user.getClass().getMethod("getAtivo").invoke(user);
+            } catch (Exception ex) {
+                ativo = true; // fallback de segurança
+            }
+        }
+
+        if (!ativo) {
             throw new UsernameNotFoundException("Usuário inativo: " + username);
         }
+
+        System.out.println("[AUTH] Usuário autenticado via banco: " + username);
 
         return new User(
                 user.getUsername(),
                 user.getPassword(),
-                user.isAtivo(),
+                ativo,
                 true,
                 true,
                 true,

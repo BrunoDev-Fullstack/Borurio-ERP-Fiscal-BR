@@ -9,14 +9,23 @@ import java.util.Optional;
  * =============================================================================
  * REPOSITÓRIO: UserAccountRepository
  * -----------------------------------------------------------------------------
- * Responsável pelas operações de persistência na tabela user_account.
+ * Responsável pelas operações de acesso e persistência na tabela user_account.
  *
- * Métodos padrão:
+ * Integração:
+ *   - Framework: Spring Data JPA
+ *   - Entidade: UserAccount
+ *   - Banco: MySQL (datasource principal)
+ *
+ * Métodos padrão herdados:
  *   - findAll(), findById(), save(), deleteById()
- *   - findByUsername(String username)
  *
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Método customizado:
+ *   - findByUsername(String username): busca um usuário pelo login.
+ *
  * Projeto: ERP Fiscal Borurio BR
+ * Módulo: borurio-web
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Última revisão: 04/11/2025
  * =============================================================================
  */
 @Repository
@@ -25,8 +34,8 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     /**
      * Busca um usuário pelo nome de login.
      *
-     * @param username nome do usuário
-     * @return usuário encontrado (ou vazio se não existir)
+     * @param username nome de usuário (único)
+     * @return Optional contendo o usuário, se existir
      */
     Optional<UserAccount> findByUsername(String username);
 }

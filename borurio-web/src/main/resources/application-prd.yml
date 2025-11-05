@@ -5,7 +5,7 @@
 # Integrações: MySQL, Redis, SEFAZ-SP (NF-e 4.00 Produção Real)
 # Stack: Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
 # Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
-# Última revisão: 29/10/2025
+# Última revisão: 03/11/2025
 ###################################################################################################
 
 server:
@@ -17,6 +17,9 @@ server:
     include-message: always
     include-binding-errors: always
 
+###################################################################################################
+# SPRING CORE – Configurações principais
+###################################################################################################
 spring:
   application:
     name: borurio-web-prd
@@ -26,9 +29,9 @@ spring:
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:borurio-mysql}:${DB_PORT:3306}/${DB_NAME:borurio_fiscal_prd}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-    username: ${DB_USER:borurio}
-    password: ${DB_PASS:secure_pass_2025}
+    url: jdbc:mysql://${MYSQL_HOST:borurio-mysql-prd}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:borurio_fiscal_prd}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    username: ${MYSQL_USER:borurio}
+    password: ${MYSQL_PASSWORD:H4ck3r123}
     hikari:
       pool-name: BorurioWebHikariPool
       maximum-pool-size: 15
@@ -50,7 +53,7 @@ spring:
   ################################################################################################
   data:
     redis:
-      host: ${REDIS_HOST:borurio-redis}
+      host: ${REDIS_HOST:borurio-redis-prd}
       port: ${REDIS_PORT:6379}
       timeout: 2000
       connect-timeout: 2000
@@ -67,7 +70,7 @@ spring:
     default-property-inclusion: non_null
 
   ################################################################################################
-  # SPRING CORE – Configurações gerais e MVC
+  # MVC / WEB – Configurações gerais e CORS
   ################################################################################################
   main:
     allow-bean-definition-overriding: true
@@ -79,9 +82,10 @@ spring:
     resources:
       add-mappings: true
     cors:
-      allowed-origins: "https://erp.borurio.com.br"
-      allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
-      allowed-headers: "Content-Type,Authorization"
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:https://erp.borurio.com.br}
+      allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS}
+      allowed-headers: ${CORS_ALLOWED_HEADERS:Content-Type,Authorization}
+      allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
 
 ###################################################################################################
 # LOGGING – Auditoria e Rastreabilidade (via Logback)
@@ -96,6 +100,9 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+  file:
+    path: /var/log/borurio
+    name: borurio-prd.log
 
 ###################################################################################################
 # SEFAZ-SP – Integração NF-e (Produção Real - tpAmb=1)
@@ -111,16 +118,14 @@ sefaz:
     inutilizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
     recepcao-evento: "https://nfe.fazenda.sp.gov.br/ws/NFeRecepcaoEvento4.asmx"
 
-  # ---------------------------------------------------------------------------------------------
-  # SUPORTE LEGADO – Compatibilidade com classes antigas (NfeTransmitServiceImpl)
-  # ---------------------------------------------------------------------------------------------
+  # Suporte legado para classes anteriores
   url-autorizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
   url-retorno: "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
   url-consulta: "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
   url-status: "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
 
 ###################################################################################################
-# LEGADO – Estrutura esperada por NfeTransmitServiceImpl
+# NFE – Compatibilidade direta com NfeTransmitServiceImpl
 ###################################################################################################
 nfe:
   sefaz:
@@ -168,12 +173,12 @@ management:
 app:
   profile: prd
   description: "Ambiente de Produção SEFAZ-SP (tpAmb=1)"
-  version: ${project.version:1.0.0}
+  version: ${APP_VERSION:1.0.0}
   owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
 
 ###################################################################################################
 # NOTAS TÉCNICAS
-# -----------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 # - Ambiente integrado Docker Compose (MySQL 3308 / Redis 6380 / MinIO / SMTP real)
 # - Comunicação direta com SEFAZ-SP (Produção Real, tpAmb=1)
 # - Certificado Digital A1 montado via Docker volume /app/certificados/

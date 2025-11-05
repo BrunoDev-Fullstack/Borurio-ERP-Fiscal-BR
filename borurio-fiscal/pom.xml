@@ -5,14 +5,16 @@
 
     <!-- =============================================================================
          MÓDULO: Borurio Fiscal
-         Função: Biblioteca Fiscal e Integração SEFAZ-SP (NF-e 4.00)
-         Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway
-         Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+         FUNÇÃO: Biblioteca Fiscal e Integração SEFAZ-SP (NF-e 4.00 / NT 2025.002)
+         STACK: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway
+         AUTOR: Bruno Ribeiro — Desenvolvedor Java Fullstack / DevSecOps
          ============================================================================= -->
 
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- Herança do POM raiz -->
+    <!-- =============================================================================
+         HERANÇA DO POM RAIZ
+         ============================================================================= -->
     <parent>
         <groupId>br.com.borurio</groupId>
         <artifactId>borurio-erp-br</artifactId>
@@ -22,7 +24,7 @@
     <artifactId>borurio-fiscal</artifactId>
     <packaging>jar</packaging>
     <name>Borurio Fiscal</name>
-    <description>Módulo Fiscal do ERP Borurio Brasil — NF-e / SEFAZ / Auditoria</description>
+    <description>Módulo Fiscal do ERP Borurio Brasil — NF-e / SEFAZ / Auditoria Fiscal</description>
 
     <!-- =============================================================================
          PROPRIEDADES DO PROJETO
@@ -36,6 +38,7 @@
         <surefire.version>3.2.5</surefire.version>
         <jacoco.version>0.8.11</jacoco.version>
         <owasp.version>9.0.9</owasp.version>
+        <exec.plugin.version>3.6.2</exec.plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
@@ -64,7 +67,7 @@
             <version>${mybatis.version}</version>
         </dependency>
 
-        <!-- Banco de Dados MySQL -->
+        <!-- Conector MySQL -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
@@ -77,7 +80,7 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
-        <!-- JAXB (XML Fiscal) -->
+        <!-- JAXB (manipulação XML fiscal) -->
         <dependency>
             <groupId>jakarta.xml.bind</groupId>
             <artifactId>jakarta.xml.bind-api</artifactId>
@@ -118,7 +121,7 @@
             <version>${flyway.version}</version>
         </dependency>
 
-        <!-- Dependências de Teste (mantidas, mas desativadas no build) -->
+        <!-- Dependências de Teste -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -172,7 +175,7 @@
             </resource>
         </resources>
 
-        <!-- Testes (mantido mas ignorado no build) -->
+        <!-- Recursos de Teste -->
         <testResources>
             <testResource>
                 <directory>src/test/resources</directory>
@@ -184,9 +187,7 @@
 
         <plugins>
 
-            <!-- ========================================================== -->
-            <!-- Compilador Java                                            -->
-            <!-- ========================================================== -->
+            <!-- Compilador Java -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -202,9 +203,7 @@
                 </configuration>
             </plugin>
 
-            <!-- ========================================================== -->
-            <!-- Desabilitar execução de testes                             -->
-            <!-- ========================================================== -->
+            <!-- Desabilitar testes automáticos no build -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -217,9 +216,7 @@
                 </configuration>
             </plugin>
 
-            <!-- ========================================================== -->
-            <!-- Spring Boot: módulo em modo biblioteca                     -->
-            <!-- ========================================================== -->
+            <!-- Spring Boot (modo biblioteca fiscal, sem empacotamento executável) -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -229,9 +226,7 @@
                 </configuration>
             </plugin>
 
-            <!-- ========================================================== -->
-            <!-- Flyway Migration                                           -->
-            <!-- ========================================================== -->
+            <!-- Flyway Migration -->
             <plugin>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-maven-plugin</artifactId>
@@ -254,9 +249,25 @@
                 </configuration>
             </plugin>
 
-            <!-- ========================================================== -->
-            <!-- Jacoco Cobertura                                           -->
-            <!-- ========================================================== -->
+            <!-- Exec Maven Plugin — execução do XsdValidator -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec.plugin.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <mainClass>br.com.borurio.fiscal.utils.XsdValidator</mainClass>
+                    <classpathScope>compile</classpathScope>
+                </configuration>
+            </plugin>
+
+            <!-- Jacoco Cobertura -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -277,9 +288,7 @@
                 </executions>
             </plugin>
 
-            <!-- ========================================================== -->
-            <!-- OWASP Dependency Check                                     -->
-            <!-- ========================================================== -->
+            <!-- OWASP Dependency Check -->
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>

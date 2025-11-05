@@ -1,10 +1,8 @@
 package br.com.borurio.web.config;
 
 import br.com.borurio.web.auth.JwtFilter;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -17,100 +15,87 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * =============================================================================
  * CONFIGURAÇÃO DE SEGURANÇA — BORURIO ERP FISCAL BR
- * =============================================================================
- * Controla autenticação via JWT, define endpoints públicos e aplica política
- * stateless (sem sessão) para as APIs REST do ERP Fiscal BR.
+ * -----------------------------------------------------------------------------
+ * Ambiente unificado DEV + HOM.
  *
- * Perfis suportados:
- *   • dev — libera endpoints fiscais e de observabilidade (para homologação SEFAZ)
- *   • hom / prd — exige autenticação JWT para endpoints sensíveis
+ * Funções principais:
+ * - Libera rotas públicas (Swagger, Actuator, AuthController, PingController, mocks de teste).
+ * - Exige autenticação JWT para endpoints fiscais e de negócio (/nfe/**, /api/fiscal/nfe/**).
+ * - Define política stateless (sem sessão, sem cookies).
+ * - Garante que o filtro JWT seja processado antes da autenticação padrão.
  *
- * Endpoints públicos (todos os perfis):
- *   /auth/login
- *   /swagger-ui/**
- *   /v3/api-docs/**
- *   /actuator/**
- *   /api/test/**
- *
- * Endpoints adicionais liberados apenas no perfil dev:
- *   /api/fiscal/**
- *
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Data: Outubro/2025
+ * Compatível com os ambientes: dev, hom e prd.
  * =============================================================================
  */
 @Configuration
 public class SecurityConfig {
 
-    @Autowired
-    private JwtFilter jwtFilter;
+    private final JwtFilter jwtFilter;
 
-    // __________________________________________________________________________
-    // PERFIS: HOMOLOGAÇÃO / PRODUÇÃO
-    // --------------------------------------------------------------------------
-    @Bean
-    @Profile({"hom", "prd"})
-    public SecurityFilterChain filterChainDefault(HttpSecurity http) throws Exception {
-        http
-                .csrf(csrf -> csrf.disable())
-                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/auth/login",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/actuator/**",
-                                "/api/test/**"
-                        ).permitAll()
-                        .anyRequest().authenticated()
-                )
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
-
-        return http.build();
+    public SecurityConfig(JwtFilter jwtFilter) {
+        this.jwtFilter = jwtFilter;
     }
-
-    // __________________________________________________________________________
-    // PERFIL: DESENVOLVIMENTO
-    // --------------------------------------------------------------------------
-    @Bean
-    @Profile("dev")
-    public SecurityFilterChain filterChainDev(HttpSecurity http) throws Exception {
-        http
-                .csrf(csrf -> csrf.disable())
-                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/auth/login",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/actuator/**",
-                                "/api/test/**",
-                                "/api/fiscal/**"   // Liberação completa para endpoints fiscais (ping, status, envio)
-                        ).permitAll()
-                        .anyRequest().authenticated()
-                )
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
-
-        return http.build();
-    }
-
-    // __________________________________________________________________________
-    // BEANS AUXILIARES
-    // --------------------------------------------------------------------------
 
     /**
-     * Algoritmo padrão de hashing de senha.
+     * =============================================================================
+     * MÉTODO: securityFilterChain
+     * -----------------------------------------------------------------------------
+     * Define toda a cadeia de filtros e permissões.
+     * =============================================================================
      */
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+                // Desabilita CSRF (não há uso de sessões)
+                .csrf(csrf -> csrf.disable())
+
+                // Define a política stateless (JWT sem sessão)
+                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                // Define as permissões por endpoint
+                .authorizeHttpRequests(auth -> auth
+                        // Endpoints públicos liberados (sem JWT)
+                        .requestMatchers(
+                                "/auth/**",                    // Login e refresh
+                                "/swagger-ui/**",              // Documentação Swagger
+                                "/v3/api-docs/**",             // Especificação OpenAPI
+                                "/actuator/**",                // Healthcheck e métricas
+                                "/api/test/**",                // Pings e validações DEV
+                                "/api/fiscal/nfe/test/**",     // Testes fiscais simulados (HOM/DEV)
+                                "/ping"                        // Verificação rápida
+                        ).permitAll()
+
+                        // Demais endpoints exigem autenticação JWT
+                        .anyRequest().authenticated()
+                )
+
+                // Adiciona o filtro JWT antes do filtro padrão de autenticação
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
     }
 
     /**
-     * Gerenciador de autenticação global usado pelo AuthService.
+     * =============================================================================
+     * BEAN: AuthenticationManager
+     * -----------------------------------------------------------------------------
+     * Gerenciador padrão de autenticação do Spring.
+     * =============================================================================
      */
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
+    }
+
+    /**
+     * =============================================================================
+     * BEAN: PasswordEncoder
+     * -----------------------------------------------------------------------------
+     * Codificador de senhas padrão (BCrypt).
+     * =============================================================================
+     */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 }

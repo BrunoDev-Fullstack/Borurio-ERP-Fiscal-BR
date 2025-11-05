@@ -1,2 +1,3 @@
 br\com\borurio\App.class
+br\com\borurio\core\mvc\api\Result.class
 br\com\borurio\core\CoreMarker.class

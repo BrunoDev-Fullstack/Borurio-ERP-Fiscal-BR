@@ -1,18 +1,105 @@
-# Ignorar diretórios e arquivos temporários
+###################################################################################################
+# .DOCKERIGNORE — BORURIO ERP FISCAL BR
+# ________________________________________________________________________________________________
+# Objetivo: evitar envio de arquivos desnecessários ou sensíveis no contexto de build Docker
+# Ambiente: DEV / HOM / PRD
+# Autor: Bruno Ribeiro – DevSecOps / Fullstack Java
+###################################################################################################
+
+# -------------------------------------------------------------------------------------------------
+# Diretórios temporários e de build
+# -------------------------------------------------------------------------------------------------
 **/target/
 **/logs/
+**/out/
 **/.idea/
 **/.vscode/
-**/.git/
+**/.settings/
+**/.classpath
+**/.project
+**/.mvn/
 **/.m2/
+**/.cache/
 **/.DS_Store
+**/.factorypath
 
-# Ignorar arquivos de banco e runtime
-docker/mysql/data-dev/*
-docker/mysql/data/*
-docker/redis/data-dev/*
-docker/minio/data-dev/*
+# -------------------------------------------------------------------------------------------------
+# Repositório Git e metadados locais
+# -------------------------------------------------------------------------------------------------
+**/.git/
+**/.gitignore
+**/.gitattributes
+**/.gitmodules
+
+# -------------------------------------------------------------------------------------------------
+# Arquivos de ambiente e credenciais
+# -------------------------------------------------------------------------------------------------
+.env
+.env.*
+!env/.env.dev
+!env/.env.hom
+!env/.env.prd
+certificados/
+certs/
+*.pfx
+*.pem
+*.crt
+*.key
+*.jks
+*.keystore
+
+# -------------------------------------------------------------------------------------------------
+# Dados persistentes e runtime
+# -------------------------------------------------------------------------------------------------
+docker/mysql/data-dev/
+docker/mysql/data-prd/
+docker/mysql/data/
+docker/redis/data-dev/
+docker/redis/data-prd/
+docker/minio/data-dev/
+docker/minio/data-prd/
+docker/mailpit/data/
+docker/tmp/
 *.sock
 *.pid
 *.tmp
 *.lock
+
+# -------------------------------------------------------------------------------------------------
+# Arquivos de cache e dependências locais
+# -------------------------------------------------------------------------------------------------
+**/node_modules/
+**/__pycache__/
+**/venv/
+**/build/
+**/dist/
+**/bin/
+**/obj/
+
+# -------------------------------------------------------------------------------------------------
+# Backups, dumps e relatórios locais
+# -------------------------------------------------------------------------------------------------
+*.sql
+*.dump
+*.bak
+*.old
+*.log
+*.md~
+*.docx~
+*.xlsx~
+*.zip
+*.tar
+*.gz
+
+# -------------------------------------------------------------------------------------------------
+# Exceções importantes (mantidas no contexto do build)
+# -------------------------------------------------------------------------------------------------
+!pom.xml
+!Dockerfile
+!docker-compose*.yml
+!README.md
+!src/
+!docs/
+!sql/
+!scripts/
+!env/

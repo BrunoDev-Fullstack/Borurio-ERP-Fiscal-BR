@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =============================================================================
+     Schema nfe_v4.00.xsd — Elemento Global NFe
+     Projeto: Borurio ERP Fiscal BR
+     Origem: Schema Oficial NF-e 4.00 (SEFAZ-SP)
+     Finalidade: Permitir validação direta de XMLs <NFe> isoladas
+     ============================================================================= -->
+
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+            targetNamespace="http://www.portalfiscal.inf.br/nfe"
+            xmlns="http://www.portalfiscal.inf.br/nfe"
+            elementFormDefault="qualified"
+            attributeFormDefault="unqualified">
+
+    <!-- =============================================================================
+         IMPORTAÇÕES E INCLUSÕES
+         _____________________________________________________________________________
+         O leiauteNFe_v4.00.xsd contém a definição do tipo complexo TNFe.
+         O xmldsig-core-schema define a assinatura digital padrão (RSA-SHA1/SHA256).
+         ============================================================================= -->
+
+    <xsd:import namespace="http://www.w3.org/2000/09/xmldsig#"
+                schemaLocation="xmldsig-core-schema_v1.01.xsd"/>
+
+    <xsd:include schemaLocation="leiauteNFe_v4.00.xsd"/>
+
+    <!-- =============================================================================
+         ELEMENTO GLOBAL: NFe
+         _____________________________________________________________________________
+         Define o ponto de entrada do XML de uma Nota Fiscal Eletrônica isolada.
+         ============================================================================= -->
+
+    <xsd:element name="NFe" type="TNFe"/>
+
+</xsd:schema>
