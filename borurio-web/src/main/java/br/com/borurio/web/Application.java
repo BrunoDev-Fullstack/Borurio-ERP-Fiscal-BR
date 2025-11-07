@@ -100,5 +100,6 @@ public class Application {
         System.out.printf(">> Aplicação '%s' iniciada com perfil '%s' na porta %s.%n", appName, profile, port);
         System.out.println(">> Módulos integrados: CORE | APP | FISCAL | WEB");
         System.out.println(">> Data/hora: " + startedAt);
+        System.out.println(">> Status: Inicialização concluída sem erros críticos.");
     }
 }

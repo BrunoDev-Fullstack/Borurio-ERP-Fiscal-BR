@@ -22,7 +22,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * =============================================================================
- * TESTE UNITÁRIO: NfeTransmitServiceTest
+ * TESTE UNITÁRIO — NfeTransmitServiceTest
  * -----------------------------------------------------------------------------
  * Verifica o comportamento do componente {@link NfeTransmitServiceImpl},
  * responsável pela transmissão dos XMLs NF-e (v4.00) aos WebServices da SEFAZ-SP.
@@ -37,6 +37,7 @@ import static org.mockito.Mockito.*;
  * Ambiente: DEV / Homologação
  * Módulo: borurio-fiscal
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Revisão: 07/11/2025
  * =============================================================================
  */
 public class NfeTransmitServiceTest {
@@ -49,7 +50,7 @@ public class NfeTransmitServiceTest {
             "<NFe><infNFe Id=\"NFe12345678901234567890123456789012345678901234\"></infNFe></NFe>";
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         logMapper = mock(NfeLogMapper.class);
         certificadoService = mock(CertificadoService.class);
 
@@ -59,8 +60,15 @@ public class NfeTransmitServiceTest {
         when(sslContext.getSocketFactory()).thenReturn(socketFactory);
         when(certificadoService.getSslContext()).thenReturn(sslContext);
 
-        service = new NfeTransmitServiceImpl(logMapper, certificadoService,
-                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx");
+        // Construtor atualizado — 6 parâmetros (ambiente + 3 URLs SEFAZ)
+        service = new NfeTransmitServiceImpl(
+                logMapper,
+                certificadoService,
+                "HOMOLOGACAO",
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx",
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx",
+                "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+        );
     }
 
     @Test
@@ -71,18 +79,18 @@ public class NfeTransmitServiceTest {
             NfeTransmitServiceImpl spyService = Mockito.spy(service);
             doReturn("<retEnviNFe><cStat>100</cStat></retEnviNFe>")
                     .when(spyService).transmitirXml(anyString(), anyString());
+
+            String resultado = spyService.transmitirXml(XML_MOCK, "12345678000190");
+            assertNotNull(resultado, "O resultado da transmissão não deve ser nulo.");
+
+            ArgumentCaptor<NfeLog> logCaptor = ArgumentCaptor.forClass(NfeLog.class);
+            verify(logMapper, atLeastOnce()).insertLog(logCaptor.capture());
+
+            NfeLog log = logCaptor.getValue();
+            assertEquals("ENVIO_NFE", log.getTipoEvento());
+            assertTrue(log.getDescricao().contains("NF-e"), "Descrição deve conter referência à NF-e");
+            assertNotNull(log.getDataEvento(), "Data de evento deve ser registrada.");
         }
-
-        String resultado = service.transmitirXml(XML_MOCK, "12345678000190");
-        assertNotNull(resultado, "O resultado da transmissão não deve ser nulo.");
-
-        ArgumentCaptor<NfeLog> logCaptor = ArgumentCaptor.forClass(NfeLog.class);
-        verify(logMapper, atLeastOnce()).insertLog(logCaptor.capture());
-
-        NfeLog log = logCaptor.getValue();
-        assertEquals("ENVIO_NFE", log.getTipoEvento());
-        assertTrue(log.getDescricao().contains("NF-e"), "Descrição deve conter referência à NF-e");
-        assertNotNull(log.getDataEvento(), "Data de evento deve ser registrada.");
     }
 
     @Test

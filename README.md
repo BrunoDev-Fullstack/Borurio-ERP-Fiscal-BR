@@ -1,200 +1,247 @@
-# 🚀 Borurio ERP Fiscal BR
+# 🚀 **Borurio ERP Fiscal BR**
 
-**ERP Fiscal Nacionalizado – Integração SEFAZ-SP (NF-e 4.00)**
+**ERP Fiscal Nacionalizado — Integração SEFAZ-SP (NF-e 4.00)**
 
-Desenvolvido em **Java 17 / Spring Boot 3.3.2**, o **Borurio ERP Fiscal BR** é um sistema modular voltado à gestão e automação fiscal de NF-e (Nota Fiscal Eletrônica), 100% nacionalizado e preparado para comunicação segura com a SEFAZ-SP via certificado digital A1.  
-A solução foi projetada seguindo padrões DevSecOps e boas práticas de microserviços, observabilidade e integração contínua (CI/CD Docker + GitHub Actions).
+O **Borurio ERP Fiscal BR** é um sistema modular desenvolvido em **Java 17 / Spring Boot 3.3.2**, projetado para automação fiscal, emissão e controle de **Notas Fiscais Eletrônicas (NF-e)**, 100% compatível com a **SEFAZ-SP**.
 
----
-
-## 🧩 Estrutura Modular
-
-| Módulo | Descrição | Artefato |
-|--------|------------|-----------|
-| **borurio-core** | Núcleo compartilhado (enums, padrões, utilitários, resposta padrão `{code, message, data}`) | `borurio-core-1.0.0.jar` |
-| **borurio-app** | Camada de negócios e entidades comuns (usuários, permissões, cadastros básicos) | `borurio-app-1.0.0.jar` |
-| **borurio-fiscal** | Módulo responsável pelas integrações NF-e (envio, retorno, status, logs, certificado A1, XSD) | `borurio-fiscal-1.0.0.jar` |
-| **borurio-web** | API REST principal (autenticação, endpoints públicos, controllers fiscais, Swagger/OpenAPI) | `borurio-web-1.0.0.jar` |
+A solução segue padrões **DevSecOps**, com ênfase em **segurança, rastreabilidade e automação CI/CD** (GitHub Actions + Docker Compose), integrando múltiplos módulos de negócio, certificação digital (A1) e monitoramento de serviços fiscais.
 
 ---
 
-## ⚙️ Stack Tecnológica
+## 🧬 **Arquitetura Modular**
 
-- **Linguagem:** Java 17
-- **Framework:** Spring Boot 3.3.2
-- **ORM / Mapper:** MyBatis-Plus
-- **Banco de Dados:** MySQL 8.4
-- **Cache:** Redis 7.2
-- **Mensageria / Storage:** MinIO
-- **Migração de Banco:** Flyway
-- **Logs:** Logback (ambientes DEV, HOM, PRD)
-- **Documentação:** Swagger / SpringDoc OpenAPI 3
-- **Build e Testes:** Maven + Jacoco
-- **CI/CD:** GitHub Actions (`ci-devsecops.yml`, `cd-docker.yml`)
-- **Containerização:** Docker Compose (dev / hom / prd)
+| Módulo             | Descrição                                                                                   | Artefato                   |
+| ------------------ | ------------------------------------------------------------------------------------------- | -------------------------- |
+| **borurio-core**   | Núcleo compartilhado (enums, padrões, utilitários, resposta padrão `{code, message, data}`) | `borurio-core-1.0.0.jar`   |
+| **borurio-app**    | Camada de negócios (usuários, permissões, cadastros básicos, entidades comuns)              | `borurio-app-1.0.0.jar`    |
+| **borurio-fiscal** | Módulo fiscal — NF-e 4.00 (envio, retorno, status, logs, certificado digital, XSD SEFAZ-SP) | `borurio-fiscal-1.0.0.jar` |
+| **borurio-web**    | API REST principal (autenticação JWT, controladores fiscais, Swagger/OpenAPI 3)             | `borurio-web-1.0.0.jar`    |
 
 ---
 
-## 🧱 Estrutura de Pastas (Resumo)
+## ⚙️ **Stack Tecnológica**
 
+* **Linguagem:** Java 17
+* **Framework:** Spring Boot 3.3.2
+* **Mapper:** MyBatis / MyBatis-Plus
+* **Banco de Dados:** MySQL 8.4
+* **Cache:** Redis 7.2
+* **Storage:** MinIO
+* **Migração de Banco:** Flyway 10.19
+* **Documentação:** Swagger / SpringDoc OpenAPI 3
+* **Segurança:** Spring Security + JWT
+* **Logs:** Logback (configurações por ambiente DEV / HOM / PRD)
+* **Build & Testes:** Maven + Jacoco (meta ≥ 80%)
+* **CI/CD:** GitHub Actions (`ci-devsecops.yml`, `cd-docker.yml`)
+* **Containerização:** Docker Compose (ambientes dev, hom, prd)
+
+---
+
+## 🧱 **Estrutura de Diretórios**
+
+```plaintext
 borurio-erp-br/
 │
-├── borurio-core/ → Núcleo comum (respostas, enums, padrões MVC)
-├── borurio-app/ → Lógica de negócios e persistência base
-├── borurio-fiscal/ → Integração SEFAZ-SP (NF-e 4.00)
-├── borurio-web/ → API REST principal e autenticação JWT
+├── borurio-core/          → Núcleo comum (respostas, enums, padrões MVC)
+├── borurio-app/           → Lógica de negócios e persistência base
+├── borurio-fiscal/        → Integração NF-e 4.00 (SEFAZ-SP)
+├── borurio-web/           → API REST principal e autenticação JWT
 │
-├── docker/ → Ambientes Docker (DEV, HOM, PRD)
-│ ├── docker-compose.dev.yml
-│ ├── docker-compose.hom.yml
-│ ├── docker-compose.yml (produção)
-│ ├── env/.env.dev, .env.hom, .env.prd
-│ └── certificados/, mysql/, redis/, minio/
+├── docker/                → Ambientes Docker (DEV, HOM, PRD)
+│   ├── docker-compose.dev.yml
+│   ├── docker-compose.hom.yml
+│   ├── docker-compose.yml (produção)
+│   ├── .env.dev / .env.hom / .env.prd
+│   └── certificados/, mysql/, redis/, minio/
 │
-├── certificados/ → Certificados digitais e cadeias ICP-Brasil
-├── docs/ → Relatórios técnicos e documentação
-├── sql/ → Scripts SQL (schema e tabelas fiscais)
-├── logs/ → Logs de execução (aplicação e integração SEFAZ)
-├── scripts/ → Automação PowerShell (importação, migração etc.)
-└── pom.xml → Projeto Maven principal (Reactor POM)
-
-yaml
-Copiar código
+├── certificados/          → Certificados digitais ICP-Brasil (.pfx, .cer)
+├── docs/                  → Relatórios técnicos e documentação
+├── sql/                   → Scripts SQL e migrações (Flyway)
+├── logs/                  → Logs de execução e auditoria fiscal
+├── scripts/               → Automação (PowerShell, shell scripts)
+└── pom.xml                → Reactor POM Maven principal
+```
 
 ---
 
-## 🧰 Ambientes Docker
+## 🧮 **Ambientes Docker**
 
 ### 🔹 Desenvolvimento (DEV)
+
 ```powershell
 cd "docker"
 docker-compose -f "docker-compose.dev.yml" up -d
-Porta principal: 8080
+```
 
-Actuator: 8081
+* Porta principal: **8080**
+* Actuator: **8081**
+* Fiscal Mock: **8082**
+* Certificado: `certificados/certificado-hom.pfx`
 
-Fiscal mock: 8082
+---
 
-Certificado: certificados/certificado-hom.pfx
+### 🔹 Homologação (HOM)
 
-🔹 Homologação (HOM)
-powershell
-Copiar código
+```powershell
 docker-compose -f "docker-compose.hom.yml" up -d
-Ambiente SEFAZ-SP (tpAmb=2)
+```
 
-Certificado A1 de homologação
+* Ambiente SEFAZ-SP (tpAmb=2)
+* Certificado A1 de homologação
+* Logs: `/var/log/borurio/borurio-web-hom.log`
 
-Logs: /var/log/borurio/borurio-web-hom.log
+---
 
-🔹 Produção (PRD)
-powershell
-Copiar código
+### 🔹 Produção (PRD)
+
+```powershell
 docker-compose -f "docker-compose.yml" up -d --build
-Porta principal: 8282
+```
 
-Actuator: 8281
+* Porta principal: **8282**
+* Actuator: **8281**
+* Certificado: `/app/certificados/certificado-prd.pfx`
+* Logs:
 
-Certificado: /app/certificados/certificado-prd.pfx
+    * `/var/log/borurio/borurio-prd.log`
+    * `/var/log/borurio/sefaz-integration.log`
 
-Logs:
+---
 
-/var/log/borurio/borurio-prd.log
+## 🔐 **Segurança e Autenticação**
 
-/var/log/borurio/sefaz-integration.log
+* Autenticação via **JWT (JSON Web Token)**
+* Implementações: `AuthController`, `JwtUtil`, `JwtFilter`
+* Usuário padrão: configurável via base de dados ou variáveis de ambiente
 
-🔐 Segurança e Autenticação
-Autenticação JWT (AuthController, JwtUtil, JwtFilter)
+**Endpoints públicos:**
 
-Usuário padrão configurado via base ou variável de ambiente
-
-Endpoints abertos:
-
-bash
-Copiar código
+```
 /auth/login
 /swagger-ui/**
 /v3/api-docs/**
 /actuator/**
-Endpoints protegidos exigem token JWT no header:
+```
 
-makefile
-Copiar código
+**Endpoints protegidos:**
+Requerem header:
+
+```
 Authorization: Bearer <token>
-🧾 Módulo Fiscal – SEFAZ-SP NF-e 4.00
-Integração direta com os WebServices SEFAZ-SP:
+```
 
-NFeAutorizacao4.asmx
+---
 
-NFeRetAutorizacao4.asmx
+## 🧲 **Integração Fiscal — SEFAZ-SP NF-e 4.00**
 
-NFeStatusServico4.asmx
+### WebServices suportados:
 
-Certificado A1 (SSLContext) carregado dinamicamente pelo CertificadoServiceImpl
+* `NFeAutorizacao4.asmx`
+* `NFeRetAutorizacao4.asmx`
+* `NFeStatusServico4.asmx`
+* `NFeConsultaProtocolo4.asmx`
+* `NFeInutilizacao4.asmx`
 
-Validação XML via XSD consolidado:
+### Certificados Digitais:
 
-swift
-Copiar código
+* **Tipo:** A1 (PFX)
+* **Carregamento:** dinâmico via `CertificadoServiceImpl`
+* **Armazenamento:** `/app/certificados/`
+
+### Validação XML:
+
+Consolidada via schema oficial:
+
+```
 borurio-fiscal/src/main/resources/xsd/custom/nfe_v4.00_consolidado.xsd
-Registro completo de logs no banco (nfe_log) e arquivo:
+```
 
-lua
-Copiar código
-/var/log/borurio/sefaz-integration.log
-📊 Observabilidade
-Health Check: /actuator/health
+### Logs fiscais:
 
-Swagger UI: http://localhost:8080/swagger-ui/index.html
+* Banco: `nfe_log`
+* Arquivo: `/var/log/borurio/sefaz-integration.log`
 
-Logs estruturados: logback-dev.xml / logback-prd.xml
+---
 
-Jacoco Coverage: meta ≥ 80%
+## 📊 **Monitoramento e Observabilidade**
 
-🧪 Testes
-Executar localmente:
+* Health Check: `/actuator/health`
+* Swagger UI: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
+* OpenAPI JSON: `/v3/api-docs`
+* Logs estruturados: `logback-dev.xml` / `logback-prd.xml`
+* Jacoco Coverage: meta ≥ 80%
 
-powershell
-Copiar código
+---
+
+## 🥪 **Testes**
+
+Executar todos os módulos:
+
+```powershell
 mvn clean test
-Executar somente o módulo fiscal:
+```
 
-powershell
-Copiar código
+Somente o módulo fiscal:
+
+```powershell
 mvn clean install -pl borurio-fiscal -am -DskipTests
-🚀 Deploy e Versionamento
-Etapa	Descrição	Tag
-DEV	Ambientes de desenvolvimento e integração local	v3.4.0-dev
-HOM	Homologação SEFAZ-SP (tpAmb=2) validada	v3.4.0-homologacao-sefaz-ok
-PRD	Produção real (tpAmb=1) com certificado A1	v3.4.1-producao
+```
 
-📚 Relatórios Técnicos
-Relatórios diários de desenvolvimento e homologação disponíveis em:
+Smoke Test (DEV):
 
-bash
-Copiar código
+```bash
+curl http://localhost:8080/api/test/ping
+curl http://localhost:8080/actuator/health
+```
+
+---
+
+## 🚀 **Deploy e Versionamento**
+
+| Ambiente | Descrição                             | Tag                           |
+| -------- | ------------------------------------- | ----------------------------- |
+| **DEV**  | Desenvolvimento e integração local    | `v3.5.0-dev`                  |
+| **HOM**  | Homologação SEFAZ-SP (tpAmb=2)        | `v3.5.0-homologacao-sefaz-ok` |
+| **PRD**  | Produção (tpAmb=1) com certificado A1 | `v3.5.1-producao`             |
+
+---
+
+## 📚 **Relatórios Técnicos**
+
+Relatórios de progresso e validação disponíveis em:
+
+```
 /docs/report/Relatorio_Tecnico_DD-MM.md
-Exemplo:
+```
 
-Relatório Técnico – 28/10/2025
+Exemplos:
 
-Relatório Técnico – 29/10/2025
+* `Relatorio_Tecnico_06-11.md`
+* `Relatorio_Tecnico_07-11.md`
 
-🧭 Próximos Passos
-Concluir validação de produção SEFAZ-SP (tpAmb=1)
+---
 
-Emitir NF-e real com certificado A1
+## 🗾 **Próximos Passos**
 
-Integrar consultas de protocolo, cancelamento e inutilização
+1. Importar Certificado A1 ICP-Brasil para emissão real NF-e
+2. Implementar cancelamento e inutilização (SEFAZ-SP)
+3. Integrar consultas de protocolo e auditoria fiscal
+4. Criar dashboard de monitoramento (API + logs SEFAZ)
+5. Testes de carga e observabilidade (Actuator + Redis)
 
-Implementar dashboard de monitoramento fiscal
+---
 
-👤 Autor
-Bruno Ribeiro
+## 👤 **Autor**
+
+**Bruno Ribeiro**
 Desenvolvedor Fullstack / DevSecOps
-📧 contato: (pode inserir seu e-mail profissional)
-📍 São Paulo, Brasil
+📍 São Paulo — Brasil
+📧 *(inserir e-mail profissional se desejar)*
 
-🛡️ Licença
-Este projeto é de uso interno e controlado.
-Todos os direitos reservados © 2025 – Borurio ERP Fiscal BR
+---
+
+## 🛡️ **Licença**
+
+> Sistema de uso interno restrito.
+> Todos os direitos reservados © 2025 — **Borurio ERP Fiscal BR**
+> Repositório oficial: [github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR](https://github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR)
