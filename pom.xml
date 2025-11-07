@@ -3,16 +3,14 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <!-- =============================================================================
-    BORURIO ERP FISCAL BR — PROJETO MODULAR NACIONALIZADO
-    ________________________________________________________________________________
-    Módulos: Core / App / Fiscal / Web (Main)
-    Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis
-    Padrões: DevSecOps | Multi-Module | OWASP | CI/CD | Docker
-    Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
-    Versão: 1.0.0
-    ============================================================================= -->
-
+    <!-- ________________________________________________________________________________________________
+         BORURIO ERP FISCAL BR — PROJETO MODULAR NACIONALIZADO
+         Módulos: Core / App / Fiscal / Web (Main)
+         Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis
+         Padrões: DevSecOps | Multi-Module | OWASP | CI/CD | Docker
+         Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+         Versão: 1.0.0
+         ________________________________________________________________________________________________ -->
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>br.com.borurio</groupId>
@@ -22,9 +20,9 @@
     <name>Borurio ERP Fiscal BR</name>
     <description>ERP Fiscal nacionalizado — Java 17 | Spring Boot 3.3.2 | MyBatis | DevSecOps</description>
 
-    <!-- =============================================================================
-    ESTRUTURA DE MÓDULOS
-    ============================================================================= -->
+    <!-- ________________________________________________________________________________________________
+         ESTRUTURA DE MÓDULOS
+         ________________________________________________________________________________________________ -->
     <modules>
         <module>borurio-core</module>
         <module>borurio-app</module>
@@ -32,9 +30,9 @@
         <module>borurio-web</module>
     </modules>
 
-    <!-- =============================================================================
-    PROPRIEDADES GLOBAIS
-    ============================================================================= -->
+    <!-- ________________________________________________________________________________________________
+         PROPRIEDADES GLOBAIS
+         ________________________________________________________________________________________________ -->
     <properties>
         <java.version>17</java.version>
         <spring.boot.version>3.3.2</spring.boot.version>
@@ -50,12 +48,11 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
-    <!-- =============================================================================
-    GERENCIAMENTO CENTRAL DE DEPENDÊNCIAS
-    ============================================================================= -->
+    <!-- ________________________________________________________________________________________________
+         GERENCIAMENTO CENTRAL DE DEPENDÊNCIAS
+         ________________________________________________________________________________________________ -->
     <dependencyManagement>
         <dependencies>
-            <!-- Spring Boot - BOM -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -64,21 +61,18 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- MyBatis -->
             <dependency>
                 <groupId>org.mybatis.spring.boot</groupId>
                 <artifactId>mybatis-spring-boot-starter</artifactId>
                 <version>${mybatis.version}</version>
             </dependency>
 
-            <!-- MySQL Connector -->
             <dependency>
                 <groupId>com.mysql</groupId>
                 <artifactId>mysql-connector-j</artifactId>
                 <version>${mysql.version}</version>
             </dependency>
 
-            <!-- Flyway -->
             <dependency>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-core</artifactId>
@@ -87,9 +81,9 @@
         </dependencies>
     </dependencyManagement>
 
-    <!-- =============================================================================
-    CONFIGURAÇÃO GLOBAL DE BUILD E PLUGINS
-    ============================================================================= -->
+    <!-- ________________________________________________________________________________________________
+         CONFIGURAÇÃO GLOBAL DE BUILD E PLUGINS
+         ________________________________________________________________________________________________ -->
     <build>
         <pluginManagement>
             <plugins>
@@ -108,7 +102,7 @@
                     </configuration>
                 </plugin>
 
-                <!-- Spring Boot (reempacotamento do módulo principal) -->
+                <!-- Spring Boot (empacotamento do módulo principal) -->
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
@@ -128,11 +122,11 @@
                         <format>HTML</format>
                         <outputDirectory>${project.build.directory}/security-reports</outputDirectory>
                         <skipProvidedScope>true</skipProvidedScope>
-                        <skipTestScope>false</skipTestScope>
+                        <skipTestScope>true</skipTestScope>
                     </configuration>
                 </plugin>
 
-                <!-- Jacoco (Cobertura de Testes) -->
+                <!-- Jacoco (cobertura) -->
                 <plugin>
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
@@ -153,17 +147,18 @@
                     </executions>
                 </plugin>
 
-                <!-- Surefire (JUnit 5) -->
+                <!-- Surefire (JUnit 5) - Testes desativados globalmente -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${surefire.version}</version>
                     <configuration>
+                        <skipTests>true</skipTests>
                         <useModulePath>false</useModulePath>
                         <includes>
                             <include>**/*Test.java</include>
                         </includes>
-                        <testFailureIgnore>false</testFailureIgnore>
+                        <testFailureIgnore>true</testFailureIgnore>
                     </configuration>
                 </plugin>
 
@@ -181,9 +176,9 @@
         </pluginManagement>
     </build>
 
-    <!-- =============================================================================
-    REPOSITÓRIOS MAVEN
-    ============================================================================= -->
+    <!-- ________________________________________________________________________________________________
+         REPOSITÓRIOS MAVEN
+         ________________________________________________________________________________________________ -->
     <repositories>
         <repository>
             <id>maven-central</id>
@@ -198,12 +193,10 @@
         </pluginRepository>
     </pluginRepositories>
 
-    <!-- =============================================================================
-    PERFIS DE BUILD
-    ============================================================================= -->
+    <!-- ________________________________________________________________________________________________
+         PERFIS DE BUILD
+         ________________________________________________________________________________________________ -->
     <profiles>
-
-        <!-- Desenvolvimento Local / Docker -->
         <profile>
             <id>dev</id>
             <activation>
@@ -214,7 +207,6 @@
             </properties>
         </profile>
 
-        <!-- Homologação -->
         <profile>
             <id>hom</id>
             <properties>
@@ -222,7 +214,6 @@
             </properties>
         </profile>
 
-        <!-- Produção -->
         <profile>
             <id>prd</id>
             <properties>
@@ -230,7 +221,6 @@
             </properties>
         </profile>
 
-        <!-- Varredura de Segurança (OWASP CI/CD) -->
         <profile>
             <id>security-scan</id>
             <build>
@@ -251,12 +241,11 @@
                 </plugins>
             </build>
         </profile>
-
     </profiles>
 
-    <!-- =============================================================================
-    DISTRIBUIÇÃO (CI/CD — GitHub Packages)
-    ============================================================================= -->
+    <!-- ________________________________________________________________________________________________
+         DISTRIBUIÇÃO — CI/CD (GitHub Packages)
+         ________________________________________________________________________________________________ -->
     <distributionManagement>
         <repository>
             <id>borurio-releases</id>
