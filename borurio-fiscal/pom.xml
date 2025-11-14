@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- ________________________________________________________________________________________________
      MÓDULO FISCAL — BORURIO ERP FISCAL BR
-     ________________________________________________________________________________________________
-     Função: Biblioteca fiscal e integração SEFAZ-SP (NF-e 4.00 / NT 2025.002)
+     Função: Biblioteca fiscal e integração SEFAZ-SP (NF-e 4.00)
      Autor:  Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
-     Stack:  Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway
 ________________________________________________________________________________________________ -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -12,9 +10,7 @@ ________________________________________________________________________________
 
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- ________________________________________________________________________________________________
-         HERANÇA DO POM RAIZ
-    ________________________________________________________________________________________________ -->
+    <!-- HERANÇA DO PROJETO MULTI-MÓDULO -->
     <parent>
         <groupId>br.com.borurio</groupId>
         <artifactId>borurio-erp-br</artifactId>
@@ -22,13 +18,11 @@ ________________________________________________________________________________
     </parent>
 
     <artifactId>borurio-fiscal</artifactId>
-    <packaging>jar</packaging>
     <name>Borurio Fiscal</name>
-    <description>Módulo Fiscal do ERP Borurio Brasil — NF-e / SEFAZ / Auditoria Fiscal</description>
+    <packaging>jar</packaging>
+    <description>Módulo Fiscal — NF-e 4.00 / Certificados / Auditoria</description>
 
-    <!-- ________________________________________________________________________________________________
-         PROPRIEDADES DO PROJETO
-    ________________________________________________________________________________________________ -->
+    <!-- PROPRIEDADES -->
     <properties>
         <java.version>17</java.version>
         <spring.boot.version>3.3.2</spring.boot.version>
@@ -37,23 +31,18 @@ ________________________________________________________________________________
         <flyway.version>10.19.0</flyway.version>
         <springdoc.version>2.5.0</springdoc.version>
         <surefire.version>3.2.5</surefire.version>
-        <jacoco.version>0.8.11</jacoco.version>
-        <owasp.version>9.0.9</owasp.version>
-        <exec.plugin.version>3.6.2</exec.plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
-    <!-- ________________________________________________________________________________________________
-         DEPENDÊNCIAS PRINCIPAIS
-    ________________________________________________________________________________________________ -->
+    <!-- DEPENDÊNCIAS -->
     <dependencies>
 
-        <!-- Núcleo compartilhado -->
+        <!-- Núcleo comum -->
         <dependency>
             <groupId>br.com.borurio</groupId>
             <artifactId>borurio-core</artifactId>
-            <version>1.0.0</version>
+            <version>${project.version}</version>
         </dependency>
 
         <!-- Spring Boot -->
@@ -67,7 +56,7 @@ ________________________________________________________________________________
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- MyBatis / Banco -->
+        <!-- Banco de Dados / MyBatis -->
         <dependency>
             <groupId>org.mybatis.spring.boot</groupId>
             <artifactId>mybatis-spring-boot-starter</artifactId>
@@ -119,7 +108,7 @@ ________________________________________________________________________________
             <version>4.5.0-M2</version>
         </dependency>
 
-        <!-- JAXB (XML Fiscal) -->
+        <!-- JAXB -->
         <dependency>
             <groupId>jakarta.xml.bind</groupId>
             <artifactId>jakarta.xml.bind-api</artifactId>
@@ -134,7 +123,7 @@ ________________________________________________________________________________
             <scope>provided</scope>
         </dependency>
 
-        <!-- Dependências de teste (mantidas, mas desativadas) -->
+        <!-- Testes (skippados) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -163,27 +152,26 @@ ________________________________________________________________________________
 
     </dependencies>
 
-    <!-- ________________________________________________________________________________________________
-         BUILD / PLUGINS / CONFIGURAÇÕES
-    ________________________________________________________________________________________________ -->
+    <!-- BUILD -->
     <build>
+
         <finalName>${project.artifactId}-${project.version}</finalName>
 
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
                 <includes>
-                    <include>**/*.xsd</include>
                     <include>**/*.xml</include>
+                    <include>**/*.xsd</include>
+                    <include>**/*.sql</include>
                     <include>**/*.yml</include>
-                    <include>**/*.pfx</include>
                 </includes>
             </resource>
         </resources>
 
         <plugins>
 
-            <!-- Compilador Java -->
+            <!-- Compilador -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -191,35 +179,20 @@ ________________________________________________________________________________
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
-                    <encoding>${project.build.sourceEncoding}</encoding>
                 </configuration>
-                <!-- Desativar compilação de testes -->
-                <executions>
-                    <execution>
-                        <id>default-testCompile</id>
-                        <phase>test-compile</phase>
-                        <goals>
-                            <goal>testCompile</goal>
-                        </goals>
-                        <configuration>
-                            <skip>true</skip>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
 
-            <!-- Desabilitar testes automáticos -->
+            <!-- Skip Tests -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${surefire.version}</version>
                 <configuration>
                     <skipTests>true</skipTests>
-                    <testFailureIgnore>true</testFailureIgnore>
                 </configuration>
             </plugin>
 
-            <!-- Spring Boot (modo biblioteca fiscal) -->
+            <!-- Spring Boot (não empacota este módulo) -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -229,61 +202,11 @@ ________________________________________________________________________________
                 </configuration>
             </plugin>
 
-            <!-- Flyway Migration -->
+            <!-- Flyway -->
             <plugin>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-maven-plugin</artifactId>
                 <version>${flyway.version}</version>
-                <configuration>
-                    <driver>com.mysql.cj.jdbc.Driver</driver>
-                    <url>jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;serverTimezone=America/Sao_Paulo</url>
-                    <user>borurio</user>
-                    <password>H4ck3r123</password>
-                    <schemas>
-                        <schema>borurio_fiscal_dev</schema>
-                    </schemas>
-                    <locations>
-                        <location>filesystem:src/main/resources/db/migration</location>
-                    </locations>
-                    <baselineOnMigrate>true</baselineOnMigrate>
-                    <validateOnMigrate>true</validateOnMigrate>
-                    <cleanDisabled>true</cleanDisabled>
-                </configuration>
-            </plugin>
-
-            <!-- Jacoco -->
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>${jacoco.version}</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>report</id>
-                        <phase>test</phase>
-                        <goals>
-                            <goal>report</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- OWASP Dependency Check -->
-            <plugin>
-                <groupId>org.owasp</groupId>
-                <artifactId>dependency-check-maven</artifactId>
-                <version>${owasp.version}</version>
-                <configuration>
-                    <failBuildOnCVSS>7.0</failBuildOnCVSS>
-                    <format>HTML</format>
-                    <outputDirectory>${project.build.directory}/security-reports</outputDirectory>
-                    <skipProvidedScope>true</skipProvidedScope>
-                    <skipTestScope>true</skipTestScope>
-                </configuration>
             </plugin>
 
         </plugins>

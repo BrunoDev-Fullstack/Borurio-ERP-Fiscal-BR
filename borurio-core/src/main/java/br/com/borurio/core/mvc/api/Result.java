@@ -1,21 +1,8 @@
 package br.com.borurio.core.mvc.api;
 
 /**
- * =============================================================================
- * CLASSE: Result
- * -----------------------------------------------------------------------------
- * Modelo padrão de resposta JSON para as APIs REST do ERP Fiscal Borurio BR.
- *
- * Exemplo:
- * {
- *   "code": 200,
- *   "message": "Operação realizada com sucesso.",
- *   "data": { ... }
- * }
- * -----------------------------------------------------------------------------
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Módulo: borurio-core
- * =============================================================================
+ * Envelope padrão de resposta da API.
+ * Este módulo não depende de Swagger/OpenAPI.
  */
 public class Result<T> {
 
@@ -23,8 +10,7 @@ public class Result<T> {
     private String message;
     private T data;
 
-    public Result() {
-    }
+    public Result() {}
 
     public Result(int code, String message, T data) {
         this.code = code;
@@ -32,32 +18,32 @@ public class Result<T> {
         this.data = data;
     }
 
-    public static <T> Result<T> ok(String message, T data) {
-        return new Result<>(200, message, data);
-    }
-
-    public static <T> Result<T> error(int code, String message) {
-        return new Result<>(code, message, null);
-    }
-
-    // Getters e Setters
+    // Getter
     public int getCode() {
         return code;
-    }
-    public void setCode(int code) {
-        this.code = code;
     }
 
     public String getMessage() {
         return message;
     }
-    public void setMessage(String message) {
-        this.message = message;
-    }
 
     public T getData() {
         return data;
     }
+
+    public boolean isSuccess() {
+        return this.code == ResultCodeEnum.SUCCESS.code();
+    }
+
+    // Setter
+    public void setCode(int code) {
+        this.code = code;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
     public void setData(T data) {
         this.data = data;
     }

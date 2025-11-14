@@ -1,7 +1,8 @@
 package br.com.borurio.web.controller.fiscal;
 
-import br.com.borurio.fiscal.service.NfeTransmitService;
 import br.com.borurio.core.mvc.api.Result;
+import br.com.borurio.core.mvc.api.ResultUtil;
+import br.com.borurio.fiscal.service.NfeTransmitService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
  * CONTROLADOR: NfeEnvioController
  * -----------------------------------------------------------------------------
  * Responsável por receber o XML assinado da NF-e (modelo 55) e enviar à SEFAZ-SP.
- * -----------------------------------------------------------------------------
  * Ambiente padrão: Homologação (tpAmb=2)
  * =============================================================================
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
@@ -37,10 +37,16 @@ public class NfeEnvioController {
     @PostMapping("/enviar")
     public Result<String> enviarNfe(@RequestBody String xmlNfeAssinado) {
         try {
+
             String resposta = nfeTransmitService.transmitir(xmlNfeAssinado);
-            return Result.ok("NF-e transmitida com sucesso (Homologação).", resposta);
+
+            // Aqui é o formato correto do seu ResultUtil
+            return ResultUtil.success(resposta);
+
         } catch (Exception e) {
-            return Result.error(500, "Falha ao transmitir NF-e: " + e.getMessage());
+
+            // Erro de retorno padrão do core
+            return ResultUtil.error("Falha ao transmitir NF-e: " + e.getMessage());
         }
     }
 }

@@ -27,5 +27,5 @@ public interface NcmService {
     /**
      * Sincroniza a tabela NCM a partir do arquivo CSV oficial.
      */
-    Result sincronizarTabela();
+    Result<?> sincronizarTabela();
 }

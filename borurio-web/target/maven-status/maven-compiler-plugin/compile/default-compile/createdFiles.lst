@@ -16,5 +16,6 @@ br\com\borurio\web\Application.class
 br\com\borurio\web\auth\AuthController.class
 br\com\borurio\web\auth\AuthController$AuthRequest.class
 br\com\borurio\web\controller\NfeController.class
+br\com\borurio\web\controller\app\ClienteController.class
 br\com\borurio\web\controller\fiscal\NfeTestController.class
 br\com\borurio\web\repository\UserAccountRepository.class

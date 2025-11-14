@@ -35,9 +35,10 @@ public class NcmServiceImpl implements NcmService {
     }
 
     @Override
-    public Result sincronizarTabela() {
+    public Result<?> sincronizarTabela() {
         try {
             Path csvPath = Paths.get("docs/data/ncm_oficial_20251107.csv");
+
             if (!Files.exists(csvPath)) {
                 return ResultUtil.error("Arquivo NCM oficial não encontrado: " + csvPath.toAbsolutePath());
             }
@@ -48,8 +49,10 @@ public class NcmServiceImpl implements NcmService {
             }
 
             int count = 0;
+
             for (int i = 1; i < linhas.size(); i++) {
                 String[] colunas = linhas.get(i).split(";");
+
                 if (colunas.length >= 2) {
                     String codigo = colunas[0].trim();
                     String descricao = colunas[1].trim();
@@ -63,7 +66,9 @@ public class NcmServiceImpl implements NcmService {
                 }
             }
 
-            return ResultUtil.ok("Sincronização NCM concluída com sucesso. Registros processados: " + count);
+            return ResultUtil.success(
+                    "Sincronização concluída com sucesso. Registros processados: " + count
+            );
 
         } catch (Exception e) {
             return ResultUtil.error("Erro durante sincronização da Tabela NCM: " + e.getMessage());

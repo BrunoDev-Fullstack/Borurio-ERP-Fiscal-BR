@@ -1,33 +1,26 @@
 package br.com.borurio.core.mvc.api;
 
 /**
- * Enum genérico para representar estados comuns de entidades e processos
- * dentro do ERP Fiscal Borurio Brasil.
- *
- * Utilizado em cadastros, fluxos de NF-e e controle de operações.
+ * Estado padrão das respostas da aplicação
  */
 public enum CommonStateEnum {
 
-    ATIVO(1, "Ativo"),
-    INATIVO(0, "Inativo"),
-    PENDENTE(2, "Pendente"),
-    CANCELADO(3, "Cancelado"),
-    PROCESSANDO(4, "Processando"),
-    ERRO(5, "Erro");
+    SUCCESS(true, "Operação realizada com sucesso."),
+    FAILURE(false, "Falha ao processar a operação.");
 
-    private final int code;
-    private final String descricao;
+    private final boolean success;
+    private final String message;
 
-    CommonStateEnum(int code, String descricao) {
-        this.code = code;
-        this.descricao = descricao;
+    CommonStateEnum(boolean success, String message) {
+        this.success = success;
+        this.message = message;
     }
 
-    public int getCode() {
-        return code;
+    public boolean isSuccess() {
+        return success;
     }
 
-    public String getDescricao() {
-        return descricao;
+    public String getMessage() {
+        return message;
     }
 }
