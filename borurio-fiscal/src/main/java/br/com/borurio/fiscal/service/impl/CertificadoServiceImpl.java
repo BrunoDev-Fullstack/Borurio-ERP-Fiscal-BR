@@ -11,37 +11,39 @@ import org.springframework.stereotype.Service;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
+import java.io.File;
 import java.io.FileInputStream;
+import java.security.Key;
 import java.security.KeyStore;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
 
 /**
  * =============================================================================
- * SERVIÇO: CertificadoServiceImpl (Unificado – DEV / HOM / PRD)
- * ______________________________________________________________________________
- * Função:
- *   Carrega e inicializa o certificado digital A1 (.pfx) configurado via
- *   variáveis de ambiente ou application.yml, gerando um SSLContext válido
- *   para comunicação com os webservices da SEFAZ-SP (NF-e 4.00).
+ * SERVIÇO: CertificadoServiceImpl (DEV / HOM / PRD)
+ * -----------------------------------------------------------------------------
+ * Responsável por carregar o certificado digital A1 (.pfx) e montar o SSLContext
+ * para comunicação mTLS com os webservices SEFAZ-SP (NF-e 4.00).
  *
- * Perfis suportados:
- *   - dev : ambiente de desenvolvimento (carrega certificado mock, se existir)
- *   - hom : ambiente de homologação real SEFAZ-SP
- *   - prd : ambiente de produção real SEFAZ-SP
+ * Campos carregados via application.yml:
+ *   - fiscal.cert.path
+ *   - fiscal.cert.pass
  *
- * Variáveis esperadas:
- *   - fiscal.cert.path → Caminho absoluto do certificado (.pfx)
- *   - fiscal.cert.pass → Senha do certificado
+ * Compatível com:
+ *   DEV → Homologação SEFAZ real
+ *   HOM → Homologação SEFAZ real
+ *   PRD → Produção SEFAZ real
  *
  * =============================================================================
- * Autor: Bruno Ribeiro — Desenvolvedor Java / DevSecOps
- * Última revisão: 03/11/2025
+ * Autor: Bruno Ribeiro — DevSecOps / Fullstack
+ * Revisão Final: 26/11/2025
  * =============================================================================
  */
 @Service
 @Profile({"dev", "hom", "prd"})
 public class CertificadoServiceImpl implements CertificadoService {
 
-    private static final Logger logger = LoggerFactory.getLogger(CertificadoServiceImpl.class);
+    private static final Logger log = LoggerFactory.getLogger(CertificadoServiceImpl.class);
 
     @Value("${fiscal.cert.path:}")
     private String certPath;
@@ -52,54 +54,110 @@ public class CertificadoServiceImpl implements CertificadoService {
     private SSLContext sslContext;
 
     /**
-     * Inicializa o SSLContext com base no certificado informado.
+     * Inicializa o carregamento do certificado A1 após o contexto Spring subir.
      */
     @PostConstruct
     public void init() {
         try {
-            if (certPath == null || certPath.isEmpty()) {
-                logger.warn("[CertificadoServiceImpl] Caminho do certificado não informado — SSLContext desativado.");
+            log.info("=================================================================");
+            log.info("Inicializando Certificado A1 para comunicação SEFAZ-SP...");
+            log.info("=================================================================");
+
+            // ------------------------------------------------------------
+            // 1) Validação do caminho
+            // ------------------------------------------------------------
+            if (certPath == null || certPath.isBlank()) {
+                log.error("[CERTIFICADO] Caminho do .pfx não informado. Aborte.");
                 return;
             }
 
-            logger.info("[CertificadoServiceImpl] Iniciando carregamento do certificado: {}", certPath);
+            File certFile = new File(certPath);
+            if (!certFile.exists()) {
+                log.error("[CERTIFICADO] Arquivo não encontrado: {}", certFile.getAbsolutePath());
+                return;
+            }
 
+            log.info("[CERTIFICADO] Arquivo localizado: {}", certFile.getAbsolutePath());
+            log.info("[CERTIFICADO] Tamanho: {} bytes", certFile.length());
+
+            // ------------------------------------------------------------
+            // 2) Carregando KeyStore PKCS12
+            // ------------------------------------------------------------
             KeyStore keyStore = KeyStore.getInstance("PKCS12");
-            try (FileInputStream fis = new FileInputStream(certPath)) {
+
+            try (FileInputStream fis = new FileInputStream(certFile)) {
                 keyStore.load(fis, certPass.toCharArray());
             }
 
+            // ------------------------------------------------------------
+            // 3) Alias e Certificado
+            // ------------------------------------------------------------
+            Enumeration<String> aliases = keyStore.aliases();
+            if (!aliases.hasMoreElements()) {
+                throw new IllegalStateException("Nenhum alias encontrado no certificado .pfx");
+            }
+
+            String alias = aliases.nextElement();
+            log.info("[CERTIFICADO] Alias encontrado: {}", alias);
+
+            X509Certificate certificado = (X509Certificate) keyStore.getCertificate(alias);
+
+            log.info("[CERTIFICADO] Subject: {}", certificado.getSubjectDN());
+            log.info("[CERTIFICADO] Issuer : {}", certificado.getIssuerDN());
+            log.info("[CERTIFICADO] Validade: {} até {}", certificado.getNotBefore(), certificado.getNotAfter());
+
+            // ------------------------------------------------------------
+            // 4) Verificando chave privada (obrigatória para SEFAZ)
+            // ------------------------------------------------------------
+            Key privateKey = keyStore.getKey(alias, certPass.toCharArray());
+            if (privateKey == null) {
+                throw new IllegalStateException("Chave privada não encontrada no certificado.");
+            }
+
+            log.info("[CERTIFICADO] Chave privada carregada com sucesso.");
+
+            // ------------------------------------------------------------
+            // 5) KeyManager e TrustManager
+            // ------------------------------------------------------------
             KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
             kmf.init(keyStore, certPass.toCharArray());
 
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             tmf.init(keyStore);
 
-            sslContext = SSLContext.getInstance("TLS");
+            // ------------------------------------------------------------
+            // 6) SSLContext TLS 1.2 (Obrigatório SEFAZ)
+            // ------------------------------------------------------------
+            sslContext = SSLContext.getInstance("TLSv1.2");
             sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
 
-            logger.info("[CertificadoServiceImpl] Certificado digital carregado com sucesso (SSLContext ativo).");
+            log.info("=================================================================");
+            log.info("[CERTIFICADO] SSLContext inicializado com sucesso.");
+            log.info("[CERTIFICADO] Certificado digital A1 devidamente carregado.");
+            log.info("=================================================================");
 
         } catch (Exception e) {
-            logger.error("[CertificadoServiceImpl] Falha ao inicializar certificado digital: {}", e.getMessage(), e);
+            log.error("=================================================================");
+            log.error("[ERRO CRÍTICO] Falha ao carregar o certificado A1: {}", e.getMessage());
+            log.error("Stacktrace completo:", e);
+            log.error("=================================================================");
             sslContext = null;
         }
     }
+
+    // ============================================================
+    // Métodos públicos
+    // ============================================================
 
     @Override
     public SSLContext getSslContext() {
         return sslContext;
     }
 
-    /**
-     * Retorna o status atual do serviço de certificado.
-     *
-     * @return String descritiva com o estado do certificado.
-     */
     @Override
     public String getStatus() {
         return (sslContext != null)
-                ? "CertificadoServiceImpl: SSLContext ativo — certificado carregado com sucesso"
-                : "CertificadoServiceImpl: SSLContext inativo — certificado não inicializado";
+                ? "Certificado carregado e SSLContext ativo"
+                : "Certificado não carregado ou inválido";
     }
 }

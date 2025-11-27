@@ -3,45 +3,40 @@ package br.com.borurio.fiscal.service.impl;
 import br.com.borurio.fiscal.service.NfeAuthorizeService;
 import br.com.borurio.fiscal.service.NfeLogService;
 import br.com.borurio.fiscal.utils.XsdValidator;
-import jakarta.xml.bind.DatatypeConverter;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.XMLConstants;
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
+
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.Base64;
 import java.util.Date;
 import java.util.UUID;
 
 /**
- * Serviço responsável por simular o processo de autorização de NF-e (mock SEFAZ).
+ * =============================================================================
+ * SERVIÇO MOCK — AUTORIZAÇÃO DE NF-e (SEFAZ)
+ * =============================================================================
+ * Executa o fluxo completo:
+ *   1. Validação XSD
+ *   2. Geração de protocolo <protNFe> mock
+ *   3. Registro em nfe_log
+ *   4. Retorno XML retEnviNFe
  *
- * Este componente executa o fluxo completo:
- *  1. Validação do XML contra os schemas oficiais (PL009 / XSD 4.00);
- *  2. Simulação da autorização e geração de protocolo (<protNFe>);
- *  3. Registro de evento fiscal em nfe_log (auditoria);
- *  4. Retorno do XML de resposta com status 100 (Autorizado o uso da NF-e).
- *
- * Padrões aplicados:
- *  - Arquitetura em camadas (Controller → Service → Mapper)
- *  - Componentização e injeção via Spring Boot 3.3.2
- *  - Validação fiscal conforme layout SEFAZ
- *  - Logs e auditoria via NfeLogService
- *  - Codificação UTF-8 e segurança XML
- *
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Versão: 1.0.0
- * Módulo: borurio-fiscal
+ * Autor: Bruno Ribeiro – DevSecOps / Fullstack Java
+ * Revisão: 26/11/2025
+ * =============================================================================
  */
 @Service
 public class NfeAuthorizeServiceImpl implements NfeAuthorizeService {
@@ -49,152 +44,144 @@ public class NfeAuthorizeServiceImpl implements NfeAuthorizeService {
     private final NfeLogService nfeLogService;
     private final XsdValidator xsdValidator;
 
-    @Autowired
     public NfeAuthorizeServiceImpl(NfeLogService nfeLogService, XsdValidator xsdValidator) {
         this.nfeLogService = nfeLogService;
         this.xsdValidator = xsdValidator;
     }
 
-    /**
-     * Executa o fluxo completo de autorização mock SEFAZ.
-     *
-     * @param xmlDocumento Documento XML da NF-e.
-     * @return Documento XML de resposta (retEnviNFe) com protocolo simulado.
-     * @throws Exception Em caso de falha de validação, parsing ou persistência.
-     */
+    // =========================================================================
+    // AUTORIZAR NF-E (MOCK)
+    // =========================================================================
     @Override
     public Document autorizarNFe(Document xmlDocumento) throws Exception {
-        // Etapa 1: Validação do XML conforme layout oficial
+
         validarXML(xmlDocumento);
 
-        // Etapa 2: Geração do protocolo de autorização mock
         Document xmlAutorizado = gerarProtocolo(xmlDocumento);
 
-        // Etapa 3: Registro do evento fiscal em nfe_log (auditoria)
-        String chaveNFe = extrairChave(xmlDocumento);
+        String chave = extrairChave(xmlDocumento);
         String xmlString = documentToString(xmlAutorizado);
 
         nfeLogService.registrarEvento(
                 "AUTORIZACAO_MOCK",
                 "NF-e autorizada localmente (mock SEFAZ)",
-                chaveNFe,
+                chave,
                 xmlString
         );
 
         return xmlAutorizado;
     }
 
-    /**
-     * Valida o XML da NF-e contra os schemas oficiais (leiauteNFe_v4.00.xsd).
-     */
+    // =========================================================================
+    // VALIDAÇÃO XML
+    // =========================================================================
     @Override
     public void validarXML(Document xmlDocumento) throws Exception {
         try {
             xsdValidator.validate(xmlDocumento, "/xsd/leiauteNFe_v4.00.xsd");
         } catch (Exception e) {
-            throw new Exception("Falha na validação do XML da NF-e: " + e.getMessage(), e);
+            throw new Exception("Falha na validação XSD da NF-e: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Gera o XML de resposta (retEnviNFe) com protocolo de autorização (mock SEFAZ).
-     */
+    // =========================================================================
+    // GERAÇÃO DO PROTOCOLO MOCK
+    // =========================================================================
     @Override
     public Document gerarProtocolo(Document xmlDocumento) throws Exception {
+
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+
         DocumentBuilder builder = factory.newDocumentBuilder();
         Document retEnviNFe = builder.newDocument();
 
-        // Elemento raiz <retEnviNFe>
+        // Raiz
         Element root = retEnviNFe.createElementNS("http://www.portalfiscal.inf.br/nfe", "retEnviNFe");
         root.setAttribute("versao", "4.00");
         retEnviNFe.appendChild(root);
 
         // Cabeçalho
-        appendElement(retEnviNFe, root, "tpAmb", "2"); // 2 = Homologação
-        appendElement(retEnviNFe, root, "verAplic", "Borurio-ERP-DEV");
-        appendElement(retEnviNFe, root, "cStat", "100");
-        appendElement(retEnviNFe, root, "xMotivo", "Autorizado o uso da NF-e");
-        appendElement(retEnviNFe, root, "cUF", "35"); // São Paulo
+        append(retEnviNFe, root, "tpAmb", "2");
+        append(retEnviNFe, root, "verAplic", "Borurio-ERP-MOCK");
+        append(retEnviNFe, root, "cStat", "100");
+        append(retEnviNFe, root, "xMotivo", "Autorizado o uso da NF-e");
+        append(retEnviNFe, root, "cUF", "35");
 
-        // Protocolo <protNFe>
-        Element protNFe = retEnviNFe.createElement("protNFe");
+        // protNFe
+        Element protNFe = retEnviNFe.createElementNS("http://www.portalfiscal.inf.br/nfe", "protNFe");
         protNFe.setAttribute("versao", "4.00");
         root.appendChild(protNFe);
 
         Element infProt = retEnviNFe.createElement("infProt");
         protNFe.appendChild(infProt);
 
-        appendElement(retEnviNFe, infProt, "tpAmb", "2");
-        appendElement(retEnviNFe, infProt, "verAplic", "Borurio-ERP-DEV");
+        append(retEnviNFe, infProt, "tpAmb", "2");
+        append(retEnviNFe, infProt, "verAplic", "Borurio-ERP-MOCK");
 
-        String chaveNFe = extrairChave(xmlDocumento);
-        appendElement(retEnviNFe, infProt, "chNFe", chaveNFe);
+        String chave = extrairChave(xmlDocumento);
+        append(retEnviNFe, infProt, "chNFe", chave);
 
-        String dataHora = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX").format(new Date());
-        appendElement(retEnviNFe, infProt, "dhRecbto", dataHora);
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX").format(new Date());
+        append(retEnviNFe, infProt, "dhRecbto", timestamp);
 
-        appendElement(retEnviNFe, infProt, "nProt", gerarNumeroProtocolo());
-        appendElement(retEnviNFe, infProt, "digVal", gerarHashAssinatura(xmlDocumento));
-        appendElement(retEnviNFe, infProt, "cStat", "100");
-        appendElement(retEnviNFe, infProt, "xMotivo", "Autorizado o uso da NF-e");
+        append(retEnviNFe, infProt, "nProt", gerarNumeroProtocolo());
+        append(retEnviNFe, infProt, "digVal", gerarHashAssinatura(xmlDocumento));
+
+        append(retEnviNFe, infProt, "cStat", "100");
+        append(retEnviNFe, infProt, "xMotivo", "Autorizado o uso da NF-e");
 
         return retEnviNFe;
     }
 
-    /**
-     * Extrai a chave da NF-e (atributo Id do elemento <infNFe>).
-     */
-    private String extrairChave(Document xmlDocumento) {
+    // =========================================================================
+    // UTILITÁRIOS XML
+    // =========================================================================
+
+    private String extrairChave(Document xml) {
         try {
-            Element infNFe = (Element) xmlDocumento.getElementsByTagName("infNFe").item(0);
+            Element infNFe = (Element) xml.getElementsByTagName("infNFe").item(0);
             if (infNFe != null && infNFe.hasAttribute("Id")) {
-                return infNFe.getAttribute("Id").replace("NFe", "");
+                String id = infNFe.getAttribute("Id");
+                return id.replace("NFe", "").trim();
             }
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
+
+        // fallback seguro
         return UUID.randomUUID().toString().replace("-", "").substring(0, 44);
     }
 
-    /**
-     * Gera número de protocolo SEFAZ simulado (15 dígitos).
-     */
     private String gerarNumeroProtocolo() {
-        String base = "13525" + System.currentTimeMillis();
+        long millis = System.currentTimeMillis();
+        String base = "135" + millis;
         return base.substring(0, Math.min(base.length(), 15));
     }
 
-    /**
-     * Gera hash SHA-1 simulado da NF-e (mock da assinatura digital).
-     */
-    private String gerarHashAssinatura(Document xmlDocumento) {
+    private String gerarHashAssinatura(Document xml) {
         try {
-            String xmlString = documentToString(xmlDocumento);
-            byte[] bytes = xmlString.getBytes(StandardCharsets.UTF_8);
-            byte[] digest = java.security.MessageDigest.getInstance("SHA-1").digest(bytes);
-            return DatatypeConverter.printBase64Binary(digest);
+            String xmlString = documentToString(xml);
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            byte[] hash = digest.digest(xmlString.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(hash);
         } catch (Exception e) {
             return Base64.getEncoder().encodeToString(UUID.randomUUID().toString().getBytes());
         }
     }
 
-    /**
-     * Converte um Document XML em String UTF-8 formatada.
-     */
     private String documentToString(Document doc) throws Exception {
         Transformer transformer = TransformerFactory.newInstance().newTransformer();
         transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
         transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         transformer.transform(new DOMSource(doc), new StreamResult(out));
+
         return out.toString(StandardCharsets.UTF_8);
     }
 
-    /**
-     * Cria e adiciona um elemento XML de forma segura.
-     */
-    private void appendElement(Document doc, Element parent, String tag, String value) {
+    private void append(Document doc, Element parent, String tag, String value) {
         Element element = doc.createElement(tag);
         element.setTextContent(value);
         parent.appendChild(element);

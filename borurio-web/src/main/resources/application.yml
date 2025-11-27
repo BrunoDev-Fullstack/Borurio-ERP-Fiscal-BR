@@ -1,26 +1,14 @@
 ﻿###############################################################################################
-# CONFIGURAÇÃO PRINCIPAL – BORURIO ERP FISCAL BR
+# CONFIGURAÇÃO PRINCIPAL — BORURIO ERP FISCAL BR
 # ---------------------------------------------------------------------------------------------
-# Função:
-#   Define o perfil ativo e as configurações mínimas comuns a todos os ambientes.
-#   Este arquivo é o ponto de entrada do Spring Boot e herda as propriedades do
-#   arquivo application-${spring.profiles.active}.yml correspondente.
+# Este arquivo define o perfil ativo padrão e configurações mínimas. Os detalhes completos dos
+# ambientes ficam em:
+#   - application-dev.yml  → Desenvolvimento + Homologação SEFAZ (tpAmb=2)
+#   - application-prd.yml  → Produção SEFAZ (tpAmb=1)
 #
-# Módulo:
-#   borurio-web (API REST principal)
-#
-# Ambientes suportados:
-#   dev  = Desenvolvimento local
-#   hom  = Homologação (SEFAZ-SP Homologação)
-#   prd  = Produção Real (SEFAZ-SP Produção)
-#
-# Stack:
-#   Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
-#
-# Autor:
-#   Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
-# Última revisão:
-#   03/11/2025
+# Importante:
+#   - O profile DEV é o padrão seguro.
+#   - O profile PRD somente é ativado via variável SPRING_PROFILES_ACTIVE.
 ###############################################################################################
 
 spring:
@@ -28,26 +16,26 @@ spring:
     name: borurio-web
 
   ##############################################################################################
-  # PERFIL ATIVO – Define qual arquivo de configuração será carregado
+  # PERFIL ATIVO PADRÃO
   # --------------------------------------------------------------------------------------------
-  # O Spring Boot utilizará o valor informado aqui como perfil ativo padrão.
-  # Pode ser sobrescrito via variável de ambiente SPRING_PROFILES_ACTIVE (em Docker ou CI/CD).
+  # Regras:
+  #   - SPRING_PROFILES_ACTIVE não informado → usa DEV
+  #   - Homologação SEFAZ real → SPRING_PROFILES_ACTIVE=dev
+  #   - Produção real → SPRING_PROFILES_ACTIVE=prd
   #
-  # Exemplo:
-  #   SPRING_PROFILES_ACTIVE=prd → carrega application-prd.yml
-  #   SPRING_PROFILES_ACTIVE=hom → carrega application-hom.yml
-  #
-  # Por padrão, se nenhuma variável for informada, o ambiente de Produção (prd) será carregado.
+  # IMPORTANTE:
+  #   Nunca definir PRD como padrão para evitar ativação acidental.
   ##############################################################################################
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:prd}
+    active: ${SPRING_PROFILES_ACTIVE:dev}
 
   ##############################################################################################
-  # DATASOURCE LOCAL – Configuração para execução fora do Docker (opcional)
+  # DATASOURCE LOCAL — Execução fora do Docker
   # --------------------------------------------------------------------------------------------
-  # Observação:
-  #   Dentro do Docker Compose, os parâmetros abaixo são substituídos pelas variáveis de ambiente.
-  #   Fora do Docker, permite testes locais rápidos com MySQL e Redis locais.
+  # Dentro do Docker Compose, os arquivos application-dev.yml e application-prd.yml substituem
+  # completamente estas propriedades.
+  #
+  # Esta configuração serve apenas para testes locais via IntelliJ.
   ##############################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -56,12 +44,7 @@ spring:
     password: H4ck3r123
 
 ###############################################################################################
-# SERVIDOR WEB – Porta interna padrão
-# ---------------------------------------------------------------------------------------------
-# A porta interna 8080 é mapeada externamente via Docker Compose conforme o ambiente:
-#   - Dev: 8081 → 8080
-#   - Hom: 8281 → 8080
-#   - Prd: 8282 → 8080
+# SERVIDOR WEB — Porta base interna (Docker mapeia externamente)
 ###############################################################################################
 server:
   port: 8080
@@ -72,9 +55,7 @@ server:
     include-binding-errors: always
 
 ###############################################################################################
-# LOGGING – Configuração de logs e rastreabilidade
-# ---------------------------------------------------------------------------------------------
-# Logback padrão, com saída em console e em arquivo local (diretório /logs).
+# LOGGING — Padrão uniforme em todos os ambientes
 ###############################################################################################
 logging:
   level:
@@ -88,32 +69,26 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 ###############################################################################################
-# METADADOS DO AMBIENTE E INFORMAÇÕES DO PROJETO
+# METADADOS DO SISTEMA
 ###############################################################################################
 app:
   name: Borurio ERP Fiscal BR
   version: ${project.version:1.0.0}
-  description: "Arquivo principal que define o profile ativo e delega às configurações específicas (dev, hom, prd)."
+  description: "Arquivo principal que define o profile ativo e delega às configurações dev/prd."
   owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
 
 ###############################################################################################
 # NOTAS TÉCNICAS
 # ---------------------------------------------------------------------------------------------
-# - Este arquivo é o entrypoint de configuração do Spring Boot.
-# - application-dev.yml, application-hom.yml e application-prd.yml contêm as definições detalhadas.
-# - Perfis disponíveis: dev | hom | prd.
+# Perfis disponíveis:
+#   - dev → Desenvolvimento + Homologação SEFAZ Real (tpAmb=2)
+#   - prd → Produção SEFAZ Real (tpAmb=1)
 #
-# EXECUÇÃO LOCAL:
-#   mvn spring-boot:run "-Dspring-boot.run.profiles=prd"
+# EXECUÇÃO:
+#   DEV/HOM (default): mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+#   PRD:               mvn spring-boot:run "-Dspring-boot.run.profiles=prd"
 #
-# EXECUÇÃO DOCKER (PRODUÇÃO):
-#   docker-compose -f "docker-compose.prd.yml" up -d --build
-#
-# STACK COMPLETA:
-#   Spring Boot 3.3.x | Java 17 | MySQL 8.4 | Redis 7.2 | SEFAZ-SP NF-e 4.00
-#
-# PADRÕES DE PROJETO:
-#   - Clean Architecture
-#   - DevSecOps (build multi-stage)
-#   - Logs rastreáveis e normalizados
+# Docker Compose:
+#   - docker-compose.dev.yml → DEV/HOM
+#   - docker-compose.prd.yml → PRD
 ###############################################################################################

@@ -1,9 +1,9 @@
 ###################################################################################################
-# AMBIENTE DE DESENVOLVIMENTO — BORURIO ERP FISCAL BR
-# ________________________________________________________________________________________________
-# Módulo: borurio-web (API REST principal)
-# Integrações: MySQL, Redis, Modo SEFAZ-MOCK (dev)
-# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+# AMBIENTE DE DESENVOLVIMENTO / HOMOLOGAÇÃO REAL — BORURIO ERP FISCAL BR
+# -----------------------------------------------------------------------------------------------
+# Este ambiente executa transmissão REAL via SEFAZ-SP (tpAmb=2).
+# Certificado A1 oficial JCHO ativado.
+# URLS oficiais da NFe 4.00.
 ###################################################################################################
 
 server:
@@ -35,9 +35,6 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
 
-  ################################################################################################
-  # JPA — Módulo WEB NÃO gerencia tabelas fiscais
-  ################################################################################################
   jpa:
     open-in-view: false
     hibernate:
@@ -47,9 +44,6 @@ spring:
         format_sql: true
         show_sql: false
 
-  ################################################################################################
-  # FLYWAY DESATIVADO NO WEB
-  ################################################################################################
   flyway:
     enabled: false
 
@@ -64,7 +58,7 @@ spring:
       connect-timeout: 2000
 
   ################################################################################################
-  # JACKSON — FORMATAÇÃO JSON
+  # JACKSON / JSON
   ################################################################################################
   jackson:
     serialization:
@@ -75,7 +69,7 @@ spring:
     default-property-inclusion: non_null
 
   ################################################################################################
-  # SPRING CORE / CORS / MVC
+  # MVC / GENERAL
   ################################################################################################
   main:
     allow-bean-definition-overriding: true
@@ -94,7 +88,7 @@ spring:
       allowed-headers: "*"
 
 ###################################################################################################
-# LOGGING — Auditoria / Diagnóstico
+# LOGGING
 ###################################################################################################
 logging:
   config: classpath:logback-dev.xml
@@ -105,27 +99,27 @@ logging:
     br.com.borurio: DEBUG
 
 ###################################################################################################
-# SEFAZ — MODO MOCK NO DEV (NÃO CONSULTA SERVIDOR REAL)
+# SEFAZ — HOMOLOGAÇÃO REAL (tpAmb=2)
 ###################################################################################################
 sefaz:
-  ambiente: MOCK
+  ambiente: HOM
   tpAmb: 2
   urls:
-    autorizacao: "http://localhost:9999/mock/sefaz/autorizacao"
-    retorno: "http://localhost:9999/mock/sefaz/retorno"
-    consulta: "http://localhost:9999/mock/sefaz/consulta"
-    status: "http://localhost:9999/mock/sefaz/status"
-    inutilizacao: "http://localhost:9999/mock/sefaz/inutilizacao"
-    recepcao-evento: "http://localhost:9999/mock/sefaz/evento"
+    autorizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+    retorno: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+    consulta: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+    status: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+    inutilizacao: "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
+    recepcao-evento: "https://homologacao.nfe.fazenda.sp.gov.br/ws/RecepcaoEvento4.asmx"
 
 ###################################################################################################
-# CERTIFICADO DIGITAL — DEV NÃO USA (somente HOM/PRD)
+# CERTIFICADO DIGITAL — CAMINHO CORRETO DENTRO DO DOCKER
 ###################################################################################################
 fiscal:
   cert:
-    enabled: false
-    path: ""
-    pass: ""
+    enabled: true
+    path: "/app/certificados/pfx/certificado-jcho.pfx"
+    pass: "Jcho237888"
 
 ###################################################################################################
 # ACTUATOR
@@ -156,6 +150,6 @@ management:
 ###################################################################################################
 app:
   profile: dev
-  description: "Ambiente de Desenvolvimento — SEFAZ MOCK"
+  description: "Ambiente DEV/HOM — Transmissão real SEFAZ-SP"
   version: ${project.version:1.0.0}
   owner: "Bruno Ribeiro — DevSecOps / Fullstack Java"

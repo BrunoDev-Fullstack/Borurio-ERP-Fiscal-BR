@@ -54,194 +54,164 @@ borurio-erp-br/
 │   ├── .env.dev / .env.hom / .env.prd
 │   └── certificados/, mysql/, redis/, minio/
 │
-├── certificados/          → Certificados digitais ICP-Brasil (.pfx, .cer)
+├── certificados/          → Certificados digitais ICP-Brasil (NÃO versionados)
 ├── docs/                  → Relatórios técnicos e documentação
 ├── sql/                   → Scripts SQL e migrações (Flyway)
 ├── logs/                  → Logs de execução e auditoria fiscal
 ├── scripts/               → Automação (PowerShell, shell scripts)
 └── pom.xml                → Reactor POM Maven principal
-```
-
----
-
-## 🧮 **Ambientes Docker**
-
-### 🔹 Desenvolvimento (DEV)
-
-```powershell
+🧮 Ambientes Docker
+🔹 Desenvolvimento (DEV)
+powershell
+Copiar código
 cd "docker"
 docker-compose -f "docker-compose.dev.yml" up -d
-```
+Porta principal: 8080
 
-* Porta principal: **8080**
-* Actuator: **8081**
-* Fiscal Mock: **8082**
-* Certificado: `certificados/certificado-hom.pfx`
+Actuator: 8081
 
----
+Fiscal Mock: 8082
 
-### 🔹 Homologação (HOM)
+Certificado: certificados/certificado-hom.pfx
 
-```powershell
+🔹 Homologação (HOM)
+powershell
+Copiar código
 docker-compose -f "docker-compose.hom.yml" up -d
-```
+Ambiente SEFAZ-SP (tpAmb=2)
 
-* Ambiente SEFAZ-SP (tpAmb=2)
-* Certificado A1 de homologação
-* Logs: `/var/log/borurio/borurio-web-hom.log`
+Certificado A1 de homologação
 
----
+Logs: /var/log/borurio/borurio-web-hom.log
 
-### 🔹 Produção (PRD)
-
-```powershell
+🔹 Produção (PRD)
+powershell
+Copiar código
 docker-compose -f "docker-compose.yml" up -d --build
-```
+Porta principal: 8282
 
-* Porta principal: **8282**
-* Actuator: **8281**
-* Certificado: `/app/certificados/certificado-prd.pfx`
-* Logs:
+Actuator: 8281
 
-    * `/var/log/borurio/borurio-prd.log`
-    * `/var/log/borurio/sefaz-integration.log`
+Certificado: /app/certificados/certificado-prd.pfx
 
----
+Logs:
 
-## 🔐 **Segurança e Autenticação**
+/var/log/borurio/borurio-prd.log
 
-* Autenticação via **JWT (JSON Web Token)**
-* Implementações: `AuthController`, `JwtUtil`, `JwtFilter`
-* Usuário padrão: configurável via base de dados ou variáveis de ambiente
+/var/log/borurio/sefaz-integration.log
 
-**Endpoints públicos:**
+🔐 Segurança e Autenticação
+Autenticação via JWT (JSON Web Token)
 
-```
+Implementações: AuthController, JwtUtil, JwtFilter
+
+Usuário padrão: configurável via banco ou variáveis de ambiente
+
+Endpoints públicos
+bash
+Copiar código
 /auth/login
 /swagger-ui/**
 /v3/api-docs/**
 /actuator/**
-```
+Endpoints protegidos
+Header obrigatório:
 
-**Endpoints protegidos:**
-Requerem header:
-
-```
+makefile
+Copiar código
 Authorization: Bearer <token>
-```
+🧲 Integração Fiscal — SEFAZ-SP NF-e 4.00
+WebServices suportados
+NFeAutorizacao4.asmx
 
----
+NFeRetAutorizacao4.asmx
 
-## 🧲 **Integração Fiscal — SEFAZ-SP NF-e 4.00**
+NFeStatusServico4.asmx
 
-### WebServices suportados:
+NFeConsultaProtocolo4.asmx
 
-* `NFeAutorizacao4.asmx`
-* `NFeRetAutorizacao4.asmx`
-* `NFeStatusServico4.asmx`
-* `NFeConsultaProtocolo4.asmx`
-* `NFeInutilizacao4.asmx`
+NFeInutilizacao4.asmx
 
-### Certificados Digitais:
+Certificados Digitais
+Tipo: A1 (PFX)
 
-* **Tipo:** A1 (PFX)
-* **Carregamento:** dinâmico via `CertificadoServiceImpl`
-* **Armazenamento:** `/app/certificados/`
+Carregamento: dinâmico via CertificadoServiceImpl
 
-### Validação XML:
+Armazenamento: /app/certificados/ (NÃO versionado)
 
-Consolidada via schema oficial:
+Validação XML
+Usando schemas oficiais consolidados:
 
-```
+swift
+Copiar código
 borurio-fiscal/src/main/resources/xsd/custom/nfe_v4.00_consolidado.xsd
-```
+Logs fiscais
+Banco: nfe_log
 
-### Logs fiscais:
+Arquivo: /var/log/borurio/sefaz-integration.log
 
-* Banco: `nfe_log`
-* Arquivo: `/var/log/borurio/sefaz-integration.log`
+📊 Monitoramento e Observabilidade
+Health Check: /actuator/health
 
----
+Swagger UI: http://localhost:8080/swagger-ui/index.html
 
-## 📊 **Monitoramento e Observabilidade**
+OpenAPI JSON: /v3/api-docs
 
-* Health Check: `/actuator/health`
-* Swagger UI: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
-* OpenAPI JSON: `/v3/api-docs`
-* Logs estruturados: `logback-dev.xml` / `logback-prd.xml`
-* Jacoco Coverage: meta ≥ 80%
+Logs estruturados: logback-dev.xml / logback-prd.xml
 
----
+Jacoco Coverage (meta): ≥ 80%
 
-## 🥪 **Testes**
-
-Executar todos os módulos:
-
-```powershell
+🥪 Testes
+Todos os módulos
+powershell
+Copiar código
 mvn clean test
-```
-
-Somente o módulo fiscal:
-
-```powershell
+Somente módulo fiscal
+powershell
+Copiar código
 mvn clean install -pl borurio-fiscal -am -DskipTests
-```
-
-Smoke Test (DEV):
-
-```bash
+Smoke Test (DEV)
+bash
+Copiar código
 curl http://localhost:8080/api/test/ping
 curl http://localhost:8080/actuator/health
-```
+🚀 Deploy e Versionamento
+Ambiente	Descrição	Tag
+DEV	Desenvolvimento e integração local	v3.5.0-dev
+HOM	Homologação SEFAZ-SP (tpAmb=2)	v3.5.0-homologacao-sefaz-ok
+PRD	Produção (tpAmb=1) com certificado A1	v3.5.1-producao
 
----
+📚 Relatórios Técnicos
+Relatórios de progresso disponíveis em:
 
-## 🚀 **Deploy e Versionamento**
-
-| Ambiente | Descrição                             | Tag                           |
-| -------- | ------------------------------------- | ----------------------------- |
-| **DEV**  | Desenvolvimento e integração local    | `v3.5.0-dev`                  |
-| **HOM**  | Homologação SEFAZ-SP (tpAmb=2)        | `v3.5.0-homologacao-sefaz-ok` |
-| **PRD**  | Produção (tpAmb=1) com certificado A1 | `v3.5.1-producao`             |
-
----
-
-## 📚 **Relatórios Técnicos**
-
-Relatórios de progresso e validação disponíveis em:
-
-```
+bash
+Copiar código
 /docs/report/Relatorio_Tecnico_DD-MM.md
-```
-
 Exemplos:
 
-* `Relatorio_Tecnico_06-11.md`
-* `Relatorio_Tecnico_07-11.md`
+Relatorio_Tecnico_06-11.md
 
----
+Relatorio_Tecnico_07-11.md
 
-## 🗾 **Próximos Passos**
+🗾 Próximos Passos
+Importar Certificado A1 ICP-Brasil para emissão real NF-e
 
-1. Importar Certificado A1 ICP-Brasil para emissão real NF-e
-2. Implementar cancelamento e inutilização (SEFAZ-SP)
-3. Integrar consultas de protocolo e auditoria fiscal
-4. Criar dashboard de monitoramento (API + logs SEFAZ)
-5. Testes de carga e observabilidade (Actuator + Redis)
+Implementar cancelamento e inutilização (SEFAZ-SP)
 
----
+Integrar consultas de protocolo e auditoria fiscal
 
-## 👤 **Autor**
+Criar dashboard de monitoramento (API + logs SEFAZ)
 
-**Bruno Ribeiro**
+Testes de carga e observabilidade (Actuator + Redis)
+
+👤 Autor
+Bruno Ribeiro
 Desenvolvedor Fullstack / DevSecOps
 📍 São Paulo — Brasil
-📧 *(inserir e-mail profissional se desejar)*
+📧 (inserir e-mail profissional se desejar)
 
----
-
-## 🛡️ **Licença**
-
-> Sistema de uso interno restrito.
-> Todos os direitos reservados © 2025 — **Borurio ERP Fiscal BR**
-> Repositório oficial: [github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR](https://github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR)
+🛡️ Licença
+Sistema de uso interno restrito.
+Não inclui certificados digitais, chaves privadas ou dados sensíveis.
+Todos os direitos reservados © 2025 — Borurio ERP Fiscal BR
+Repositório oficial: https://github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR

@@ -1,16 +1,14 @@
 ###################################################################################################
-# AMBIENTE DE PRODUÇÃO – BORURIO ERP FISCAL BR
-# ________________________________________________________________________________________________
-# Módulo: borurio-web (API REST principal)
-# Integrações: MySQL, Redis, SEFAZ-SP (NF-e 4.00 Produção Real)
-# Stack: Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
-# Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
-# Última revisão: 03/11/2025
+# AMBIENTE DE PRODUÇÃO — BORURIO ERP FISCAL BR
+# -----------------------------------------------------------------------------------------------
+# API REST principal — Integração real com SEFAZ-SP (NF-e 4.00)
+# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+# Revisão: 26/11/2025
 ###################################################################################################
 
 server:
   address: 0.0.0.0
-  port: 8080                               # Porta interna (exposta externamente como 8282 via Docker)
+  port: 8080
   servlet:
     context-path: /
   error:
@@ -18,14 +16,14 @@ server:
     include-binding-errors: always
 
 ###################################################################################################
-# SPRING CORE – Configurações principais
+# SPRING CORE
 ###################################################################################################
 spring:
   application:
     name: borurio-web-prd
 
   ################################################################################################
-  # BANCO DE DADOS – MySQL 8.4 (Produção Real)
+  # BANCO DE DADOS — MYSQL PRODUÇÃO
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -45,11 +43,12 @@ spring:
     hibernate:
       ddl-auto: none
     properties:
-      hibernate.format_sql: true
-      hibernate.show_sql: false
+      hibernate:
+        format_sql: true
+        show_sql: false
 
   ################################################################################################
-  # REDIS – Cache e Sessões
+  # REDIS — PRODUÇÃO
   ################################################################################################
   data:
     redis:
@@ -59,7 +58,7 @@ spring:
       connect-timeout: 2000
 
   ################################################################################################
-  # JACKSON – Serialização JSON (formatação padrão brasileira)
+  # JACKSON — PADRÃO BRASIL
   ################################################################################################
   jackson:
     serialization:
@@ -70,25 +69,27 @@ spring:
     default-property-inclusion: non_null
 
   ################################################################################################
-  # MVC / WEB – Configurações gerais e CORS
+  # MVC / CORS — PRODUÇÃO RESTRITIVO
   ################################################################################################
   main:
     allow-bean-definition-overriding: true
     banner-mode: console
+
   mvc:
     throw-exception-if-no-handler-found: true
     static-path-pattern: /static/**
+
   web:
     resources:
       add-mappings: true
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:https://erp.borurio.com.br}
-      allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS}
-      allowed-headers: ${CORS_ALLOWED_HEADERS:Content-Type,Authorization}
-      allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
+      allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+      allowed-headers: Content-Type,Authorization
+      allow-credentials: true
 
 ###################################################################################################
-# LOGGING – Auditoria e Rastreabilidade (via Logback)
+# LOGGING — PRODUÇÃO
 ###################################################################################################
 logging:
   config: classpath:logback-prd.xml
@@ -97,56 +98,35 @@ logging:
     org.springframework: WARN
     org.hibernate: WARN
     br.com.borurio: INFO
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
   file:
     path: /var/log/borurio
     name: borurio-prd.log
 
 ###################################################################################################
-# SEFAZ-SP – Integração NF-e (Produção Real - tpAmb=1)
+# SEFAZ — PRODUÇÃO REAL (tpAmb=1)
 ###################################################################################################
 sefaz:
-  ambiente: PRODUCAO
+  ambiente: PRD
   tpAmb: 1
   urls:
     autorizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-    retorno: "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-    consulta: "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-    status: "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+    retorno:     "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+    consulta:    "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+    status:      "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
     inutilizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
-    recepcao-evento: "https://nfe.fazenda.sp.gov.br/ws/NFeRecepcaoEvento4.asmx"
-
-  # Suporte legado para classes anteriores
-  url-autorizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-  url-retorno: "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-  url-consulta: "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-  url-status: "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+    recepcao-evento: "https://nfe.fazenda.sp.gov.br/ws/RecepcaoEvento4.asmx"
 
 ###################################################################################################
-# NFE – Compatibilidade direta com NfeTransmitServiceImpl
-###################################################################################################
-nfe:
-  sefaz:
-    tpAmb: 1
-    certificado: ${NFE_SEFAZ_CERTIFICADO:/app/certificados/certificado-prd.pfx}
-    senha: ${NFE_SEFAZ_SENHA:SENHA_DO_CERTIFICADO_REAL}
-    url-autorizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-    url-retorno: "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-    url-consulta: "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-    url-status: "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
-
-###################################################################################################
-# FISCAL – Certificado Digital A1 (PFX Real)
+# CERTIFICADO DIGITAL — PRODUÇÃO REAL
 ###################################################################################################
 fiscal:
   cert:
-    path: ${CERT_PATH:/app/certificados/certificado-prd.pfx}
-    pass: ${CERT_PASS:SENHA_DO_CERTIFICADO_REAL}
+    enabled: true
+    path: ${CERT_PATH:/app/certificados/pfx/certificado-jcho.pfx}
+    pass: ${CERT_PASS:Jcho237888}
 
 ###################################################################################################
-# ACTUATOR – Monitoramento e Observabilidade (restrito em PRD)
+# ACTUATOR — SEGURO EM PRODUÇÃO
 ###################################################################################################
 management:
   server:
@@ -155,35 +135,26 @@ management:
     web:
       base-path: /actuator
       exposure:
-        include: "health,info,metrics"
+        include: "health,info"
   endpoint:
     health:
       show-details: never
-  health:
-    db:
-      enabled: true
-    redis:
-      enabled: true
-    ping:
-      enabled: true
+  security:
+    enabled: false
 
 ###################################################################################################
-# PERFIL ATIVO E METADADOS DO AMBIENTE
+# METADADOS DO AMBIENTE
 ###################################################################################################
 app:
   profile: prd
-  description: "Ambiente de Produção SEFAZ-SP (tpAmb=1)"
+  description: "Ambiente Produção SEFAZ-SP | tpAmb=1"
   version: ${APP_VERSION:1.0.0}
-  owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
+  owner: "Bruno Ribeiro — DevSecOps / Fullstack Java"
 
 ###################################################################################################
 # NOTAS TÉCNICAS
-# -------------------------------------------------------------------------------------------------
-# - Ambiente integrado Docker Compose (MySQL 3308 / Redis 6380 / MinIO / SMTP real)
-# - Comunicação direta com SEFAZ-SP (Produção Real, tpAmb=1)
-# - Certificado Digital A1 montado via Docker volume /app/certificados/
-# - Flyway ativo no módulo fiscal, desativado no web
-# - API principal: 8080 | Actuator: 8281 | Exposta Docker: 8282
-# - Segurança: Spring Security + JWT obrigatório
-# - Actuator restrito (não público)
+# - Certificado A1 JCHO montado no container via volume: /app/certificados/pfx/
+# - Comunicação mTLS obrigatória para SEFAZ
+# - Web não usa Flyway; módulo fiscal sim
+# - Log rotacionado via logback-prd.xml
 ###################################################################################################

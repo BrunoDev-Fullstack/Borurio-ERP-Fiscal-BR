@@ -1,7 +1,7 @@
 package br.com.borurio.fiscal.service;
 
-
-import org.springframework.core.io.ClassPathResource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -14,93 +14,122 @@ import javax.xml.crypto.dsig.keyinfo.KeyInfoFactory;
 import javax.xml.crypto.dsig.keyinfo.X509Data;
 import javax.xml.crypto.dsig.spec.C14NMethodParameterSpec;
 import javax.xml.crypto.dsig.spec.TransformParameterSpec;
-import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.Collections;
 
 /**
- * Serviço responsável por assinar digitalmente XMLs fiscais (NF-e)
- * usando certificado A1 (.pfx) conforme o padrão SEFAZ v4.00.
- *
- * Projeto compatível com pipelines DevSecOps e execução segura em ambiente CI/CD.
+ * =============================================================================
+ * SERVIÇO: AssinaturaXmlService
+ * -----------------------------------------------------------------------------
+ * Assina digitalmente o XML da NF-e usando certificado A1 .pfx.
+ * Compatível com a NF-e 4.00 (SHA256 + RSA).
+ * =============================================================================
+ * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Revisão: 26/11/2025
+ * =============================================================================
  */
+@Slf4j
 @Service
 public class AssinaturaXmlService {
 
-    private static final String CERT_PATH = "certs/generic-dev-cert.pfx";
-    private static final String CERT_PASSWORD = "123456";
+    @Value("${fiscal.cert.path}")
+    private String certPath;
+
+    @Value("${fiscal.cert.pass}")
+    private String certPass;
 
     /**
-     * Assina o XML fiscal, localizando a tag <infNFe> e aplicando assinatura digital.
-     *
-     * @param xmlBytes XML em formato byte[]
-     * @return XML assinado em formato byte[]
+     * Assina o XML fiscal com o certificado A1.
      */
     public byte[] assinarXml(byte[] xmlBytes) {
         try {
-            // Carrega o certificado digital A1 (.pfx)
-            KeyStore keyStore = KeyStore.getInstance("PKCS12");
-            keyStore.load(new ClassPathResource(CERT_PATH).getInputStream(), CERT_PASSWORD.toCharArray());
+            // =====================================================================
+            // 1) CARREGA O CERTIFICADO A1 DO PFX
+            // =====================================================================
+            KeyStore ks = KeyStore.getInstance("PKCS12");
 
-            String alias = keyStore.aliases().nextElement();
-            PrivateKey privateKey = (PrivateKey) keyStore.getKey(alias, CERT_PASSWORD.toCharArray());
-            X509Certificate certificate = (X509Certificate) keyStore.getCertificate(alias);
-
-            // Prepara o documento XML
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-            dbf.setNamespaceAware(true);
-            DocumentBuilder builder = dbf.newDocumentBuilder();
-            Document xml = builder.parse(new java.io.ByteArrayInputStream(xmlBytes));
-
-            // Localiza e marca o elemento <infNFe> como referência de assinatura
-            NodeList nodeList = xml.getElementsByTagName("infNFe");
-            if (nodeList.getLength() == 0) {
-                throw new RuntimeException("Tag <infNFe> não encontrada no XML.");
+            try (FileInputStream fis = new FileInputStream(certPath)) {
+                ks.load(fis, certPass.toCharArray());
             }
 
-            Element element = (Element) nodeList.item(0);
-            String id = element.getAttribute("Id");
-            element.setIdAttribute("Id", true); // Define o atributo Id como identificador
+            String alias = ks.aliases().nextElement();
+            PrivateKey privateKey = (PrivateKey) ks.getKey(alias, certPass.toCharArray());
+            X509Certificate certificate = (X509Certificate) ks.getCertificate(alias);
 
-            // Cria a estrutura da assinatura digital
+            // =====================================================================
+            // 2) PARSE DO XML
+            // =====================================================================
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+
+            Document xml = factory.newDocumentBuilder()
+                    .parse(new ByteArrayInputStream(xmlBytes));
+
+            NodeList nodeList = xml.getElementsByTagName("infNFe");
+            if (nodeList.getLength() == 0) {
+                throw new RuntimeException("Tag <infNFe> não encontrada.");
+            }
+
+            Element infNFe = (Element) nodeList.item(0);
+            String id = infNFe.getAttribute("Id");
+
+            if (id == null || id.isBlank()) {
+                throw new RuntimeException("Atributo Id ausente em <infNFe>.");
+            }
+
+            infNFe.setIdAttribute("Id", true);
+
+            // =====================================================================
+            // 3) CRIA A ASSINATURA XMLDSIG - PADRÃO SEFAZ
+            // =====================================================================
             XMLSignatureFactory fac = XMLSignatureFactory.getInstance("DOM");
+
             Reference ref = fac.newReference(
                     "#" + id,
-                    fac.newDigestMethod(DigestMethod.SHA1, null),
+                    fac.newDigestMethod(DigestMethod.SHA256, null),
                     Collections.singletonList(fac.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null)),
                     null,
                     null
             );
 
             SignedInfo si = fac.newSignedInfo(
-                    fac.newCanonicalizationMethod(CanonicalizationMethod.INCLUSIVE, (C14NMethodParameterSpec) null),
-                    fac.newSignatureMethod(SignatureMethod.RSA_SHA1, null),
+                    fac.newCanonicalizationMethod(
+                            CanonicalizationMethod.INCLUSIVE,
+                            (C14NMethodParameterSpec) null
+                    ),
+                    fac.newSignatureMethod(SignatureMethod.RSA_SHA256, null),
                     Collections.singletonList(ref)
             );
 
-            // Adiciona informações do certificado ao XML
             KeyInfoFactory kif = fac.getKeyInfoFactory();
             X509Data x509Data = kif.newX509Data(Collections.singletonList(certificate));
             KeyInfo ki = kif.newKeyInfo(Collections.singletonList(x509Data));
 
-            // Executa a assinatura digital
             DOMSignContext dsc = new DOMSignContext(privateKey, xml.getDocumentElement());
             XMLSignature signature = fac.newXMLSignature(si, ki);
+
             signature.sign(dsc);
 
-            // Retorna o XML assinado
-            java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
+            // =====================================================================
+            // 4) CONVERTE PARA BYTE[]
+            // =====================================================================
+            ByteArrayOutputStream os = new ByteArrayOutputStream();
             javax.xml.transform.TransformerFactory.newInstance()
                     .newTransformer()
                     .transform(new javax.xml.transform.dom.DOMSource(xml),
                             new javax.xml.transform.stream.StreamResult(os));
 
+            log.info("[NF-e] XML assinado com sucesso usando certificado A1: {}", certificate.getSubjectDN());
             return os.toByteArray();
 
         } catch (Exception e) {
+            log.error("[NF-e] Erro ao assinar XML: {}", e.getMessage(), e);
             throw new RuntimeException("Erro ao assinar XML fiscal: " + e.getMessage(), e);
         }
     }

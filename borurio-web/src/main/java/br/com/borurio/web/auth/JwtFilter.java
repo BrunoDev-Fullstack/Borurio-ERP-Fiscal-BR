@@ -4,6 +4,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -17,49 +18,33 @@ import java.io.IOException;
 
 /**
  * =============================================================================
- * COMPONENTE DE SEGURANÇA: JwtFilter
+ * FILTRO DE AUTENTICAÇÃO JWT — BORURIO ERP FISCAL BR
  * =============================================================================
- * Finalidade:
- *   - Interceptar todas as requisições HTTP.
- *   - Validar o token JWT presente no cabeçalho "Authorization".
- *   - Autenticar o usuário no contexto do Spring Security quando o token for válido.
+ * Funções:
+ *   - Intercepta todas as requisições HTTP.
+ *   - Valida JWT no cabeçalho Authorization.
+ *   - Ignora rotas públicas (Auth, Swagger, Actuator, Testes Fiscais, NF-e pública).
+ *   - Autentica o usuário no contexto de segurança se o token for válido.
  *
- * Fluxo de execução:
- *   1. Verifica se a rota é pública. Se for, ignora a validação JWT.
- *   2. Extrai o token JWT do cabeçalho Authorization.
- *   3. Valida assinatura e expiração do token via {@link JwtUtil}.
- *   4. Se válido, autentica o usuário no contexto de segurança.
+ * Ambiente:
+ *   Compatível com dev, hom e prd.
  *
- * Observações:
- *   - Executado uma única vez por requisição (extends {@link OncePerRequestFilter}).
- *   - Projetado para operar em ambiente Stateless (sem sessão).
- *
- * =============================================================================
- * Projeto: Borurio ERP Fiscal BR
- * Módulo: borurio-web
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+ * Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+ * Revisão: 26/11/2025
  * =============================================================================
  */
+@Slf4j
 @Component
 public class JwtFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final UserDetailsService userDetailsService;
 
-    /**
-     * Construtor com injeção Lazy para evitar dependência circular:
-     * SecurityConfig → JwtFilter → UserDetailsServiceImpl → PasswordEncoder.
-     */
     public JwtFilter(JwtUtil jwtUtil, @Lazy UserDetailsService userDetailsService) {
         this.jwtUtil = jwtUtil;
         this.userDetailsService = userDetailsService;
     }
 
-    /**
-     * Executa a filtragem de cada requisição HTTP.
-     * - Ignora endpoints públicos.
-     * - Valida token JWT nas demais rotas.
-     */
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
@@ -69,45 +54,53 @@ public class JwtFilter extends OncePerRequestFilter {
         final String path = request.getRequestURI();
 
         // =============================================================================
-        // ROTAS PÚBLICAS (IGNORADAS PELO FILTRO JWT)
-        // -----------------------------------------------------------------------------
-        // Permite acesso direto sem validação de token:
-        // Swagger, Actuator, Login, Ping e endpoints de teste.
+        // ROTAS PÚBLICAS (IGNORADAS PELO JWT)
         // =============================================================================
-        if (path.startsWith("/auth/")
-                || path.startsWith("/api/test/")
-                || path.startsWith("/api/fiscal/nfe/test/")
-                || path.startsWith("/swagger-ui/")
-                || path.startsWith("/v3/api-docs/")
-                || path.startsWith("/actuator/")
-                || path.equals("/ping")) {
+        boolean rotaPublica =
+                path.startsWith("/auth/") ||
+                        path.startsWith("/api/test/") ||
+                        path.startsWith("/swagger-ui/") ||
+                        path.startsWith("/v3/api-docs/") ||
+                        path.startsWith("/actuator/") ||
+                        path.equals("/ping") ||
 
+                        // Fiscais públicas (evita travar envio)
+                        path.startsWith("/nfe/") ||
+                        path.startsWith("/api/fiscal/nfe/test/") ||
+                        path.startsWith("/api/fiscal/nfe/status");
+
+        if (rotaPublica) {
             chain.doFilter(request, response);
             return;
         }
 
         // =============================================================================
-        // VALIDAÇÃO DO TOKEN JWT
+        // VALIDAÇÃO JWT
         // =============================================================================
         final String authHeader = request.getHeader("Authorization");
-        final String token;
-        final String username;
 
-        // Se não houver cabeçalho Authorization ou não começar com "Bearer ", segue sem autenticação
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             chain.doFilter(request, response);
             return;
         }
 
-        // Extrai o token JWT do cabeçalho
-        token = authHeader.substring(7);
-        username = jwtUtil.extractUsername(token);
+        String token = authHeader.substring(7);
+        String username;
 
-        // Se o token for válido, autentica o usuário
+        try {
+            username = jwtUtil.extractUsername(token);
+        } catch (Exception e) {
+            log.warn("Token JWT inválido ou malformado: {}", e.getMessage());
+            chain.doFilter(request, response);
+            return;
+        }
+
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
             if (jwtUtil.validateToken(token, userDetails.getUsername())) {
+
                 UsernamePasswordAuthenticationToken authToken =
                         new UsernamePasswordAuthenticationToken(
                                 userDetails,
@@ -116,12 +109,13 @@ public class JwtFilter extends OncePerRequestFilter {
                         );
 
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
                 SecurityContextHolder.getContext().setAuthentication(authToken);
+
+            } else {
+                log.warn("Token JWT expirado ou inválido.");
             }
         }
 
-        // Continua o fluxo normal
         chain.doFilter(request, response);
     }
 }
