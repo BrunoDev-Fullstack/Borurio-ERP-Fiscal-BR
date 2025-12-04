@@ -2,43 +2,34 @@
 # DOCKER COMPOSE - AMBIENTE PRD / PRODUÇÃO REAL
 # ==============================================================================
 # Projeto: Borurio ERP Fiscal BR
-# Padrão: Monólito Modular (Web inclui Core, App e Fiscal)
-# Stack: Java 17 | Spring Boot 3.3.x | MySQL 8.4 | Redis 7.2 | MinIO
-# Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
-# Última revisão: 04/11/2025
-# ==============================================================================
-# Objetivo:
-# Ambiente de produção destinado à emissão e auditoria de NF-e reais (tpAmb=1),
-# totalmente integrado com SEFAZ-SP e preparado para operação 24x7.
-# Inclui: MySQL, Redis, MinIO e container principal borurio-web-prd.
+# Autor: Bruno Ribeiro — Fullstack / DevSecOps
+# Revisão: 04/12/2025
 # ==============================================================================
 
 version: "3.9"
 
 services:
 
-  # ---------------------------------------------------------------------------
-  # MYSQL – BANCO DE DADOS (Produção)
-  # ---------------------------------------------------------------------------
+  # ----------------------------------------------------------------------------
+  # MYSQL – BANCO DE DADOS PRODUÇÃO
+  # ----------------------------------------------------------------------------
   borurio-mysql-prd:
     image: mysql:8.4
     container_name: borurio-mysql-prd
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-secure_root_2025}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal_prd}
       MYSQL_USER: ${MYSQL_USER:-borurio}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-secure_pass_2025}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
       TZ: America/Sao_Paulo
     ports:
-      - "3308:3306"  # Porta exposta para manutenção e auditoria
+      - "3308:3306"
     volumes:
-      - ./mysql/data-prd:/var/lib/mysql:rw
+      - mysql_prd_data:/var/lib/mysql:rw
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - borurio-net-prd
-    security_opt:
-      - no-new-privileges:true
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -p${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 20s
@@ -46,22 +37,21 @@ services:
       retries: 8
       start_period: 30s
 
-  # ---------------------------------------------------------------------------
-  # REDIS – CACHE E SESSÕES (Produção)
-  # ---------------------------------------------------------------------------
+
+  # ----------------------------------------------------------------------------
+  # REDIS – CACHE PRODUÇÃO
+  # ----------------------------------------------------------------------------
   borurio-redis-prd:
     image: redis:7.2
     container_name: borurio-redis-prd
-    restart: always
+    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6380:6379"
     volumes:
-      - ./redis/data-prd:/data:rw
+      - redis_prd_data:/data:rw
     networks:
       - borurio-net-prd
-    security_opt:
-      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 15s
@@ -69,27 +59,26 @@ services:
       retries: 6
       start_period: 20s
 
-  # ---------------------------------------------------------------------------
-  # MINIO – ARMAZENAMENTO DE XMLs, LOGS E BACKUPS
-  # ---------------------------------------------------------------------------
+
+  # ----------------------------------------------------------------------------
+  # MINIO – ARMAZENAMENTO DE XMLs, CERTIFICADOS ENVIADOS E BACKUPS
+  # ----------------------------------------------------------------------------
   borurio-minio-prd:
     image: minio/minio:latest
     container_name: borurio-minio-prd
-    restart: always
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-borurio_admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-borurio@prd2025}
       TZ: America/Sao_Paulo
     ports:
-      - "9002:9000"   # API S3 (externa)
-      - "9003:9001"   # Console Web (administração)
+      - "9002:9000"
+      - "9003:9001"
     volumes:
-      - ./minio/data-prd:/data:rw
+      - minio_prd_data:/data:rw
     networks:
       - borurio-net-prd
-    security_opt:
-      - no-new-privileges:true
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
       interval: 30s
@@ -97,16 +86,18 @@ services:
       retries: 5
       start_period: 20s
 
-  # ---------------------------------------------------------------------------
-  # WEB – API PRINCIPAL (Core + App + Fiscal)
-  # ---------------------------------------------------------------------------
+
+  # ----------------------------------------------------------------------------
+  # BORURIO-WEB — API PRINCIPAL (CORE + APP + FISCAL)
+  # ----------------------------------------------------------------------------
   borurio-web-prd:
     build:
       context: ../
       dockerfile: ./Dockerfile
     image: borurio-web-prd:latest
     container_name: borurio-web-prd
-    restart: always
+    restart: unless-stopped
+
     depends_on:
       borurio-mysql-prd:
         condition: service_healthy
@@ -117,37 +108,46 @@ services:
 
     environment:
       SPRING_PROFILES_ACTIVE: prd
+
+      # BANCO PRD
       SPRING_DATASOURCE_URL: jdbc:mysql://borurio-mysql-prd:3306/borurio_fiscal_prd?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
       SPRING_DATASOURCE_USERNAME: borurio
       SPRING_DATASOURCE_PASSWORD: H4ck3r123
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
+
+      # REDIS PRD
       SPRING_REDIS_HOST: borurio-redis-prd
       SPRING_REDIS_PORT: 6379
-      FISCAL_AMBIENTE: 1               # tpAmb=1 — Produção SEFAZ-SP
+
+      # SEFAZ PRD - tpAmb=1
+      FISCAL_AMBIENTE: 1
+
+      # CERTIFICADO DIGITAL A1 (PKCS12)
+      CERT_PATH: /app/certificados/pfx/certificado-jcho-keystore.p12
+      CERT_PASS: Jcho@2025!
+
       TZ: America/Sao_Paulo
-      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics"
-      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
+
+      # ACTUATOR
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "never"
       MANAGEMENT_SERVER_PORT: 8281
 
     ports:
-      - "8282:8080"   # API REST principal (NF-e / SEFAZ-SP)
-      - "8281:8281"   # Actuator restrito (monitoramento interno)
+      - "8282:8080"   # API pública
+      - "8281:8281"   # Actuator restrito
+
+    volumes:
+      # Certificados
+      - ../certificados/pfx:/app/certificados/pfx:ro
+
+      # Logs persistentes
+      - ../logs:/var/log/borurio:rw
+
+      # Cache Maven
+      - ~/.m2:/root/.m2:rw
 
     networks:
       - borurio-net-prd
-
-    volumes:
-      - ../docker/certs:/app/certificados:ro   # Certificados A1 (Produção)
-      - ../logs:/var/log/borurio:rw            # Logs persistentes
-      - ~/.m2:/root/.m2:rw                     # Cache Maven local
-
-    command: ["sh", "-c", "java -jar borurio-web.jar"]
-
-    security_opt:
-      - no-new-privileges:true
-
-    tty: true
-    stdin_open: true
 
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8080/actuator/health || exit 1"]
@@ -156,21 +156,15 @@ services:
       retries: 5
       start_period: 60s
 
-    # API de Produção:
-    # - Porta pública: 8282 (REST principal)
-    # - Porta interna: 8281 (Actuator / Health)
-    # - tpAmb=1 — integração real SEFAZ-SP
-    # - Certificado A1 em: /app/certificados/certificado-prd.pfx
-    # - Logs e auditoria em: /var/log/borurio
 
-# ---------------------------------------------------------------------------
-# VOLUMES E REDE DE PRODUÇÃO
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# VOLUMES E REDE
+# ----------------------------------------------------------------------------
+
 volumes:
   mysql_prd_data:
   redis_prd_data:
   minio_prd_data:
-  logs_prd:
 
 networks:
   borurio-net-prd:

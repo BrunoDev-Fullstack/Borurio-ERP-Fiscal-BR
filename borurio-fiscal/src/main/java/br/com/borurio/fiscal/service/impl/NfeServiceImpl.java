@@ -13,18 +13,18 @@ import org.springframework.util.StringUtils;
  * Versão revisada para integração REAL com SEFAZ-SP.
  *
  * Responsabilidades:
- *   - Orquestrar o fluxo de envio da NF-e
- *   - Validar entrada
- *   - Delegar transmissão ao NfeTransmitService (mTLS + SOAP 1.2)
- *   - Retornar resultado padronizado
+ *   - Orquestrar envio, validação e transmissão da NF-e
+ *   - Receber XML assinado
+ *   - Delegar transmissão ao NfeTransmitService (SOAP 1.2 + mTLS)
+ *   - Retornar resposta estruturada
  *
- * Ambientes suportados:
- *   - DEV/HOM → SEFAZ Homologação (tpAmb=2)
- *   - PRD     → SEFAZ Produção    (tpAmb=1)
+ * Ambientes:
+ *   - Homologação (tpAmb=2)
+ *   - Produção    (tpAmb=1)
  *
  * =============================================================================
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Revisão: 26/11/2025
+ * Autor: Bruno Ribeiro — Dev Fullstack / DevSecOps
+ * Revisão: 03/12/2025
  * =============================================================================
  */
 @Slf4j
@@ -38,19 +38,18 @@ public class NfeServiceImpl implements NfeService {
     }
 
     /**
-     * Retorna o status do serviço NF-e.
-     * Em produção, consulta NfeStatus → SEFAZ.
+     * Status interno do módulo fiscal
      */
     @Override
     public String getStatus() {
-        return "Serviço NF-e operacional — integração SEFAZ pronta.";
+        return "Serviço NF-e operacional — certificado carregado — SEFAZ pronto.";
     }
 
     /**
-     * Fluxo de autorização REAL da NF-e.
+     * Fluxo real de autorização da NF-e.
      *
-     * @param xmlNfe XML assinado e completo (versão 4.00)
-     * @return resposta SOAP SEFAZ ou mensagem de erro estruturada
+     * @param xmlNfe XML assinado (versão 4.00, autorizado para envio)
+     * @return Resposta SOAP real da SEFAZ-SP.
      */
     @Override
     public String authorize(String xmlNfe) {
@@ -62,9 +61,15 @@ public class NfeServiceImpl implements NfeService {
 
         try {
             log.info("[NF-e] Iniciando autorização REAL da NF-e...");
-            String resposta = nfeTransmitService.transmitirXml(xmlNfe, "00000000000000"); // atualize o CNPJ no controller
-            log.info("[NF-e] Finalizado processo de autorização.");
+
+            // OBS.: o CNPJ virá do controller
+            final String cnpjEmitente = "00000000000000";
+
+            String resposta = nfeTransmitService.transmitirXml(xmlNfe, cnpjEmitente);
+
+            log.info("[NF-e] Autorização finalizada. Retorno entregue ao controller.");
             return resposta;
+
         } catch (Exception e) {
             log.error("[NF-e] Falha ao autorizar NF-e: {}", e.getMessage(), e);
             return "<erro>Falha ao autorizar NF-e: " + e.getMessage() + "</erro>";

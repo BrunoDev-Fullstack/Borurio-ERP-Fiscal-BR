@@ -1,44 +1,31 @@
 package br.com.borurio.web.config;
 
-import io.swagger.v3.oas.models.ExternalDocumentation;
-import io.swagger.v3.oas.models.OpenAPI;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
 /**
  * =============================================================================
- * CONFIGURAÇÃO LEGADA — OpenApiConfig (DESATIVADA)
- * -----------------------------------------------------------------------------
- * Esta classe fazia a configuração inicial do Swagger / OpenAPI 3.0.
- * Atualmente, foi substituída pelo arquivo:
- *    → {@link br.com.borurio.web.config.SwaggerConfig}
+ * CONFIGURAÇÃO LEGADA — OpenApiConfig (DESATIVADA / SOMENTE DOCUMENTAÇÃO)
+ * =============================================================================
+ * Esta classe representava a configuração original do Swagger/OpenAPI.
  *
- * Motivo da desativação:
- *   - Evitar conflito de múltiplos @OpenAPIDefinition no projeto.
- *   - Centralizar o esquema de autenticação JWT no SwaggerConfig.
+ * Situação atual:
+ *  - NÃO registra nenhum bean no contexto Spring.
+ *  - Mantida apenas para referência documental e futura expansão.
  *
- * Mantida apenas como referência documental e para extensão futura.
- * -----------------------------------------------------------------------------
+ * A configuração oficial e única válida do OpenAPI é:
+ *      → br.com.borurio.web.config.SwaggerConfig
+ *
+ * Motivo:
+ *  - SpringDoc 2.x exige um único bean OpenAPI.
+ *  - Evitamos o erro:
+ *        "expected single bean of type OpenAPI but found 2"
+ *
+ * =============================================================================
  * Projeto: ERP Fiscal Borurio BR
  * Módulo: borurio-web
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Última revisão: 05/11/2025
+ * Última revisão: 02/12/2025
  * =============================================================================
  */
-@Configuration
 public class OpenApiConfig {
-
-    /**
-     * Bean auxiliar para manter o link de documentação externa
-     * (repositório GitHub do projeto Borurio).
-     *
-     * @return instância configurada de {@link OpenAPI}
-     */
-    @Bean
-    public OpenAPI customOpenAPI() {
-        return new OpenAPI()
-                .externalDocs(new ExternalDocumentation()
-                        .description("Portal do Projeto — ERP Fiscal Borurio Brasil")
-                        .url("https://github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR"));
-    }
+    // Classe propositalmente vazia.
+    // Nenhum @Configuration e nenhum @Bean devem existir aqui.
 }

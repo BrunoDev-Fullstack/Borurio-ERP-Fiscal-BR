@@ -17,14 +17,18 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * =============================================================================
  * CONFIGURAÇÃO DE SEGURANÇA — BORURIO ERP FISCAL BR
  * =============================================================================
- * Funções:
- *   - Libera rotas públicas (Swagger, Auth, Actuator, Pings, Testes Fiscais).
- *   - Bloqueia rotas sensíveis exigindo autenticação JWT.
- *   - Permite corretamente a transmissão NF-e (muito importante).
- *   - Política Stateless (JWT) para ambientes dev, hom e prd.
+ * Padrão DevSecOps aplicado para API REST com autenticação via JWT.
+ *
+ * Rotas públicas:
+ *   - Swagger / OpenAPI
+ *   - Healthchecks / Pings
+ *   - Testes fiscais (assinatura, validação, status SEFAZ mock)
+ *
+ * Rotas privadas:
+ *   - Qualquer outro endpoint sensível; exige JWT válido.
  *
  * Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
- * Revisão: 26/11/2025
+ * Revisão: 02/12/2025
  * =============================================================================
  */
 @Configuration
@@ -33,76 +37,81 @@ public class SecurityConfig {
 
     private final JwtFilter jwtFilter;
 
-    /**
-     * ========================================================================
-     * SecurityFilterChain — Cadeia principal de segurança
-     * ========================================================================
-     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 
         http
                 // ---------------------------------------------------------------------
-                // CSRF DESATIVADO (aplicações REST não usam sessão nem form-login)
+                // DESABILITAÇÃO DE CSRF EM API REST (sem sessão e sem formulário)
                 // ---------------------------------------------------------------------
                 .csrf(csrf -> csrf.disable())
 
                 // ---------------------------------------------------------------------
-                // POLÍTICA STATELESS (JWT)
+                // API STATELESS (JWT)
                 // ---------------------------------------------------------------------
                 .sessionManagement(sess ->
                         sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
 
                 // ---------------------------------------------------------------------
-                // AUTORIZAÇÃO POR ROTAS
+                // CONTROLE DE ROTAS — LIBERADAS X PROTEGIDAS
                 // ---------------------------------------------------------------------
                 .authorizeHttpRequests(auth -> auth
 
-                        // ---- ROTAS PÚBLICAS (SEM JWT) --------------------------------
+                        // =============================================================
+                        // ROTAS PÚBLICAS (SEM JWT) — DEVSECOPS
+                        // =============================================================
                         .requestMatchers(
-                                "/auth/**",                // Autenticação
+                                // Swagger / documentação
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
+
+                                // Healthcheck
                                 "/actuator/**",
                                 "/api/test/**",
-                                "/api/fiscal/nfe/test/**",
                                 "/ping",
 
-                                // Endpoints fiscais essenciais (evita bloqueio indevido)
-                                "/nfe/**",
+                                // Autenticação
+                                "/auth/**",
+
+                                // Status NF-e
+                                "/nfe/status",
                                 "/api/fiscal/nfe/status",
-                                "/api/fiscal/nfe/test/**"
+
+                                // Testes de NF-e
+                                "/api/fiscal/nfe/validar-local",
+                                "/api/fiscal/nfe/assinatura/teste",
+                                "/api/fiscal/nfe/test/**",
+
+                                // Envio NF-e modo simulado
+                                "/nfe/envio/teste"
                         ).permitAll()
 
-                        // ---- TODAS AS DEMAIS ROTAS EXIGEM JWT -------------------------
+                        // =============================================================
+                        // QUALQUER OUTRA ROTA EXIGE JWT
+                        // =============================================================
                         .anyRequest().authenticated()
                 )
 
                 // ---------------------------------------------------------------------
-                // FILTRO JWT ANTES DO FILTRO PADRÃO
+                // FILTRO JWT ANTES DO FILTRO PADRÃO DO SPRING
                 // ---------------------------------------------------------------------
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
-
-    /**
-     * ========================================================================
-     * AuthenticationManager — usado pelo AuthController
-     * ========================================================================
-     */
+    // =========================================================================
+    // AuthenticationManager — usado pelo AuthController
+    // =========================================================================
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
     }
 
-    /**
-     * ========================================================================
-     * PasswordEncoder — BCrypt padrão corporativo
-     * ========================================================================
-     */
+    // =========================================================================
+    // PasswordEncoder — BCrypt corporativo
+    // =========================================================================
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();

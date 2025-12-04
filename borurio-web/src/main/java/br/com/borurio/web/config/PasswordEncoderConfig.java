@@ -12,42 +12,40 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * Responsável por fornecer o codificador de senhas padrão da aplicação.
  *
  * Funções principais:
- *   - Criptografar senhas de usuários ao salvar no banco.
- *   - Validar senhas informadas no login (BCrypt matches).
- *   - Evitar duplicações e dependências circulares entre SecurityConfig
- *     e UserDetailsServiceImpl.
+ *   - Criptografar senhas antes de persistir no banco;
+ *   - Validar senhas no fluxo de login via BCryptPasswordEncoder;
+ *   - Evitar acoplamento indevido entre SecurityConfig e UserDetailsServiceImpl.
  *
- * Padrões e recomendações:
- *   - Utiliza o algoritmo BCrypt com sal interno e fator de custo adaptativo.
- *   - Implementação compatível com OWASP ASVS e LGPD (proteção de credenciais).
- *   - Força padrão de 10 rounds (ajustável via construtor, se necessário).
+ * Características de Segurança:
+ *   - BCrypt → algoritmo recomendado pela OWASP (ASVS) e LGPD;
+ *   - Salt interno automático;
+ *   - Fator de custo adaptativo (work factor);
+ *   - Proteção contra rainbow tables e ataques de força bruta.
  *
- * =============================================================================
+ * Observações:
+ *   - Work factor padrão (strength=10) já atende ambientes de produção;
+ *   - Pode ser aumentado futuramente (ex.: new BCryptPasswordEncoder(12)).
+ *
  * Projeto: Borurio ERP Fiscal BR
  * Módulo: borurio-web
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Data: 23/10/2025
+ * Última revisão: 02/12/2025
  * =============================================================================
  */
 @Configuration
 public class PasswordEncoderConfig {
 
     /**
-     * Bean global de codificação de senhas.
-     *
-     * O BCrypt é uma função de hash adaptativa — conforme o hardware evolui,
-     * o custo (fator de trabalho) pode ser aumentado para reforçar a segurança.
+     * Bean global de codificação de senhas com BCrypt.
      *
      * Exemplo de uso:
-     * <pre>
      *   String hash = passwordEncoder.encode("senha123");
      *   boolean ok = passwordEncoder.matches("senha123", hash);
-     * </pre>
      *
-     * @return instância singleton de {@link PasswordEncoder} configurada com BCrypt.
+     * @return instância de PasswordEncoder configurada com BCrypt.
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        return new BCryptPasswordEncoder(); // strength=10 (default OWASP)
     }
 }

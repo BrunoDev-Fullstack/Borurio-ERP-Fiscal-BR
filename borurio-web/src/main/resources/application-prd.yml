@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------------------------
 # API REST principal — Integração real com SEFAZ-SP (NF-e 4.00)
 # Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
-# Revisão: 26/11/2025
+# Revisão: 04/12/2025
 ###################################################################################################
 
 server:
@@ -109,21 +109,22 @@ sefaz:
   ambiente: PRD
   tpAmb: 1
   urls:
-    autorizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
-    retorno:     "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
-    consulta:    "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
-    status:      "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
-    inutilizacao: "https://nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
-    recepcao-evento: "https://nfe.fazenda.sp.gov.br/ws/RecepcaoEvento4.asmx"
+    autorizacao:        "https://nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx"
+    retorno:            "https://nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx"
+    consulta:           "https://nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx"
+    status:             "https://nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx"
+    inutilizacao:       "https://nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx"
+    recepcao-evento:    "https://nfe.fazenda.sp.gov.br/ws/RecepcaoEvento4.asmx"
 
 ###################################################################################################
-# CERTIFICADO DIGITAL — PRODUÇÃO REAL
+# CERTIFICADO DIGITAL — PRODUÇÃO REAL (A1 JCHO — KEYSORE CONVERTIDO)
 ###################################################################################################
 fiscal:
   cert:
     enabled: true
-    path: ${CERT_PATH:/app/certificados/pfx/certificado-jcho.pfx}
-    pass: ${CERT_PASS:Jcho237888}
+    path: ${CERT_PATH:/app/certificados/pfx/certificado-jcho-keystore.p12}
+    pass: ${CERT_PASS:Jcho@2025!}
+    type: PKCS12
 
 ###################################################################################################
 # ACTUATOR — SEGURO EM PRODUÇÃO
@@ -153,8 +154,8 @@ app:
 
 ###################################################################################################
 # NOTAS TÉCNICAS
-# - Certificado A1 JCHO montado no container via volume: /app/certificados/pfx/
+# - Certificado A1 JCHO (keystore PKCS12 convertido com AES256)
+# - Volume Docker: /app/certificados/pfx/
 # - Comunicação mTLS obrigatória para SEFAZ
-# - Web não usa Flyway; módulo fiscal sim
-# - Log rotacionado via logback-prd.xml
+# - tpAmb=1 = Produção real
 ###################################################################################################

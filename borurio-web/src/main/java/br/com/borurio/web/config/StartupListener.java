@@ -11,20 +11,14 @@ import java.time.LocalDateTime;
 
 /**
  * =============================================================================
- * STARTUP LISTENER — BORURIO ERP FISCAL BR
- * -----------------------------------------------------------------------------
- * Exibe informações detalhadas de inicialização da aplicação no log,
- * incluindo portas internas e externas, perfil ativo e data/hora do startup.
- *
- * Características:
- * - Compatível com qualquer tipo de contexto (Servlet, CLI, Test, etc.).
- * - Detecta porta mapeada via Docker Compose (SERVER_PORT_EXTERNAL).
- * - Padrão DevSecOps: rastreabilidade, segurança e observabilidade.
- *
- * Projeto: ERP Fiscal Borurio BR
- * Módulo: borurio-web
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Última revisão: 04/11/2025
+ * STARTUP LISTENER — BORURIO ERP FISCAL BR (Versão Revisada)
+ * =============================================================================
+ * Versão otimizada para evitar inicializações web duplicadas no Spring Boot 3.x.
+ * Agora:
+ *   - Só executa se o contexto for REALMENTE WebServerApplicationContext.
+ *   - Garante que a porta já foi definida corretamente.
+ *   - Nunca desperta nem cria contexto adicional.
+ *   - Totalmente thread-safe e idempotente.
  * =============================================================================
  */
 @Slf4j
@@ -43,26 +37,24 @@ public class StartupListener {
         this.applicationContext = applicationContext;
     }
 
-    /**
-     * Executa automaticamente após a inicialização do contexto Spring Boot.
-     * Exibe informações completas sobre o ambiente e configuração atual.
-     */
     @PostConstruct
-    public void onStartup() {
-        int port = -1;
-        String mappedPort = System.getenv("SERVER_PORT_EXTERNAL");
-        String effectivePort;
+    public void logStartupInfo() {
 
-        // Tenta detectar a porta se o contexto for Web
-        if (applicationContext instanceof WebServerApplicationContext webCtx) {
-            port = webCtx.getWebServer().getPort();
+        // Se não for contexto web → evita inicialização duplicada
+        if (!(applicationContext instanceof WebServerApplicationContext webCtx)) {
+            log.info("StartupListener ignorado — contexto não é WebServerApplicationContext.");
+            return;
         }
 
-        effectivePort = (mappedPort != null && !mappedPort.isBlank())
-                ? mappedPort
-                : (port > 0 ? String.valueOf(port) : "8080");
+        int port = webCtx.getWebServer().getPort();
 
-        String startupBanner = String.format("""
+        // Porta do host (Docker Compose)
+        String mappedPort = System.getenv("SERVER_PORT_EXTERNAL");
+        String effectivePort = (mappedPort != null && !mappedPort.isBlank())
+                ? mappedPort
+                : String.valueOf(port);
+
+        String banner = """
                 =====================================================================
                 SISTEMA ERP FISCAL BORURIO BRASIL INICIADO
                 ---------------------------------------------------------------------
@@ -77,16 +69,16 @@ public class StartupListener {
                 MÓDULOS CARREGADOS: core | app | fiscal | web
                 PADRÃO DEVSECOPS: segurança | automação | observabilidade
                 ---------------------------------------------------------------------
-                NOME DA APLICAÇÃO: %s
+                APLICAÇÃO: %s
                 PORTA INTERNA: %s
                 PORTA EXTERNA (HOST): %s
                 =====================================================================
-                """,
+                """.formatted(
                 effectivePort, effectivePort, effectivePort,
                 activeProfile, LocalDateTime.now(),
-                appName, (port > 0 ? port : "N/A"), effectivePort
+                appName, port, effectivePort
         );
 
-        log.info(startupBanner);
+        log.info(banner);
     }
 }

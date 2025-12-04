@@ -22,23 +22,20 @@
 **/.cache/
 **/.DS_Store
 **/.factorypath
+**/var/log/
 
 # -------------------------------------------------------------------------------------------------
-# Repositório Git e metadados locais
+# Repositório Git (metadados)
 # -------------------------------------------------------------------------------------------------
 **/.git/
-**/.gitignore
-**/.gitattributes
 **/.gitmodules
 
 # -------------------------------------------------------------------------------------------------
 # Arquivos de ambiente e credenciais
 # -------------------------------------------------------------------------------------------------
 .env
-.env.*
-!env/.env.dev
-!env/.env.hom
-!env/.env.prd
+docker/env/*.env
+!docker/env/.env.example
 certificados/
 certs/
 *.pfx
@@ -66,7 +63,7 @@ docker/tmp/
 *.lock
 
 # -------------------------------------------------------------------------------------------------
-# Arquivos de cache e dependências locais
+# Cache e dependências locais
 # -------------------------------------------------------------------------------------------------
 **/node_modules/
 **/__pycache__/
@@ -92,7 +89,7 @@ docker/tmp/
 *.gz
 
 # -------------------------------------------------------------------------------------------------
-# Exceções importantes (mantidas no contexto do build)
+# Exceções importantes (Mantidas no contexto)
 # -------------------------------------------------------------------------------------------------
 !pom.xml
 !Dockerfile
@@ -102,4 +99,3 @@ docker/tmp/
 !docs/
 !sql/
 !scripts/
-!env/

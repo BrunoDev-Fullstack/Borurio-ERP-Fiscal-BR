@@ -2,7 +2,7 @@ package br.com.borurio.web.controller.fiscal;
 
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
-import br.com.borurio.fiscal.service.NfeTransmitService;
+import br.com.borurio.fiscal.service.NfeTransmitService;   // IMPORT CORRETO
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -11,22 +11,15 @@ import org.springframework.web.bind.annotation.*;
  * =============================================================================
  * CONTROLADOR: NfeEnvioController
  * =============================================================================
- * Responsável por receber XMLs assinados de NF-e (modelo 55) do ERP e repassar
- * ao módulo Fiscal, que realiza a transmissão real para a SEFAZ-SP.
- *
- * Ambientes:
- *   - DEV/HOM: tpAmb = 2
- *   - PRD:     tpAmb = 1
- *
- * Segurança:
- *   - Autenticação JWT via SecurityConfig
- *   - Header obrigatório: CNPJ-Emitente
+ * Responsável por receber o XML assinado da NF-e (modelo 55) e enviá-lo ao
+ * módulo Fiscal, que executa a transmissão REAL para a SEFAZ-SP através do
+ * WebService NFeAutorizacao4 (SOAP 1.2 + mTLS com certificado A1).
  *
  * Padrão de resposta:
  *   {code, message, data}
  *
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Revisão: 26/11/2025
+ * Autor: Bruno Ribeiro — Fullstack / DevSecOps
+ * Revisão: 03/12/2025
  * =============================================================================
  */
 @Slf4j
@@ -40,20 +33,10 @@ public class NfeEnvioController {
         this.nfeTransmitService = nfeTransmitService;
     }
 
-    /**
-     * =========================================================================
-     * ENDPOINT — Envio de NF-e (XML Assinado v4.00)
-     * =========================================================================
-     *
-     * Header obrigatório:
-     *   CNPJ-Emitente: 12345678000199
-     *
-     * Body:
-     *   XML assinado (application/xml, text/xml ou text/plain)
-     *
-     * @param xmlNfeAssinado XML da NF-e modelo 55 já assinado digitalmente
-     * @param cnpjEmitente  CNPJ do emitente (deve ser o mesmo do certificado)
-     */
+    // =========================================================================
+    // ENDPOINT — ENVIO NF-e (XML Assinado v4.00)
+    // =========================================================================
+
     @PostMapping(
             value = "/enviar",
             consumes = {
@@ -71,36 +54,35 @@ public class NfeEnvioController {
 
             log.info("""
                     ====================================================================
-                    [NF-e ENVIO] Nova requisição recebida
+                    [NF-e ENVIO] Requisição recebida
                     - CNPJ Emitente: {}
-                    - Tamanho XML: {}
+                    - Tamanho do XML: {}
                     ====================================================================
                     """,
                     cnpjEmitente,
                     xmlNfeAssinado != null ? xmlNfeAssinado.length() : 0
             );
 
-            // Validação rápida (API Level)
+            // ------------------- Validação rápida ------------------- //
             if (xmlNfeAssinado == null || xmlNfeAssinado.isBlank()) {
-                return ResultUtil.error("O XML assinado da NF-e não pode estar vazio.");
+                return ResultUtil.error("O XML assinado da NF-e está vazio.");
             }
 
-            // Chamada ao serviço Fiscal (transmissão SOAP real)
-            String respostaSefaz = nfeTransmitService.transmitirXml(xmlNfeAssinado, cnpjEmitente);
+            // ------------------- Transmissão REAL ------------------- //
+            String respostaSefaz =
+                    nfeTransmitService.transmitirXml(xmlNfeAssinado, cnpjEmitente);
 
-            log.info("[NF-e ENVIO] Transmissão finalizada com sucesso | CNPJ={} ", cnpjEmitente);
+            log.info("[NF-e ENVIO] Transmissão concluída | CNPJ={}", cnpjEmitente);
 
             return ResultUtil.success(respostaSefaz);
 
         } catch (IllegalArgumentException ex) {
-
             log.warn("[NF-e ENVIO] Erro de parâmetros | motivo={}", ex.getMessage());
             return ResultUtil.error("Parâmetros inválidos: " + ex.getMessage());
 
         } catch (Exception e) {
-
-            log.error("[NF-e ENVIO] ERRO INTERNO durante envio da NF-e | motivo={}", e.getMessage(), e);
-            return ResultUtil.error("Falha ao transmitir NF-e: " + e.getMessage());
+            log.error("[NF-e ENVIO] ERRO INTERNO | motivo={}", e.getMessage(), e);
+            return ResultUtil.error("Erro ao transmitir NF-e: " + e.getMessage());
         }
     }
 }
