@@ -3,6 +3,7 @@ package br.com.borurio.web.config;
 import br.com.borurio.web.auth.JwtFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -15,19 +16,21 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * =============================================================================
  * CONFIGURAÇÃO DE SEGURANÇA — BORURIO ERP FISCAL BR
- * -----------------------------------------------------------------------------
- * Ambiente unificado DEV + HOM.
+ * =============================================================================
+ * Aplicável exclusivamente aos perfis DEV e HOM.
  *
- * Funções principais:
- * - Libera rotas públicas (Swagger, Actuator, AuthController, PingController, mocks de teste).
- * - Exige autenticação JWT para endpoints fiscais e de negócio (/nfe/**, /api/fiscal/nfe/**).
- * - Define política stateless (sem sessão, sem cookies).
- * - Garante que o filtro JWT seja processado antes da autenticação padrão.
+ * Objetivos:
+ *  • Liberar Swagger/OpenAPI para uso interno
+ *  • Liberar endpoints públicos básicos
+ *  • Exigir JWT para endpoints fiscais reais
+ *  • Manter política Stateless (JWT)
  *
- * Compatível com os ambientes: dev, hom e prd.
+ * OBS:
+ *  • Produção (PRD) deve possuir configuração própria
  * =============================================================================
  */
 @Configuration
+@Profile({"dev", "hom"})
 public class SecurityConfig {
 
     private final JwtFilter jwtFilter;
@@ -36,63 +39,66 @@ public class SecurityConfig {
         this.jwtFilter = jwtFilter;
     }
 
-    /**
-     * =============================================================================
-     * MÉTODO: securityFilterChain
-     * -----------------------------------------------------------------------------
-     * Define toda a cadeia de filtros e permissões.
-     * =============================================================================
-     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
         http
-                // Desabilita CSRF (não há uso de sessões)
+                // -----------------------------------------------------------------
+                // API Stateless (JWT)
+                // -----------------------------------------------------------------
                 .csrf(csrf -> csrf.disable())
+                .cors(cors -> { }) // preparado para front externo / swagger
 
-                // Define a política stateless (JWT sem sessão)
-                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(sess ->
+                        sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
 
-                // Define as permissões por endpoint
+                // -----------------------------------------------------------------
+                // AUTORIZAÇÃO DE ENDPOINTS
+                // -----------------------------------------------------------------
                 .authorizeHttpRequests(auth -> auth
-                        // Endpoints públicos liberados (sem JWT)
+
+                        // ENDPOINTS PÚBLICOS (SEM JWT)
                         .requestMatchers(
-                                "/auth/**",                    // Login e refresh
-                                "/swagger-ui/**",              // Documentação Swagger
-                                "/v3/api-docs/**",             // Especificação OpenAPI
-                                "/actuator/**",                // Healthcheck e métricas
-                                "/api/test/**",                // Pings e validações DEV
-                                "/api/fiscal/nfe/test/**",     // Testes fiscais simulados (HOM/DEV)
-                                "/ping"                        // Verificação rápida
+                                "/auth/**",
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**",
+                                "/actuator/**",
+                                "/api/test/**",
+                                "/api/fiscal/nfe/test/**",
+                                "/ping"
                         ).permitAll()
 
-                        // Demais endpoints exigem autenticação JWT
+                        // ENDPOINTS FISCAIS REAIS (COM JWT)
+                        .requestMatchers(
+                                "/api/fiscal/nfe/status",
+                                "/api/fiscal/nfe/enviar"
+                        ).authenticated()
+
+                        // DEMAIS ENDPOINTS
                         .anyRequest().authenticated()
                 )
 
-                // Adiciona o filtro JWT antes do filtro padrão de autenticação
+                // -----------------------------------------------------------------
+                // FILTRO JWT
+                // -----------------------------------------------------------------
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
     /**
-     * =============================================================================
-     * BEAN: AuthenticationManager
-     * -----------------------------------------------------------------------------
-     * Gerenciador padrão de autenticação do Spring.
-     * =============================================================================
+     * AuthenticationManager padrão do Spring Security.
      */
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration config
+    ) throws Exception {
         return config.getAuthenticationManager();
     }
 
     /**
-     * =============================================================================
-     * BEAN: PasswordEncoder
-     * -----------------------------------------------------------------------------
-     * Codificador de senhas padrão (BCrypt).
-     * =============================================================================
+     * Encoder padrão de senha (BCrypt).
      */
     @Bean
     public PasswordEncoder passwordEncoder() {

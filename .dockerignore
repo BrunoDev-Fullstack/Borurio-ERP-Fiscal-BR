@@ -1,8 +1,6 @@
 ###################################################################################################
 # .DOCKERIGNORE — BORURIO ERP FISCAL BR
-# ________________________________________________________________________________________________
-# Objetivo: evitar envio de arquivos desnecessários ou sensíveis no contexto de build Docker
-# Ambiente: DEV / HOM / PRD
+# Objetivo: excluir arquivos inúteis e proteger segredos no contexto de build do Docker.
 # Autor: Bruno Ribeiro – DevSecOps / Fullstack Java
 ###################################################################################################
 
@@ -39,14 +37,22 @@
 !env/.env.dev
 !env/.env.hom
 !env/.env.prd
-certificados/
+
+# ❌ Antes ignorava tudo — agora liberamos apenas a estrutura correta
 certs/
-*.pfx
 *.pem
-*.crt
 *.key
 *.jks
 *.keystore
+
+# --------------------------------------------------------------------
+# ✔️ EXCEÇÃO: PERMITIR APENAS OS CERTIFICADOS NECESSÁRIOS PARA O BUILD
+# --------------------------------------------------------------------
+!certificados/
+!docker/certs/autoridade/
+!certificados/autoridade/*.crt
+!certificados/pfx/
+!certificados/pfx/*.pfx
 
 # -------------------------------------------------------------------------------------------------
 # Dados persistentes e runtime

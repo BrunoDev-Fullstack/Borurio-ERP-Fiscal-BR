@@ -9,31 +9,17 @@
          Descrição:
          - Unificado para perfis "dev" e "hom"
          - Exibe logs em console e arquivo rotativo
-         - Ideal para testes locais e de integração SEFAZ-Homologação
+         - Ideal para testes locais e integração SEFAZ
          ============================================================================= -->
 
     <!-- =============================================================================
          DEFINIÇÕES GERAIS
-         _____________________________________________________________________________
-         - Diretório local de logs: ./logs
-         - Codificação UTF-8 sem BOM
-         - Retenção padrão: 10 dias
          ============================================================================= -->
-    <property name="LOG_PATH" value="logs" />
-    <property name="LOG_FILE" value="${LOG_PATH}/borurio-dev.log" />
+    <property name="LOG_PATH" value="logs"/>
+    <property name="LOG_FILE" value="${LOG_PATH}/borurio-dev.log"/>
 
     <!-- =============================================================================
-         ENCODER PADRÃO (UTF-8 sem BOM)
-         _____________________________________________________________________________ -->
-    <encoder name="STDOUT_ENCODER">
-        <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
-    </encoder>
-
-    <!-- =============================================================================
-         APPENDER: SAÍDA DE CONSOLE
-         _____________________________________________________________________________
-         - Exibe logs diretamente no terminal (IDE / Docker)
-         - Útil para debugging rápido
+         APPENDER: CONSOLE
          ============================================================================= -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
@@ -42,55 +28,47 @@
     </appender>
 
     <!-- =============================================================================
-         APPENDER: ARQUIVO LOCAL (logs/borurio-dev.log)
-         _____________________________________________________________________________
-         - Registra logs de aplicação e integração
-         - Rotação diária / Retenção: 10 dias
+         APPENDER: ARQUIVO (ROTATIVO DIÁRIO)
          ============================================================================= -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_FILE}</file>
+        <append>true</append>
+
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
         </encoder>
+
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>${LOG_PATH}/borurio-dev.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>10</maxHistory>
             <totalSizeCap>200MB</totalSizeCap>
         </rollingPolicy>
-        <append>true</append>
     </appender>
 
     <!-- =============================================================================
          ROOT LOGGER
-         _____________________________________________________________________________
-         - Nível padrão INFO (silencia ruídos desnecessários)
-         - Mostra logs no console e salva em arquivo
          ============================================================================= -->
     <root level="INFO">
-        <appender-ref ref="CONSOLE" />
-        <appender-ref ref="FILE" />
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
     </root>
 
     <!-- =============================================================================
-         LOGGER: Domínio Principal (br.com.borurio)
-         _____________________________________________________________________________
-         - Define logs detalhados para módulos Core, App e Fiscal
-         - Mantido em DEBUG para testes e validações de integração
+         LOGGER: DOMÍNIO PRINCIPAL
          ============================================================================= -->
     <logger name="br.com.borurio" level="DEBUG" additivity="false">
-        <appender-ref ref="CONSOLE" />
-        <appender-ref ref="FILE" />
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
     </logger>
 
     <!-- =============================================================================
-         LOGGER OPCIONAL: Serviços Fiscais (NF-e, SEFAZ, XML)
-         _____________________________________________________________________________
-         - Ativar via variável de ambiente:
-           LOGGING_LEVEL_BR_COM_BORURIO_FISCAL=TRACE
+         LOGGER: FISCAL / SEFAZ
          ============================================================================= -->
-    <logger name="br.com.borurio.fiscal" level="${LOGGING_LEVEL_BR_COM_BORURIO_FISCAL:DEBUG}" additivity="false">
-        <appender-ref ref="CONSOLE" />
-        <appender-ref ref="FILE" />
+    <logger name="br.com.borurio.fiscal"
+            level="${LOGGING_LEVEL_BR_COM_BORURIO_FISCAL:DEBUG}"
+            additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
     </logger>
 
 </configuration>

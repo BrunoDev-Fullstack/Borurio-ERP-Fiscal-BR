@@ -1,6 +1,8 @@
 package br.com.borurio.fiscal.service;
 
 import javax.net.ssl.SSLContext;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 
 /**
  * =============================================================================
@@ -16,7 +18,13 @@ import javax.net.ssl.SSLContext;
  *
  * Utilização:
  *   Implementações concretas devem garantir que o SSLContext esteja
- *   devidamente configurado para autenticação mútua via TLS 1.2+.
+ *   devidamente configurado para autenticação mútua via TLS 1.2+,
+ *   respeitando os padrões ICP-Brasil e SEFAZ.
+ *
+ * Observações:
+ *   - Em DEV/HOM este serviço pode operar em modo passivo, retornando null.
+ *   - Em PRD qualquer falha no carregamento do certificado deve impedir
+ *     a inicialização da aplicação.
  *
  * Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
  * Projeto: Borurio ERP Fiscal BR
@@ -26,22 +34,32 @@ import javax.net.ssl.SSLContext;
 public interface CertificadoService {
 
     /**
-     * Retorna o contexto SSL configurado com base no certificado A1.
-     * Deve ser utilizado para conexões seguras com a SEFAZ-SP.
+     * Retorna o contexto SSL configurado com base no certificado digital A1.
+     * Deve ser utilizado em clientes HTTP/SOAP que se comunicam com a SEFAZ-SP.
      *
-     * Em ambientes de desenvolvimento ou homologação (mock SEFAZ),
-     * este método pode retornar null.
+     * Comportamento esperado:
+     *   - PRD: retorna um SSLContext totalmente configurado
+     *   - DEV/HOM: pode retornar null quando operando em modo simulado
      *
-     * @return SSLContext configurado (PRD) ou null (DEV/HOM)
-     * @throws Exception caso ocorra falha no carregamento do certificado.
+     * @return SSLContext configurado ou null (DEV/HOM)
+     * @throws GeneralSecurityException falha criptográfica ou de keystore
+     * @throws IOException falha de leitura do arquivo do certificado
      */
-    SSLContext getSslContext() throws Exception;
+    SSLContext getSslContext() throws GeneralSecurityException, IOException;
 
     /**
      * Retorna uma descrição textual do estado atual do serviço de certificado.
-     * Pode ser utilizada em endpoints de diagnóstico ou logs de auditoria.
+     * Método indicado para:
+     *   - logs de inicialização
+     *   - endpoints de diagnóstico
+     *   - auditoria operacional
      *
-     * @return Descrição do status atual (ex.: "Certificado A1 carregado com sucesso").
+     * Exemplos de retorno:
+     *   - "Certificado A1 carregado com sucesso"
+     *   - "Modo DEV ativo - certificado não carregado"
+     *   - "Erro ao inicializar certificado digital"
+     *
+     * @return Descrição do status atual do serviço
      */
     String getStatus();
 }

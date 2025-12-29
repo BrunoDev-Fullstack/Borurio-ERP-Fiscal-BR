@@ -1,14 +1,10 @@
 ###################################################################################################
-# AMBIENTE DE DESENVOLVIMENTO — BORURIO ERP FISCAL BR
-# ________________________________________________________________________________________________
-# Módulo: borurio-web (API REST principal)
-# Integrações: MySQL, Redis, Modo SEFAZ-MOCK (dev)
-# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+# AMBIENTE DE DESENVOLVIMENTO / HOMOLOGAÇÃO — BORURIO ERP FISCAL BR
 ###################################################################################################
 
 server:
   address: 0.0.0.0
-  port: 8080
+  port: 8081
   servlet:
     context-path: /
   error:
@@ -20,13 +16,14 @@ spring:
     name: borurio-web-dev
 
   ################################################################################################
-  # BANCO DE DADOS — MYSQL (DEV)
+  # BANCO DE DADOS — MYSQL (DEV / HOM)
+  # SCHEMA ÚNICO: borurio_dev
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:borurio_dev}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-    username: ${DB_USER:borurio}
-    password: ${DB_PASS:H4ck3r123}
+    url: jdbc:mysql://127.0.0.1:3307/borurio_dev?useSSL=false&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+    username: borurio
+    password: H4ck3r123
     hikari:
       pool-name: BorurioWebHikariPool
       maximum-pool-size: 10
@@ -36,7 +33,7 @@ spring:
       max-lifetime: 1800000
 
   ################################################################################################
-  # JPA — Módulo WEB NÃO gerencia tabelas fiscais
+  # JPA / HIBERNATE
   ################################################################################################
   jpa:
     open-in-view: false
@@ -44,38 +41,42 @@ spring:
       ddl-auto: none
     properties:
       hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
         show_sql: false
 
   ################################################################################################
-  # FLYWAY DESATIVADO NO WEB
+  # FLYWAY — DEV / HOM
   ################################################################################################
   flyway:
-    enabled: false
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: false
+    baseline-on-migrate: true
+    baseline-version: 0
 
   ################################################################################################
-  # REDIS
+  # REDIS — SPRING DATA REDIS (AUTO-CONFIGURAÇÃO)
   ################################################################################################
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      timeout: 2000
-      connect-timeout: 2000
+      host: localhost
+      port: 6379
+      timeout: 2s
 
   ################################################################################################
-  # JACKSON — FORMATAÇÃO JSON
+  # JACKSON — PADRÃO CORPORATIVO
   ################################################################################################
   jackson:
     serialization:
-      indent_output: true
+      indent-output: true
     date-format: yyyy-MM-dd'T'HH:mm:ss
     time-zone: America/Sao_Paulo
     locale: pt_BR
     default-property-inclusion: non_null
 
   ################################################################################################
-  # SPRING CORE / CORS / MVC
+  # SPRING CORE
   ################################################################################################
   main:
     allow-bean-definition-overriding: true
@@ -85,16 +86,8 @@ spring:
     throw-exception-if-no-handler-found: true
     static-path-pattern: /static/**
 
-  web:
-    resources:
-      add-mappings: true
-    cors:
-      allowed-origins: "*"
-      allowed-methods: "*"
-      allowed-headers: "*"
-
 ###################################################################################################
-# LOGGING — Auditoria / Diagnóstico
+# LOGGING
 ###################################################################################################
 logging:
   config: classpath:logback-dev.xml
@@ -105,42 +98,48 @@ logging:
     br.com.borurio: DEBUG
 
 ###################################################################################################
-# SEFAZ — MODO MOCK NO DEV (NÃO CONSULTA SERVIDOR REAL)
+# SEFAZ — HOMOLOGAÇÃO (SP)
 ###################################################################################################
 sefaz:
-  ambiente: MOCK
+  ambiente: HOM
   tpAmb: 2
+  uf: SP
+  schema-path: classpath:schemas/nfe
+
   urls:
-    autorizacao: "http://localhost:9999/mock/sefaz/autorizacao"
-    retorno: "http://localhost:9999/mock/sefaz/retorno"
-    consulta: "http://localhost:9999/mock/sefaz/consulta"
-    status: "http://localhost:9999/mock/sefaz/status"
-    inutilizacao: "http://localhost:9999/mock/sefaz/inutilizacao"
-    recepcao-evento: "http://localhost:9999/mock/sefaz/evento"
+    autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeAutorizacao4.asmx
+    retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRetAutorizacao4.asmx
+    consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeConsultaProtocolo4.asmx
+    status: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx
+    inutilizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeInutilizacao4.asmx
+    recepcao-evento: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeRecepcaoEvento4.asmx
 
 ###################################################################################################
-# CERTIFICADO DIGITAL — DEV NÃO USA (somente HOM/PRD)
+# CERTIFICADO DIGITAL — DEV / HOM (DESABILITADO)
 ###################################################################################################
 fiscal:
-  cert:
+  certificate:
     enabled: false
-    path: ""
-    pass: ""
+    type: PKCS12
+    pfx-path: /app/certs/keystore/jcho-keystore.p12
+    pfx-password: Jcho237888
+    truststore-path: /app/certs/truststore/sefaz-truststore.jks
+    truststore-password: changeit
 
 ###################################################################################################
 # ACTUATOR
 ###################################################################################################
 management:
-  server:
-    port: 8080
   endpoints:
     web:
       base-path: /actuator
       exposure:
         include: health,info
+
   endpoint:
     health:
       show-details: always
+
   health:
     db:
       enabled: true
@@ -148,14 +147,16 @@ management:
       enabled: true
     ping:
       enabled: true
-  security:
-    enabled: false
 
 ###################################################################################################
-# METADADOS DO AMBIENTE
+# METADADOS DA APLICAÇÃO (AppProperties)
 ###################################################################################################
 app:
+  name: borurio-erp-fiscal
+  environment: DEV
+  banner-enabled: true
+
   profile: dev
-  description: "Ambiente de Desenvolvimento — SEFAZ MOCK"
+  description: "Ambiente de Homologação — SEFAZ-SP"
   version: ${project.version:1.0.0}
   owner: "Bruno Ribeiro — DevSecOps / Fullstack Java"

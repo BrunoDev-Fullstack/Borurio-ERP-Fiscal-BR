@@ -1,35 +1,32 @@
 package br.com.borurio.web.config;
 
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ApplicationContext;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.context.ApplicationListener;
+import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
 /**
  * =============================================================================
  * STARTUP LISTENER — BORURIO ERP FISCAL BR
- * -----------------------------------------------------------------------------
- * Exibe informações detalhadas de inicialização da aplicação no log,
- * incluindo portas internas e externas, perfil ativo e data/hora do startup.
+ * =============================================================================
+ * Listener responsável apenas por exibir informações de inicialização
+ * após o contexto Spring Boot estar totalmente pronto.
  *
- * Características:
- * - Compatível com qualquer tipo de contexto (Servlet, CLI, Test, etc.).
- * - Detecta porta mapeada via Docker Compose (SERVER_PORT_EXTERNAL).
- * - Padrão DevSecOps: rastreabilidade, segurança e observabilidade.
+ * Padrão correto:
+ *  • Executa somente após ApplicationReadyEvent
+ *  • Não interfere no ciclo de vida do servidor
+ *  • Seguro para ambientes DEV / PRD / Docker
  *
- * Projeto: ERP Fiscal Borurio BR
- * Módulo: borurio-web
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Última revisão: 04/11/2025
  * =============================================================================
  */
 @Slf4j
-@Configuration
-public class StartupListener {
+@Component
+public class StartupListener implements ApplicationListener<ApplicationReadyEvent> {
 
     private final ApplicationContext applicationContext;
 
@@ -43,17 +40,12 @@ public class StartupListener {
         this.applicationContext = applicationContext;
     }
 
-    /**
-     * Executa automaticamente após a inicialização do contexto Spring Boot.
-     * Exibe informações completas sobre o ambiente e configuração atual.
-     */
-    @PostConstruct
-    public void onStartup() {
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent event) {
         int port = -1;
         String mappedPort = System.getenv("SERVER_PORT_EXTERNAL");
         String effectivePort;
 
-        // Tenta detectar a porta se o contexto for Web
         if (applicationContext instanceof WebServerApplicationContext webCtx) {
             port = webCtx.getWebServer().getPort();
         }

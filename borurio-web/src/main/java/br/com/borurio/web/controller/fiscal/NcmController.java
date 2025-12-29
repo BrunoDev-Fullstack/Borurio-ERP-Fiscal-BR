@@ -1,4 +1,4 @@
-package br.com.borurio.fiscal.controller;
+package br.com.borurio.web.controller.fiscal;
 
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
@@ -10,9 +10,19 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * Controller responsável pelos endpoints de consulta e sincronização
+ * da Tabela NCM.
+ *
+ * Camada: WEB
+ * Responsabilidade: Orquestração HTTP
+ */
 @RestController
 @RequestMapping("/api/fiscal/ncm")
-@Tag(name = "NCM Controller", description = "Endpoints para manutenção e sincronização da Tabela NCM")
+@Tag(
+        name = "NCM",
+        description = "Endpoints para manutenção e sincronização da Tabela NCM"
+)
 public class NcmController {
 
     private final NcmService ncmService;
@@ -21,9 +31,9 @@ public class NcmController {
         this.ncmService = ncmService;
     }
 
-    // ============================================================
+    // =========================================================================
     // ENDPOINT: Listar todos os NCMs
-    // ============================================================
+    // =========================================================================
     @GetMapping("/listar")
     @Operation(summary = "Listar todos os NCMs ativos")
     public Result<List<Ncm>> listarTodos() {
@@ -31,25 +41,27 @@ public class NcmController {
         return ResultUtil.success(lista);
     }
 
-    // ============================================================
+    // =========================================================================
     // ENDPOINT: Buscar NCM por código
-    // ============================================================
+    // =========================================================================
     @GetMapping("/{codigo}")
     @Operation(summary = "Buscar NCM por código")
-    public Result<Ncm> buscarPorCodigo(@PathVariable String codigo) {
+    public Result<Ncm> buscarPorCodigo(@PathVariable("codigo") String codigo) {
 
         Ncm ncm = ncmService.buscarPorCodigo(codigo);
 
         if (ncm == null) {
-            return ResultUtil.error("NCM não encontrado para o código: " + codigo);
+            return ResultUtil.error(
+                    "NCM não encontrado para o código: " + codigo
+            );
         }
 
         return ResultUtil.success(ncm);
     }
 
-    // ============================================================
+    // =========================================================================
     // ENDPOINT: Sincronizar Tabela NCM
-    // ============================================================
+    // =========================================================================
     @PostMapping("/sincronizar")
     @Operation(summary = "Sincronizar Tabela NCM")
     public Result<?> sincronizarTabela() {

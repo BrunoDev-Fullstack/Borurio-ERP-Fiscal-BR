@@ -1,35 +1,24 @@
-# =============================================================================
-# Docker Compose - Ambiente DEV / Homologação
+###################################################################################################
+# DOCKER COMPOSE — AMBIENTE DEV / HOM
 # Projeto: Borurio ERP Fiscal BR
-# =============================================================================
-# Padrão: Monólito Modular (Web inclui Core, App e Fiscal)
-# Stack: Java 17 | Spring Boot 3.3.x | MySQL 8.4 | Redis 7.2 | MinIO | Mailpit
-# =============================================================================
-# Objetivo:
-# Ambiente de desenvolvimento e homologação (tpAmb=2)
-# com suporte completo à integração SEFAZ-SP (NF-e 4.00),
-# incluindo bancos, cache, armazenamento e e-mails locais.
-# =============================================================================
-
-version: "3.9"
+# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+#
+# Observações:
+# - A aplicação (borurio-web) sobe via IntelliJ
+# - Docker é usado apenas para infraestrutura (MySQL, Redis, MinIO, Mailpit)
+###################################################################################################
 
 services:
 
-  # ---------------------------------------------------------------------------
-  # MySQL - Banco Fiscal / Homologação
-  # ---------------------------------------------------------------------------
+  #################################################################################################
+  # MYSQL — BANCO DE DADOS DEV
+  #################################################################################################
   borurio-mysql-dev:
     image: mysql:8.4
     container_name: borurio-mysql-dev
     restart: unless-stopped
     env_file:
       - ./env/.env.dev
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-SENHA_NOVA_DO_ROOT}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal_dev}
-      MYSQL_USER: ${MYSQL_USER:-borurio}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
-      TZ: America/Sao_Paulo
     ports:
       - "3307:3306"
     volumes:
@@ -40,15 +29,15 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p${MYSQL_ROOT_PASSWORD} --silent"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 8
       start_period: 25s
 
-  # ---------------------------------------------------------------------------
-  # Redis - Sessões / Cache
-  # ---------------------------------------------------------------------------
+  #################################################################################################
+  # REDIS — CACHE / SESSÕES
+  #################################################################################################
   borurio-redis-dev:
     image: redis:7.2
     container_name: borurio-redis-dev
@@ -66,42 +55,31 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 20s
+      retries: 5
 
-  # ---------------------------------------------------------------------------
-  # MinIO - Armazenamento compatível com S3
-  # ---------------------------------------------------------------------------
+  #################################################################################################
+  # MINIO — STORAGE COMPATÍVEL COM S3 (DEV SINGLE-NODE)
+  #################################################################################################
   borurio-minio-dev:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2023-09-04T19-57-37Z
     container_name: borurio-minio-dev
     restart: unless-stopped
     command: server /data --console-address ":9001"
     env_file:
       - ./env/.env.dev
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
-      TZ: America/Sao_Paulo
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_dev_data:/data:rw
+      - ./minio/data-dev:/data:rw
     networks:
       - borurio-net-dev
     security_opt:
       - no-new-privileges:true
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 4
-      start_period: 20s
 
-  # ---------------------------------------------------------------------------
-  # Mailpit - SMTP e Console
-  # ---------------------------------------------------------------------------
+  #################################################################################################
+  # MAILPIT — CAPTURA DE E-MAILS (DEV)
+  #################################################################################################
   borurio-mailpit-dev:
     image: axllent/mailpit:latest
     container_name: borurio-mailpit-dev
@@ -113,81 +91,29 @@ services:
       - borurio-net-dev
     security_opt:
       - no-new-privileges:true
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 1025 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
 
-  # ---------------------------------------------------------------------------
-  # Aplicação Web — Core + App + Fiscal
-  # ---------------------------------------------------------------------------
+  #################################################################################################
+  # APLICAÇÃO WEB — DEFINIDA MAS NÃO USADA NO DEV
+  #################################################################################################
   borurio-web-dev:
-    build:
-      context: ../
-      dockerfile: ./Dockerfile
     image: borurio-web-dev:latest
     container_name: borurio-web-dev
-    restart: unless-stopped
-    depends_on:
-      borurio-mysql-dev:
-        condition: service_healthy
-      borurio-redis-dev:
-        condition: service_healthy
-      borurio-mailpit-dev:
-        condition: service_healthy
-      borurio-minio-dev:
-        condition: service_healthy
-    env_file:
-      - ./env/.env.dev
-    environment:
-      SPRING_PROFILES_ACTIVE: dev
-      SPRING_DATASOURCE_URL: jdbc:mysql://borurio-mysql-dev:3306/borurio_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-      SPRING_DATASOURCE_USERNAME: borurio
-      SPRING_DATASOURCE_PASSWORD: H4ck3r123
-      SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
-      SPRING_REDIS_HOST: borurio-redis-dev
-      SPRING_REDIS_PORT: 6379
-      TZ: America/Sao_Paulo
-      FISCAL_AMBIENTE: 2
-      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,env,beans"
-      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
-      MANAGEMENT_SERVER_PORT: 8081
-    ports:
-      - "8080:8080"
-      - "8081:8081"
-      - "8082:8082"
+    restart: "no"
+    profiles:
+      - disabled
     networks:
       - borurio-net-dev
-    volumes:
-      - ../certificados:/app/certificados:rw
-      - logs:/var/log/borurio:rw
-      - ~/.m2:/root/.m2:rw
-    command: ["sh", "-c", "java -jar borurio-web.jar"]
-    security_opt:
-      - no-new-privileges:true
-    tty: true
-    stdin_open: true
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 45s
 
-# =============================================================================
-# Volumes
-# =============================================================================
+###################################################################################################
+# VOLUMES
+###################################################################################################
 volumes:
   mysql_dev_data:
   redis_dev_data:
-  minio_dev_data:
-  logs:
 
-# =============================================================================
-# Rede
-# =============================================================================
+###################################################################################################
+# NETWORK
+###################################################################################################
 networks:
   borurio-net-dev:
     driver: bridge
