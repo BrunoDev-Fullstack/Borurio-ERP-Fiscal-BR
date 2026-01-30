@@ -2,25 +2,26 @@
 # CONFIGURAÇÃO PRINCIPAL – BORURIO ERP FISCAL BR
 # ---------------------------------------------------------------------------------------------
 # Função:
-#   Define o perfil ativo e as configurações mínimas comuns a todos os ambientes.
-#   Este arquivo é o ponto de entrada do Spring Boot e herda as propriedades do
-#   arquivo application-${spring.profiles.active}.yml correspondente.
+#   Arquivo base de configuração do Spring Boot.
+#   Define apenas propriedades neutras e seguras, comuns a todos os ambientes.
+#   As configurações específicas de infraestrutura (DB, Redis, portas, certificados)
+#   DEVEM ser definidas exclusivamente nos arquivos application-{profile}.yml.
 #
 # Módulo:
 #   borurio-web (API REST principal)
 #
 # Ambientes suportados:
-#   dev  = Desenvolvimento local
+#   dev  = Desenvolvimento local / mock
 #   hom  = Homologação (SEFAZ-SP Homologação)
-#   prd  = Produção Real (SEFAZ-SP Produção)
+#   prd  = Produção (SEFAZ-SP Produção)
 #
 # Stack:
-#   Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
+#   Spring Boot 3.3.x | Java 17 | UTF-8 (sem BOM)
 #
 # Autor:
-#   Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
+#   Bruno Ribeiro – DevSecOps / Fullstack Java
 # Última revisão:
-#   03/11/2025
+#   30/01/2026
 ###############################################################################################
 
 spring:
@@ -28,43 +29,30 @@ spring:
     name: borurio-web
 
   ##############################################################################################
-  # PERFIL ATIVO – Define qual arquivo de configuração será carregado
+  # PERFIL ATIVO (SEGURO POR PADRÃO)
   # --------------------------------------------------------------------------------------------
-  # O Spring Boot utilizará o valor informado aqui como perfil ativo padrão.
-  # Pode ser sobrescrito via variável de ambiente SPRING_PROFILES_ACTIVE (em Docker ou CI/CD).
+  # O perfil padrão é DEV.
+  # Em ambientes controlados (hom, prd, CI/CD), o perfil DEVE ser definido
+  # explicitamente via variável de ambiente SPRING_PROFILES_ACTIVE.
   #
-  # Exemplo:
-  #   SPRING_PROFILES_ACTIVE=prd → carrega application-prd.yml
-  #   SPRING_PROFILES_ACTIVE=hom → carrega application-hom.yml
-  #
-  # Por padrão, se nenhuma variável for informada, o ambiente de Produção (prd) será carregado.
+  # Exemplos:
+  #   SPRING_PROFILES_ACTIVE=dev
+  #   SPRING_PROFILES_ACTIVE=hom
+  #   SPRING_PROFILES_ACTIVE=prd
   ##############################################################################################
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:prd}
-
-  ##############################################################################################
-  # DATASOURCE LOCAL – Configuração para execução fora do Docker (opcional)
-  # --------------------------------------------------------------------------------------------
-  # Observação:
-  #   Dentro do Docker Compose, os parâmetros abaixo são substituídos pelas variáveis de ambiente.
-  #   Fora do Docker, permite testes locais rápidos com MySQL e Redis locais.
-  ##############################################################################################
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-    username: borurio
-    password: H4ck3r123
+    active: ${SPRING_PROFILES_ACTIVE:dev}
 
 ###############################################################################################
-# SERVIDOR WEB – Porta interna padrão
+# SERVIDOR WEB
 # ---------------------------------------------------------------------------------------------
-# A porta interna 8080 é mapeada externamente via Docker Compose conforme o ambiente:
-#   - Dev: 8081 → 8080
-#   - Hom: 8281 → 8080
-#   - Prd: 8282 → 8080
+# A porta do servidor NÃO é definida neste arquivo.
+# Cada ambiente deve declarar sua própria porta em:
+#   - application-dev.yml
+#   - application-hom.yml
+#   - application-prd.yml
 ###############################################################################################
 server:
-  port: 8080
   servlet:
     context-path: /
   error:
@@ -72,9 +60,12 @@ server:
     include-binding-errors: always
 
 ###############################################################################################
-# LOGGING – Configuração de logs e rastreabilidade
+# LOGGING – CONFIGURAÇÃO BASE
 # ---------------------------------------------------------------------------------------------
-# Logback padrão, com saída em console e em arquivo local (diretório /logs).
+# Ajustes específicos (DEBUG, arquivos separados, rolling policies)
+# devem ser realizados por ambiente via:
+#   - application-{profile}.yml
+#   - logback-{profile}.xml
 ###############################################################################################
 logging:
   level:
@@ -82,38 +73,41 @@ logging:
     org.springframework: INFO
     org.hibernate: WARN
     br.com.borurio: INFO
-  file:
-    path: logs/
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
 
 ###############################################################################################
-# METADADOS DO AMBIENTE E INFORMAÇÕES DO PROJETO
+# METADADOS DA APLICAÇÃO
 ###############################################################################################
 app:
   name: Borurio ERP Fiscal BR
   version: ${project.version:1.0.0}
-  description: "Arquivo principal que define o profile ativo e delega às configurações específicas (dev, hom, prd)."
+  description: "Configuração base do Borurio ERP Fiscal BR. Propriedades específicas são definidas por ambiente."
   owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
 
 ###############################################################################################
 # NOTAS TÉCNICAS
 # ---------------------------------------------------------------------------------------------
-# - Este arquivo é o entrypoint de configuração do Spring Boot.
-# - application-dev.yml, application-hom.yml e application-prd.yml contêm as definições detalhadas.
-# - Perfis disponíveis: dev | hom | prd.
+# - NÃO definir neste arquivo:
+#     • datasource
+#     • redis
+#     • certificados
+#     • portas
 #
-# EXECUÇÃO LOCAL:
-#   mvn spring-boot:run "-Dspring-boot.run.profiles=prd"
+# - Toda configuração sensível ou dependente de ambiente DEVE estar em:
+#     application-dev.yml
+#     application-hom.yml
+#     application-prd.yml
 #
-# EXECUÇÃO DOCKER (PRODUÇÃO):
-#   docker-compose -f "docker-compose.prd.yml" up -d --build
+# EXECUÇÃO LOCAL (DEV):
+#   mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
 #
-# STACK COMPLETA:
-#   Spring Boot 3.3.x | Java 17 | MySQL 8.4 | Redis 7.2 | SEFAZ-SP NF-e 4.00
+# EXECUÇÃO HOMOLOGAÇÃO:
+#   mvn spring-boot:run "-Dspring-boot.run.profiles=hom"
 #
-# PADRÕES DE PROJETO:
+# EXECUÇÃO PRODUÇÃO (DOCKER):
+#   SPRING_PROFILES_ACTIVE=prd docker-compose -f "docker-compose.prd.yml" up -d
+#
+# PADRÕES ADOTADOS:
 #   - Clean Architecture
-#   - DevSecOps (build multi-stage)
-#   - Logs rastreáveis e normalizados
+#   - DevSecOps
+#   - Separação rigorosa por ambiente
 ###############################################################################################

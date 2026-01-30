@@ -3,8 +3,6 @@ package br.com.borurio.web.config;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.context.WebServerApplicationContext;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.LocalDateTime;
@@ -13,25 +11,22 @@ import java.time.LocalDateTime;
  * =============================================================================
  * STARTUP LISTENER — BORURIO ERP FISCAL BR
  * -----------------------------------------------------------------------------
- * Exibe informações detalhadas de inicialização da aplicação no log,
- * incluindo portas internas e externas, perfil ativo e data/hora do startup.
+ * Exibe informações de inicialização da aplicação de forma segura,
+ * SEM interferir no ciclo de vida do servidor web.
  *
- * Características:
- * - Compatível com qualquer tipo de contexto (Servlet, CLI, Test, etc.).
- * - Detecta porta mapeada via Docker Compose (SERVER_PORT_EXTERNAL).
- * - Padrão DevSecOps: rastreabilidade, segurança e observabilidade.
+ * Princípios:
+ * - Não acessa WebServer diretamente
+ * - Não cria nem inicializa connectors
+ * - Compatível com Spring Boot 3.x
  *
  * Projeto: ERP Fiscal Borurio BR
  * Módulo: borurio-web
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Última revisão: 04/11/2025
+ * Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
  * =============================================================================
  */
 @Slf4j
 @Configuration
 public class StartupListener {
-
-    private final ApplicationContext applicationContext;
 
     @Value("${spring.profiles.active:default}")
     private String activeProfile;
@@ -39,28 +34,17 @@ public class StartupListener {
     @Value("${spring.application.name:borurio-web}")
     private String appName;
 
-    public StartupListener(ApplicationContext applicationContext) {
-        this.applicationContext = applicationContext;
-    }
+    @Value("${server.port:8080}")
+    private String serverPort;
 
-    /**
-     * Executa automaticamente após a inicialização do contexto Spring Boot.
-     * Exibe informações completas sobre o ambiente e configuração atual.
-     */
     @PostConstruct
     public void onStartup() {
-        int port = -1;
-        String mappedPort = System.getenv("SERVER_PORT_EXTERNAL");
-        String effectivePort;
 
-        // Tenta detectar a porta se o contexto for Web
-        if (applicationContext instanceof WebServerApplicationContext webCtx) {
-            port = webCtx.getWebServer().getPort();
-        }
-
-        effectivePort = (mappedPort != null && !mappedPort.isBlank())
-                ? mappedPort
-                : (port > 0 ? String.valueOf(port) : "8080");
+        // Porta externa (Docker / Infra), se existir
+        String externalPort = System.getenv("SERVER_PORT_EXTERNAL");
+        String effectivePort = (externalPort != null && !externalPort.isBlank())
+                ? externalPort
+                : serverPort;
 
         String startupBanner = String.format("""
                 =====================================================================
@@ -78,13 +62,18 @@ public class StartupListener {
                 PADRÃO DEVSECOPS: segurança | automação | observabilidade
                 ---------------------------------------------------------------------
                 NOME DA APLICAÇÃO: %s
-                PORTA INTERNA: %s
+                PORTA CONFIGURADA (SPRING): %s
                 PORTA EXTERNA (HOST): %s
                 =====================================================================
                 """,
-                effectivePort, effectivePort, effectivePort,
-                activeProfile, LocalDateTime.now(),
-                appName, (port > 0 ? port : "N/A"), effectivePort
+                effectivePort,
+                effectivePort,
+                effectivePort,
+                activeProfile,
+                LocalDateTime.now(),
+                appName,
+                serverPort,
+                effectivePort
         );
 
         log.info(startupBanner);

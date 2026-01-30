@@ -1,18 +1,24 @@
-package br.com.borurio.fiscal.controller;
+package br.com.borurio.web.controller.fiscal;
 
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
 import br.com.borurio.fiscal.entity.Ncm;
 import br.com.borurio.fiscal.service.NcmService;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.web.bind.annotation.*;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/fiscal/ncm")
-@Tag(name = "NCM Controller", description = "Endpoints para manutenção e sincronização da Tabela NCM")
+@Tag(name = "NCM", description = "Endpoints para manutenção e sincronização da Tabela NCM")
 public class NcmController {
 
     private final NcmService ncmService;
@@ -22,17 +28,16 @@ public class NcmController {
     }
 
     // ============================================================
-    // ENDPOINT: Listar todos os NCMs
+    // LISTAR TODOS OS NCMs
     // ============================================================
     @GetMapping("/listar")
     @Operation(summary = "Listar todos os NCMs ativos")
     public Result<List<Ncm>> listarTodos() {
-        List<Ncm> lista = ncmService.listarTodos();
-        return ResultUtil.success(lista);
+        return ResultUtil.success(ncmService.listarTodos());
     }
 
     // ============================================================
-    // ENDPOINT: Buscar NCM por código
+    // BUSCAR NCM POR CÓDIGO
     // ============================================================
     @GetMapping("/{codigo}")
     @Operation(summary = "Buscar NCM por código")
@@ -48,10 +53,10 @@ public class NcmController {
     }
 
     // ============================================================
-    // ENDPOINT: Sincronizar Tabela NCM
+    // SINCRONIZAR TABELA NCM
     // ============================================================
     @PostMapping("/sincronizar")
-    @Operation(summary = "Sincronizar Tabela NCM")
+    @Operation(summary = "Sincronizar tabela NCM")
     public Result<?> sincronizarTabela() {
         return ncmService.sincronizarTabela();
     }

@@ -1,0 +1,163 @@
+# =============================================================================
+# Docker Compose — AMBIENTE DE HOMOLOGAÇÃO (HOM)
+# Projeto: Borurio ERP Fiscal BR
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # MySQL — Banco Fiscal (HOMOLOGAÇÃO)
+  # ---------------------------------------------------------------------------
+  borurio-mysql-hom:
+    image: mysql:8.4
+    container_name: borurio-mysql-hom
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: SENHA_NOVA_DO_ROOT
+      MYSQL_DATABASE: borurio_fiscal_hom
+      MYSQL_USER: borurio
+      MYSQL_PASSWORD: H4ck3r123
+      TZ: America/Sao_Paulo
+    ports:
+      - "3317:3306"
+    volumes:
+      - mysql_hom_data:/var/lib/mysql:rw
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - borurio-net-hom
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -pSENHA_NOVA_DO_ROOT --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Redis — Cache e Sessão (HOMOLOGAÇÃO)
+  # ---------------------------------------------------------------------------
+  borurio-redis-hom:
+    image: redis:7.2
+    container_name: borurio-redis-hom
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6389:6379"
+    volumes:
+      - redis_hom_data:/data:rw
+    networks:
+      - borurio-net-hom
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # MinIO — Storage (HOMOLOGAÇÃO)
+  # ---------------------------------------------------------------------------
+  borurio-minio-hom:
+    image: minio/minio:latest
+    container_name: borurio-minio-hom
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    env_file:
+      - ./env/.env.hom
+    ports:
+      - "9100:9000"
+      - "9101:9001"
+    volumes:
+      - minio_hom_data:/data:rw
+    networks:
+      - borurio-net-hom
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Mailpit — SMTP de Testes (HOMOLOGAÇÃO)
+  # ---------------------------------------------------------------------------
+  borurio-mailpit-hom:
+    image: axllent/mailpit:latest
+    container_name: borurio-mailpit-hom
+    restart: unless-stopped
+    ports:
+      - "1125:1025"
+      - "8125:8025"
+    networks:
+      - borurio-net-hom
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 1025 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Aplicação Borurio Web — HOMOLOGAÇÃO
+  # ---------------------------------------------------------------------------
+  borurio-web-hom:
+    build:
+      context: ../
+      dockerfile: ./Dockerfile
+    image: borurio-web-hom:latest
+    container_name: borurio-web-hom
+    restart: unless-stopped
+    depends_on:
+      borurio-mysql-hom:
+        condition: service_healthy
+      borurio-redis-hom:
+        condition: service_healthy
+      borurio-mailpit-hom:
+        condition: service_healthy
+      borurio-minio-hom:
+        condition: service_healthy
+    env_file:
+      - ./env/.env.hom
+    ports:
+      - "8082:8082"
+      - "8081:8081"
+    networks:
+      - borurio-net-hom
+    volumes:
+      - ./certs:/app/certs:ro
+      - logs:/var/log/borurio:rw
+      - ~/.m2:/home/borurio/.m2:rw
+    command: ["sh", "-c", "java $JAVA_OPTS -jar borurio-web.jar"]
+    security_opt:
+      - no-new-privileges:true
+    tty: true
+    stdin_open: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+# =============================================================================
+# Volumes Persistentes
+# =============================================================================
+volumes:
+  mysql_hom_data:
+  redis_hom_data:
+  minio_hom_data:
+  logs:
+
+# =============================================================================
+# Network Isolada
+# =============================================================================
+networks:
+  borurio-net-hom:
+    driver: bridge

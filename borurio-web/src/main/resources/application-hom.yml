@@ -1,9 +1,16 @@
 ###################################################################################################
-# AMBIENTE DE DESENVOLVIMENTO — BORURIO ERP FISCAL BR
+# AMBIENTE DE HOMOLOGAÇÃO — BORURIO ERP FISCAL BR
 # ________________________________________________________________________________________________
 # Módulo: borurio-web (API REST principal)
-# Integrações: MySQL, Redis, SEFAZ MOCK
+# Integrações: MySQL, Redis, SEFAZ-SP (Homologação)
+#
+# Observações importantes:
+# - Ambiente de homologação É REAL (SEFAZ-SP)
+# - Certificado digital A1 é OBRIGATÓRIO
+# - Não utilizar dados fictícios
+#
 # Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+# Última revisão: 30/01/2026
 ###################################################################################################
 
 server:
@@ -17,23 +24,25 @@ server:
 
 spring:
   application:
-    name: borurio-web-dev
+    name: borurio-web-hom
 
   ################################################################################################
-  # BANCO DE DADOS — MYSQL (DEV LOCAL)
+  # BANCO DE DADOS — MYSQL (HOMOLOGAÇÃO)
+  # Todas as variáveis DEVEM vir de env (.env.hom / Docker / CI)
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3307/borurio_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-    username: borurio
-    password: H4ck3r123
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useSSL=true&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true
+    username: ${DB_USER}
+    password: ${DB_PASS}
     hikari:
-      pool-name: BorurioWebHikariPool
+      pool-name: BorurioWebHikariPool-HOM
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
+      auto-commit: true
 
   ################################################################################################
   # JPA — WEB NÃO GERENCIA SCHEMA
@@ -44,7 +53,7 @@ spring:
       ddl-auto: none
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
         show_sql: false
 
   ################################################################################################
@@ -54,77 +63,55 @@ spring:
     enabled: false
 
   ################################################################################################
-  # REDIS — LOCAL
+  # REDIS — HOMOLOGAÇÃO
   ################################################################################################
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
       timeout: 2000
       connect-timeout: 2000
 
   ################################################################################################
-  # JACKSON — SERIALIZAÇÃO JSON
+  # JACKSON — PADRÃO DE SERIALIZAÇÃO
   ################################################################################################
   jackson:
     serialization:
-      indent_output: true
-    date-format: yyyy-MM-dd'T'HH:mm:ss
+      indent_output: false
     time-zone: America/Sao_Paulo
     locale: pt_BR
     default-property-inclusion: non_null
 
-  ################################################################################################
-  # SPRING CORE / MVC
-  ################################################################################################
-  main:
-    allow-bean-definition-overriding: true
-    banner-mode: console
-
-  mvc:
-    throw-exception-if-no-handler-found: true
-    static-path-pattern: /static/**
-
-  web:
-    resources:
-      add-mappings: true
-
 ###################################################################################################
-# LOGGING
+# LOGGING — HOMOLOGAÇÃO
 ###################################################################################################
 logging:
-  config: classpath:logback-dev.xml
+  config: classpath:logback-hom.xml
   level:
     root: INFO
     org.springframework: INFO
     org.hibernate: WARN
-    br.com.borurio: DEBUG
+    br.com.borurio: INFO
 
 ###################################################################################################
-# SEFAZ — MODO MOCK (DEV)
+# SEFAZ — HOMOLOGAÇÃO REAL (NF-e)
 ###################################################################################################
 sefaz:
-  ambiente: MOCK
+  ambiente: HOM
   tpAmb: 2
-  urls:
-    autorizacao: "http://localhost:9999/mock/sefaz/autorizacao"
-    retorno: "http://localhost:9999/mock/sefaz/retorno"
-    consulta: "http://localhost:9999/mock/sefaz/consulta"
-    status: "http://localhost:9999/mock/sefaz/status"
-    inutilizacao: "http://localhost:9999/mock/sefaz/inutilizacao"
-    recepcao-evento: "http://localhost:9999/mock/sefaz/evento"
 
 ###################################################################################################
-# CERTIFICADO DIGITAL — DESATIVADO NO DEV
+# CERTIFICADO DIGITAL — OBRIGATÓRIO EM HOM
+# Variáveis DEVEM vir do ambiente
 ###################################################################################################
 fiscal:
   cert:
-    enabled: false
-    path: ""
-    pass: ""
+    enabled: true
+    path: ${CERT_PFX_PATH}
+    pass: ${CERT_PFX_PASSWORD}
 
 ###################################################################################################
-# ACTUATOR — MESMA PORTA DO SERVER
+# ACTUATOR — OBSERVABILIDADE
 ###################################################################################################
 management:
   endpoints:
@@ -149,7 +136,7 @@ management:
 # METADADOS DA APLICAÇÃO
 ###################################################################################################
 app:
-  profile: dev
-  description: "Ambiente de Desenvolvimento — SEFAZ MOCK"
+  profile: hom
+  description: "Ambiente de Homologação — SEFAZ-SP (NF-e real)"
   version: ${project.version:1.0.0}
   owner: "Bruno Ribeiro — DevSecOps / Fullstack Java"
