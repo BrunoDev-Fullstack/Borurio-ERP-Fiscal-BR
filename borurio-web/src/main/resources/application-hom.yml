@@ -10,7 +10,7 @@
 # - Não utilizar dados fictícios
 #
 # Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
-# Última revisão: 30/01/2026
+# Última revisão: 02/02/2026
 ###################################################################################################
 
 server:
@@ -28,7 +28,6 @@ spring:
 
   ################################################################################################
   # BANCO DE DADOS — MYSQL (HOMOLOGAÇÃO)
-  # Todas as variáveis DEVEM vir de env (.env.hom / Docker / CI)
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -73,7 +72,7 @@ spring:
       connect-timeout: 2000
 
   ################################################################################################
-  # JACKSON — PADRÃO DE SERIALIZAÇÃO
+  # JACKSON — SERIALIZAÇÃO PADRÃO
   ################################################################################################
   jackson:
     serialization:
@@ -89,20 +88,35 @@ logging:
   config: classpath:logback-hom.xml
   level:
     root: INFO
-    org.springframework: INFO
+    org.springframework: WARN
     org.hibernate: WARN
+    org.apache: WARN
     br.com.borurio: INFO
 
 ###################################################################################################
-# SEFAZ — HOMOLOGAÇÃO REAL (NF-e)
+# SEGURANÇA — JWT
+###################################################################################################
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-ms: 3600000
+
+###################################################################################################
+# SEFAZ — CONFIGURAÇÃO OFICIAL (NF-e 4.00 | HOMOLOGAÇÃO SP)
 ###################################################################################################
 sefaz:
   ambiente: HOM
   tpAmb: 2
+  urls:
+    autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx
+    retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx
+    consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx
+    status: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx
+    inutilizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx
+    recepcao-evento: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
 
 ###################################################################################################
-# CERTIFICADO DIGITAL — OBRIGATÓRIO EM HOM
-# Variáveis DEVEM vir do ambiente
+# CERTIFICADO DIGITAL — A1 (ICP-BRASIL)
 ###################################################################################################
 fiscal:
   cert:
@@ -137,6 +151,6 @@ management:
 ###################################################################################################
 app:
   profile: hom
-  description: "Ambiente de Homologação — SEFAZ-SP (NF-e real)"
+  description: "Ambiente de Homologação — SEFAZ-SP (NF-e 4.00 real)"
   version: ${project.version:1.0.0}
   owner: "Bruno Ribeiro — DevSecOps / Fullstack Java"

@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 
 /**
  * Serviço responsável por transmitir NF-e 4.00 para a SEFAZ-SP usando SOAP 1.2
- * e autenticação mútua (mTLS) com certificado A1 do tipo .pfx.
+ * e autenticação mútua (mTLS) com certificado A1 (.pfx).
  */
 @Slf4j
 @Service
@@ -45,13 +45,6 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
 
     @Value("${sefaz.urls.recepcao-evento}")
     private String urlRecepcaoEvento;
-
-    @Value("${fiscal.cert.path}")
-    private String certificadoPath;
-
-    @Value("${fiscal.cert.pass}")
-    private String certificadoSenha;
-
 
     public NfeTransmitServiceImpl(
             NfeLogMapper nfeLogMapper,
@@ -102,23 +95,19 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
 
             salvarLogSeguro(logFiscal);
 
-            log.error("[NF-e] Falha geral na transmissão: {}", e.getMessage(), e);
+            log.error("[NF-e] Falha geral na transmissão", e);
             return "<erro>" + e.getMessage() + "</erro>";
         }
     }
 
     /**
-     * Retorna stub de status da SEFAZ em homologação.
+     * Stub de status.
      */
     @Override
     public String consultarStatus() {
-        return "Serviço SEFAZ-SP disponível (stub homologação).";
+        return "Serviço SEFAZ-SP disponível.";
     }
 
-
-    /**
-     * Extrai a chave NF-e a partir da tag Id="NFe...".
-     */
     private String extrairChaveNFe(String xml) {
         try {
             if (xml != null && xml.contains("Id=\"NFe")) {
@@ -127,15 +116,11 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
                 return xml.substring(start, end).replace("NFe", "").trim();
             }
         } catch (Exception e) {
-            log.warn("[NF-e] Falha ao extrair chave: {}", e.getMessage());
+            log.warn("[NF-e] Falha ao extrair chave", e);
         }
         return "SEM-CHAVE";
     }
 
-
-    /**
-     * Cria envelope SOAP 1.2 para Autorização NF-e.
-     */
     private String criarEnvelopeSoap(String xmlAssinado) {
         return """
             <soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
@@ -150,10 +135,6 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
             """;
     }
 
-
-    /**
-     * Envia o envelope SOAP via HTTPS + mTLS (certificado A1).
-     */
     private String enviarSoap(String envelope) {
 
         try {
@@ -182,25 +163,23 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
                     new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8)
             )) {
                 String line;
-                while ((line = br.readLine()) != null) resp.append(line.trim());
+                while ((line = br.readLine()) != null) {
+                    resp.append(line.trim());
+                }
             }
 
             return resp.toString();
 
         } catch (Exception e) {
-            throw new RuntimeException("Erro no envio SOAP SEFAZ: " + e.getMessage(), e);
+            throw new RuntimeException("Erro no envio SOAP SEFAZ", e);
         }
     }
 
-
-    /**
-     * Persistência protegida do log fiscal.
-     */
     private void salvarLogSeguro(NfeLog logFiscal) {
         try {
             nfeLogMapper.insertLog(logFiscal);
         } catch (Exception e) {
-            log.error("[NF-e] Falha ao registrar log fiscal: {}", e.getMessage());
+            log.error("[NF-e] Falha ao registrar log fiscal", e);
         }
     }
 }

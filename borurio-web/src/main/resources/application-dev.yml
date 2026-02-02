@@ -1,9 +1,10 @@
 ###################################################################################################
-# AMBIENTE DE DESENVOLVIMENTO — BORURIO ERP FISCAL BR
+# AMBIENTE DE HOMOLOGAÇÃO — BORURIO ERP FISCAL BR
 # ________________________________________________________________________________________________
 # Módulo: borurio-web (API REST principal)
-# Integrações: MySQL, Redis, SEFAZ MOCK
-# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+# Integrações: MySQL, Redis, SEFAZ-SP (Homologação)
+#
+# Ambiente REAL — exige certificado A1 válido
 ###################################################################################################
 
 server:
@@ -17,18 +18,18 @@ server:
 
 spring:
   application:
-    name: borurio-web-dev
+    name: borurio-web-hom
 
   ################################################################################################
-  # BANCO DE DADOS — MYSQL (DEV LOCAL)
+  # BANCO DE DADOS — MYSQL (HOMOLOGAÇÃO)
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3307/borurio_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-    username: borurio
-    password: H4ck3r123
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useSSL=true&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true
+    username: ${DB_USER}
+    password: ${DB_PASS}
     hikari:
-      pool-name: BorurioWebHikariPool
+      pool-name: BorurioWebHikariPool-HOM
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
@@ -44,7 +45,7 @@ spring:
       ddl-auto: none
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
         show_sql: false
 
   ################################################################################################
@@ -54,77 +55,70 @@ spring:
     enabled: false
 
   ################################################################################################
-  # REDIS — LOCAL
+  # REDIS — HOMOLOGAÇÃO
   ################################################################################################
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
       timeout: 2000
       connect-timeout: 2000
 
   ################################################################################################
-  # JACKSON — SERIALIZAÇÃO JSON
+  # JACKSON
   ################################################################################################
   jackson:
     serialization:
-      indent_output: true
-    date-format: yyyy-MM-dd'T'HH:mm:ss
+      indent_output: false
     time-zone: America/Sao_Paulo
     locale: pt_BR
     default-property-inclusion: non_null
-
-  ################################################################################################
-  # SPRING CORE / MVC
-  ################################################################################################
-  main:
-    allow-bean-definition-overriding: true
-    banner-mode: console
-
-  mvc:
-    throw-exception-if-no-handler-found: true
-    static-path-pattern: /static/**
-
-  web:
-    resources:
-      add-mappings: true
 
 ###################################################################################################
 # LOGGING
 ###################################################################################################
 logging:
-  config: classpath:logback-dev.xml
+  config: classpath:logback-hom.xml
   level:
     root: INFO
-    org.springframework: INFO
+    org.springframework: WARN
     org.hibernate: WARN
-    br.com.borurio: DEBUG
+    org.apache: WARN
+    br.com.borurio: INFO
 
 ###################################################################################################
-# SEFAZ — MODO MOCK (DEV)
+# SEGURANÇA — JWT
+###################################################################################################
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-ms: 3600000
+
+###################################################################################################
+# SEFAZ — HOMOLOGAÇÃO REAL (MESMO CONTRATO DO DEV)
 ###################################################################################################
 sefaz:
-  ambiente: MOCK
+  ambiente: HOM
   tpAmb: 2
   urls:
-    autorizacao: "http://localhost:9999/mock/sefaz/autorizacao"
-    retorno: "http://localhost:9999/mock/sefaz/retorno"
-    consulta: "http://localhost:9999/mock/sefaz/consulta"
-    status: "http://localhost:9999/mock/sefaz/status"
-    inutilizacao: "http://localhost:9999/mock/sefaz/inutilizacao"
-    recepcao-evento: "http://localhost:9999/mock/sefaz/evento"
+    autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx
+    retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx
+    consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx
+    status: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx
+    inutilizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx
+    recepcao-evento: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
 
 ###################################################################################################
-# CERTIFICADO DIGITAL — DESATIVADO NO DEV
+# CERTIFICADO DIGITAL — A1
 ###################################################################################################
 fiscal:
   cert:
-    enabled: false
-    path: ""
-    pass: ""
+    enabled: true
+    path: ${CERT_PFX_PATH}
+    pass: ${CERT_PFX_PASSWORD}
 
 ###################################################################################################
-# ACTUATOR — MESMA PORTA DO SERVER
+# ACTUATOR
 ###################################################################################################
 management:
   endpoints:
@@ -146,10 +140,10 @@ management:
     enabled: false
 
 ###################################################################################################
-# METADADOS DA APLICAÇÃO
+# METADADOS
 ###################################################################################################
 app:
-  profile: dev
-  description: "Ambiente de Desenvolvimento — SEFAZ MOCK"
+  profile: hom
+  description: "Ambiente de Homologação — SEFAZ-SP (NF-e 4.00)"
   version: ${project.version:1.0.0}
   owner: "Bruno Ribeiro — DevSecOps / Fullstack Java"
