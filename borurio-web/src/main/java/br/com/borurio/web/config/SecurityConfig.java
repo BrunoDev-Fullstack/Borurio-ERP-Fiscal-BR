@@ -58,17 +58,21 @@ public class SecurityConfig {
                         // ENDPOINTS PÚBLICOS
                         // ==========================
                         .requestMatchers(
-                                "/auth/**",                // Autenticação / refresh token
-                                "/ping",                   // Health simples
+                                "/auth/**",                 // Autenticação / refresh token
+                                "/ping",                    // Health simples
                                 "/api/test/**",             // Testes DEV
                                 "/api/fiscal/nfe/test/**",  // Simulações fiscais
 
                                 // Swagger / OpenAPI
                                 "/swagger-ui/**",
+                                "/swagger-ui.html",
                                 "/v3/api-docs/**",
 
                                 // Actuator (liberação mínima e consciente)
+                                "/actuator",
+                                "/actuator/",
                                 "/actuator/health",
+                                "/actuator/health/**",
                                 "/actuator/info"
                         ).permitAll()
 

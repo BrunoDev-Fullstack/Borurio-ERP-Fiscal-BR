@@ -16,19 +16,18 @@ import java.security.KeyStore;
 /**
  * =============================================================================
  * SERVIÇO: CertificadoServiceImpl
- * =============================================================================
- * Responsabilidade:
- *  - Carregar certificado digital A1 (PKCS12)
- *  - Inicializar SSLContext compatível com SEFAZ (TLSv1.2)
+ * -----------------------------------------------------------------------------
+ * Responsável por:
+ *  - Carregar certificado digital A1 (PKCS12 / .pfx)
+ *  - Inicializar SSLContext (TLSv1.2)
  *
  * Ambientes:
  *  - dev | hom | prd
  *
- * Variáveis:
+ * Variáveis esperadas:
  *  - fiscal.cert.path
  *  - fiscal.cert.pass
  *
- * =============================================================================
  * Autor: Bruno Ribeiro
  * =============================================================================
  */
@@ -61,7 +60,8 @@ public class CertificadoServiceImpl implements CertificadoService {
                 keyStore.load(fis, certPass.toCharArray());
             }
 
-            KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+            KeyManagerFactory kmf =
+                    KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
             kmf.init(keyStore, certPass.toCharArray());
 
             sslContext = SSLContext.getInstance("TLSv1.2");

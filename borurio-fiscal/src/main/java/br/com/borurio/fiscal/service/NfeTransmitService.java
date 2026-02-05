@@ -2,53 +2,48 @@ package br.com.borurio.fiscal.service;
 
 /**
  * =============================================================================
- * SERVIÇO FISCAL: NfeTransmitService
+ * INTERFACE: NfeTransmitService
  * -----------------------------------------------------------------------------
- * Responsável pela transmissão de NF-e (Nota Fiscal Eletrônica) para o
- * WebService da SEFAZ-SP (versão 4.00 - SOAP/XMLDSig).
+ * Contrato oficial para processamento e transmissão de NF-e 4.00 à SEFAZ-SP.
  *
- * Define o contrato para implementações concretas (NfeTransmitServiceImpl),
- * garantindo compatibilidade entre ambientes DEV, HOM e PRD.
- * -----------------------------------------------------------------------------
- * Padrões aplicados:
- *  - Java 17 / Spring Boot 3.3.x
- *  - Comunicação SOAP 1.2 / HTTPS (TLS 1.2+)
- *  - Assinatura digital XMLDSig conforme ICP-Brasil
- *  - ISP (Interface Segregation Principle)
- * -----------------------------------------------------------------------------
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Módulo: borurio-fiscal
- * Versão: 1.0.0
+ * RESPONSABILIDADES DESTE SERVIÇO:
+ * - Receber o XML BASE da NF-e (não assinado)
+ * - Validar estrutura e dados obrigatórios
+ * - Assinar digitalmente o XML (certificado A1)
+ * - Transmitir via SOAP (mTLS) para a SEFAZ-SP
+ *
+ * REGRAS:
+ * - O CNPJ do emitente é extraído EXCLUSIVAMENTE do XML
+ * - Nenhum controller fornece CNPJ
+ * - O certificado A1 é usado para assinatura e mTLS
+ *
+ * Arquitetura:
+ * Controller (Web) → Fiscal → SEFAZ
+ *
+ * =============================================================================
+ * Autor: Bruno Ribeiro — Fullstack / DevSecOps
  * =============================================================================
  */
 public interface NfeTransmitService {
 
     /**
-     * Transmite o XML assinado da NF-e para o WebService SEFAZ-SP.
+     * Processa e transmite uma NF-e para a SEFAZ-SP.
      *
-     * @param xmlAssinado  Conteúdo integral do XML assinado digitalmente.
-     * @param cnpjEmitente CNPJ do emitente da NF-e.
-     * @return XML SOAP de resposta retornado pela SEFAZ-SP.
+     * Fluxo interno esperado:
+     * 1. Validação do XML base
+     * 2. Assinatura digital da NF-e
+     * 3. Transmissão para a SEFAZ-SP
+     * 4. Persistência de logs e retorno
+     *
+     * @param xmlBase XML base da NF-e (modelo 55, versão 4.00)
+     * @return XML SOAP de resposta da SEFAZ
      */
-    String transmitirXml(String xmlAssinado, String cnpjEmitente);
+    String transmitirXml(String xmlBase);
 
     /**
-     * Sobrecarga simplificada — usada em testes locais e ambiente de homologação.
-     * Internamente delega para transmitirXml() com um CNPJ genérico.
+     * Consulta o status do serviço SEFAZ-SP.
      *
-     * @param xmlAssinado Conteúdo integral do XML assinado digitalmente.
-     * @return XML SOAP de resposta retornado pela SEFAZ-SP.
-     */
-    default String transmitir(String xmlAssinado) {
-        return transmitirXml(xmlAssinado, "00000000000000"); // CNPJ genérico (mock)
-    }
-
-    /**
-     * Consulta o status de disponibilidade do serviço SEFAZ-SP.
-     *
-     * Utilizado para monitoramento e rotinas automáticas de health check fiscal.
-     *
-     * @return Mensagem textual com o status atual do serviço SEFAZ-SP.
+     * @return Status textual do serviço
      */
     String consultarStatus();
 }

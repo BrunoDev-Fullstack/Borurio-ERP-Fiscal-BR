@@ -10,7 +10,7 @@
 # - Não utilizar dados fictícios
 #
 # Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
-# Última revisão: 02/02/2026
+# Última revisão: 05/02/2026
 ###################################################################################################
 
 server:
@@ -95,10 +95,11 @@ logging:
 
 ###################################################################################################
 # SEGURANÇA — JWT
+# Obs.: fallback evita crash se variável não estiver definida
 ###################################################################################################
 security:
   jwt:
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:borurio-hom-secret-local}
     expiration-ms: 3600000
 
 ###################################################################################################
@@ -113,7 +114,7 @@ sefaz:
     consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx
     status: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx
     inutilizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx
-    recepcao-evento: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
+    recepcaoEvento: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
 
 ###################################################################################################
 # CERTIFICADO DIGITAL — A1 (ICP-BRASIL)
