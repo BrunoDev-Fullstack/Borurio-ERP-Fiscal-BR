@@ -10,19 +10,6 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-/**
- * =============================================================================
- * CONFIGURAÇÃO DE SEGURANÇA — BORURIO ERP FISCAL BR
- * -----------------------------------------------------------------------------
- * Ambientes suportados: DEV | HOM | PRD
- *
- * Diretrizes:
- * - Autenticação stateless via JWT
- * - Liberação controlada de endpoints públicos
- * - Proteção total de endpoints fiscais e de negócio
- * - Compatível com Spring Boot 3.x / Spring Security 6.x
- * =============================================================================
- */
 @Configuration
 public class SecurityConfig {
 
@@ -32,21 +19,17 @@ public class SecurityConfig {
         this.jwtFilter = jwtFilter;
     }
 
-    /**
-     * =============================================================================
-     * Security Filter Chain
-     * -----------------------------------------------------------------------------
-     * Define políticas de segurança, autenticação e autorização.
-     * =============================================================================
-     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 
         http
-                // CSRF desabilitado (API REST stateless com JWT)
+                // API stateless
                 .csrf(csrf -> csrf.disable())
 
-                // Política de sessão stateless
+                // CORS liberado
+                .cors(cors -> {})
+
+                // Sem sessão
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
@@ -55,42 +38,41 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
 
                         // ==========================
-                        // ENDPOINTS PÚBLICOS
+                        // PÚBLICOS
                         // ==========================
                         .requestMatchers(
-                                "/auth/**",                // Autenticação / refresh token
-                                "/ping",                   // Health simples
-                                "/api/test/**",             // Testes DEV
-                                "/api/fiscal/nfe/test/**",  // Simulações fiscais
+                                "/auth/**",
+                                "/ping",
+                                "/api/test/**",
+                                "/api/fiscal/nfe/test/**",
 
-                                // Swagger / OpenAPI
+                                // SWAGGER
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
 
-                                // Actuator (liberação mínima e consciente)
+                                // ACTUATOR
                                 "/actuator/health",
-                                "/actuator/info"
+                                "/actuator/info",
+
+                                // ==========================
+                                // NF-e (HOM LIBERADO)
+                                // ==========================
+                                "/api/fiscal/nfe/enviar",
+                                "/api/fiscal/nfe/status"
                         ).permitAll()
 
                         // ==========================
-                        // DEMAIS ROTAS PROTEGIDAS
+                        // RESTO PROTEGIDO
                         // ==========================
                         .anyRequest().authenticated()
                 )
 
-                // Filtro JWT antes da autenticação padrão
+                // JWT filter
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
-    /**
-     * =============================================================================
-     * AuthenticationManager
-     * -----------------------------------------------------------------------------
-     * Gerenciador padrão de autenticação do Spring Security.
-     * =============================================================================
-     */
     @Bean
     public AuthenticationManager authenticationManager(
             AuthenticationConfiguration configuration

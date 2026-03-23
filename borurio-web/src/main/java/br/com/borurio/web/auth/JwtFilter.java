@@ -4,6 +4,10 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -14,19 +18,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Set;
 
 @Component
 public class JwtFilter extends OncePerRequestFilter {
 
-    private static final Set<String> PUBLIC_PATH_PREFIXES = Set.of(
-            "/auth/",
-            "/swagger-ui/",
-            "/v3/api-docs/",
-            "/actuator/",
-            "/api/test/",
-            "/api/fiscal/nfe/test/"
-    );
+    private static final Logger log = LoggerFactory.getLogger(JwtFilter.class);
 
     private final JwtUtil jwtUtil;
     private final UserDetailsService userDetailsService;
@@ -44,15 +40,15 @@ public class JwtFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         String path = request.getRequestURI();
-
-        if (isPublicPath(path)) {
-            chain.doFilter(request, response);
-            return;
-        }
-
         String authHeader = request.getHeader("Authorization");
 
+        log.info("JWT FILTER EXECUTANDO → {}", path);
+
+        // ============================
+        // SEM TOKEN → SEGUE FLUXO
+        // ============================
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.debug("Sem Authorization header");
             chain.doFilter(request, response);
             return;
         }
@@ -61,6 +57,8 @@ public class JwtFilter extends OncePerRequestFilter {
 
         try {
             String username = jwtUtil.extractUsername(token);
+
+            log.debug("Token recebido para usuário: {}", username);
 
             if (username != null &&
                     SecurityContextHolder.getContext().getAuthentication() == null) {
@@ -84,20 +82,19 @@ public class JwtFilter extends OncePerRequestFilter {
 
                     SecurityContextHolder.getContext()
                             .setAuthentication(authToken);
+
+                    log.info("Usuário autenticado: {}", username);
+
+                } else {
+                    log.warn("Token inválido para usuário: {}", username);
                 }
             }
 
         } catch (Exception e) {
+            log.error("Erro ao processar JWT: {}", e.getMessage(), e);
             SecurityContextHolder.clearContext();
         }
 
         chain.doFilter(request, response);
-    }
-
-    private boolean isPublicPath(String path) {
-        if ("/ping".equals(path)) {
-            return true;
-        }
-        return PUBLIC_PATH_PREFIXES.stream().anyMatch(path::startsWith);
     }
 }

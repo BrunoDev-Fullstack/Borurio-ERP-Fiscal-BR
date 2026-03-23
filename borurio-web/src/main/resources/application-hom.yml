@@ -30,7 +30,8 @@ spring:
 
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    locations: classpath:sql/migration   # ✔ CORRIGIDO
+    baseline-on-migrate: true           # ✔ evita erro em DB já existente
 
   data:
     redis:
