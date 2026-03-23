@@ -3,10 +3,12 @@ package br.com.borurio.web.auth;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
 import java.util.function.Function;
@@ -20,6 +22,43 @@ public class JwtUtil {
 
     @Value("${security.jwt.expiration-ms:3600000}")
     private long expirationTime;
+
+    private Key key;
+
+    @PostConstruct
+    public void init() {
+        try {
+            byte[] keyBytes;
+
+            // Tenta Base64 primeiro
+            try {
+                keyBytes = Decoders.BASE64.decode(secretKey);
+                log.info("[JWT] Secret interpretado como Base64");
+            } catch (Exception e) {
+                // fallback para string normal
+                log.warn("[JWT] Secret não é Base64 válido, usando como string raw");
+                keyBytes = secretKey.getBytes(StandardCharsets.UTF_8);
+            }
+
+            if (keyBytes.length < 32) {
+                throw new IllegalArgumentException(
+                        "JWT_SECRET inválido: mínimo de 32 bytes requerido para HS256"
+                );
+            }
+
+            this.key = Keys.hmacShaKeyFor(keyBytes);
+
+            log.info("[JWT] Chave carregada com sucesso. Tamanho: {} bytes", keyBytes.length);
+
+        } catch (Exception e) {
+            log.error("[JWT] Erro ao inicializar chave JWT", e);
+            throw new IllegalStateException("Falha na configuração do JWT_SECRET", e);
+        }
+    }
+
+    private Key getSignKey() {
+        return key;
+    }
 
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
@@ -35,11 +74,6 @@ public class JwtUtil {
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
-    }
-
-    private Key getSignKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(keyBytes);
     }
 
     public String generateToken(String username) {
@@ -58,7 +92,8 @@ public class JwtUtil {
         try {
             return extractUsername(token).equals(username)
                     && extractClaim(token, Claims::getExpiration).after(new Date());
-        } catch (JwtException e) {
+        } catch (JwtException | IllegalArgumentException e) {
+            log.warn("[JWT] Token inválido: {}", e.getMessage());
             return false;
         }
     }

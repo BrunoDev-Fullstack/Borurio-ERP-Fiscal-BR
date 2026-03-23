@@ -4,7 +4,13 @@
 # Módulo: borurio-web (API REST principal)
 # Integrações: MySQL, Redis, SEFAZ-SP (Homologação)
 #
-# Ambiente REAL — exige certificado A1 válido
+# Observações importantes:
+# - Ambiente de homologação É REAL (SEFAZ-SP)
+# - Certificado digital A1 é OBRIGATÓRIO
+# - Não utilizar dados fictícios
+#
+# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+# Última revisão: 02/02/2026
 ###################################################################################################
 
 server:
@@ -35,6 +41,7 @@ spring:
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
+      auto-commit: true
 
   ################################################################################################
   # JPA — WEB NÃO GERENCIA SCHEMA
@@ -65,7 +72,7 @@ spring:
       connect-timeout: 2000
 
   ################################################################################################
-  # JACKSON
+  # JACKSON — SERIALIZAÇÃO PADRÃO
   ################################################################################################
   jackson:
     serialization:
@@ -75,7 +82,7 @@ spring:
     default-property-inclusion: non_null
 
 ###################################################################################################
-# LOGGING
+# LOGGING — HOMOLOGAÇÃO
 ###################################################################################################
 logging:
   config: classpath:logback-hom.xml
@@ -95,7 +102,7 @@ security:
     expiration-ms: 3600000
 
 ###################################################################################################
-# SEFAZ — HOMOLOGAÇÃO REAL (MESMO CONTRATO DO DEV)
+# SEFAZ — CONFIGURAÇÃO OFICIAL (NF-e 4.00 | HOMOLOGAÇÃO SP)
 ###################################################################################################
 sefaz:
   ambiente: HOM
@@ -109,7 +116,7 @@ sefaz:
     recepcao-evento: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
 
 ###################################################################################################
-# CERTIFICADO DIGITAL — A1
+# CERTIFICADO DIGITAL — A1 (ICP-BRASIL)
 ###################################################################################################
 fiscal:
   cert:
@@ -118,7 +125,7 @@ fiscal:
     pass: ${CERT_PFX_PASSWORD}
 
 ###################################################################################################
-# ACTUATOR
+# ACTUATOR — OBSERVABILIDADE
 ###################################################################################################
 management:
   endpoints:
@@ -140,10 +147,10 @@ management:
     enabled: false
 
 ###################################################################################################
-# METADADOS
+# METADADOS DA APLICAÇÃO
 ###################################################################################################
 app:
   profile: hom
-  description: "Ambiente de Homologação — SEFAZ-SP (NF-e 4.00)"
+  description: "Ambiente de Homologação — SEFAZ-SP (NF-e 4.00 real)"
   version: ${project.version:1.0.0}
   owner: "Bruno Ribeiro — DevSecOps / Fullstack Java"

@@ -1,149 +1,134 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<configuration scan="true" scanPeriod="60 seconds">
+<configuration scan="false">
 
-    <!-- ==========================================================================================
-         LOGBACK – AMBIENTE DE PRODUÇÃO (tpAmb=1)
-         __________________________________________________________________________________________
-         Projeto: Borurio ERP Fiscal BR
-         Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
-         Ambiente: PRD – SEFAZ-SP Produção Real
-         Stack: Spring Boot 3.3.x | Java 17 | UTF-8 sem BOM
-         ========================================================================================== -->
+    <!-- =============================================================================
+         LOGBACK – AMBIENTE PRODUÇÃO (ROBUSTO)
+         ============================================================================= -->
 
-    <!-- ==========================================================================================
-         DEFINIÇÕES GERAIS
-         __________________________________________________________________________________________
-         - Todos os logs são salvos em /var/log/borurio (volume Docker persistente)
-         - UTF-8 sem BOM (evita problemas de encoding em Linux)
-         - Rotação diária + retenção de histórico
-         ========================================================================================== -->
-    <property name="LOG_PATH" value="/var/log/borurio" />
-    <property name="LOG_FILE" value="${LOG_PATH}/borurio-prd.log" />
+    <!-- =============================================================================
+         PROPRIEDADES (COM FALLBACK)
+         ============================================================================= -->
+    <property name="LOG_PATH" value="${LOG_PATH:-/var/log/jcho}"/>
+    <property name="APP_NAME" value="${APP_NAME:-jcho-erp-prd}"/>
 
-    <!-- Encoder padrão -->
-    <encoder name="DEFAULT_ENCODER">
-        <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
-    </encoder>
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
 
-    <!-- ==========================================================================================
-         APPENDER: LOG DE APLICAÇÃO PRINCIPAL
-         __________________________________________________________________________________________
-         - Gera borurio-prd.log (rotação diária)
-         - Mantém até 30 dias / 500MB
-         - Usado por toda a aplicação
-         ========================================================================================== -->
+    <!-- =============================================================================
+         APPENDER: LOG PRINCIPAL
+         ============================================================================= -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_FILE}</file>
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <pattern>${LOG_PATTERN}</pattern>
         </encoder>
+
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/borurio-prd.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>
+                ${LOG_PATH}/${APP_NAME}.%d{yyyy-MM-dd}.log.gz
+            </fileNamePattern>
             <maxHistory>30</maxHistory>
             <totalSizeCap>500MB</totalSizeCap>
         </rollingPolicy>
+
         <append>true</append>
     </appender>
 
-    <!-- ==========================================================================================
-         APPENDER: LOG DE ERROS
-         __________________________________________________________________________________________
-         - Grava apenas nível ERROR
-         - Mantém até 15 dias
-         - Evita poluir logs gerais com stack traces
-         ========================================================================================== -->
+    <!-- =============================================================================
+         APPENDER: ERROS
+         ============================================================================= -->
     <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/borurio-prd-error.log</file>
+        <file>${LOG_PATH}/${APP_NAME}-error.log</file>
+
         <filter class="ch.qos.logback.classic.filter.LevelFilter">
             <level>ERROR</level>
             <onMatch>ACCEPT</onMatch>
             <onMismatch>DENY</onMismatch>
         </filter>
+
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <pattern>${LOG_PATTERN}</pattern>
         </encoder>
+
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/borurio-prd-error.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>
+                ${LOG_PATH}/${APP_NAME}-error.%d{yyyy-MM-dd}.log.gz
+            </fileNamePattern>
             <maxHistory>15</maxHistory>
             <totalSizeCap>200MB</totalSizeCap>
         </rollingPolicy>
+
         <append>true</append>
     </appender>
 
-    <!-- ==========================================================================================
-         APPENDER: LOG DE INTEGRAÇÃO SEFAZ-SP
-         __________________________________________________________________________________________
-         - Registra requisições e respostas SOAP/XML (NF-e)
-         - Mantém histórico leve para auditoria fiscal
-         ========================================================================================== -->
+    <!-- =============================================================================
+         APPENDER: SEFAZ
+         ============================================================================= -->
     <appender name="SEFAZ_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/sefaz-integration.log</file>
+
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <pattern>${LOG_PATTERN}</pattern>
         </encoder>
+
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/sefaz-integration.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>
+                ${LOG_PATH}/sefaz-integration.%d{yyyy-MM-dd}.log.gz
+            </fileNamePattern>
             <maxHistory>10</maxHistory>
             <totalSizeCap>100MB</totalSizeCap>
         </rollingPolicy>
+
         <append>true</append>
     </appender>
 
-    <!-- ==========================================================================================
-         APPENDER: ASSÍNCRONO
-         __________________________________________________________________________________________
-         - Desacopla o thread principal da escrita em disco
-         - Reduz latência em chamadas de alto volume (NF-e, Redis, JPA)
-         ========================================================================================== -->
+    <!-- =============================================================================
+         ASYNC
+         ============================================================================= -->
     <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="FILE" />
+        <appender-ref ref="FILE"/>
         <queueSize>2048</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <includeCallerData>false</includeCallerData>
     </appender>
 
-    <!-- ==========================================================================================
-         ROOT LOGGER
-         __________________________________________________________________________________________
-         - Nível padrão INFO em Produção
-         - Envia para log principal e log de erro
-         ========================================================================================== -->
+    <!-- =============================================================================
+         ROOT
+         ============================================================================= -->
     <root level="INFO">
-        <appender-ref ref="ASYNC_FILE" />
-        <appender-ref ref="ERROR_FILE" />
+        <appender-ref ref="ASYNC_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
     </root>
 
-    <!-- ==========================================================================================
-         LOGGER: Domínio Principal (br.com.borurio)
-         __________________________________________________________________________________________
-         - Controla logs da camada fiscal, app e core
-         ========================================================================================== -->
-    <logger name="br.com.borurio" level="INFO" additivity="false">
-        <appender-ref ref="ASYNC_FILE" />
-        <appender-ref ref="ERROR_FILE" />
+    <!-- =============================================================================
+         INFRA
+         ============================================================================= -->
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="org.apache" level="WARN"/>
+
+    <!-- =============================================================================
+         APP
+         ============================================================================= -->
+    <logger name="br.com.jcho" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
     </logger>
 
-    <!-- ==========================================================================================
-         LOGGER: Integrações SEFAZ-SP (NF-e SOAP/XML)
-         __________________________________________________________________________________________
-         - Destinado exclusivamente a serviços de comunicação SEFAZ-SP
-         ========================================================================================== -->
-    <logger name="br.com.borurio.fiscal.service.impl.NfeStatusServiceImpl" level="INFO" additivity="false">
-        <appender-ref ref="SEFAZ_FILE" />
+    <!-- =============================================================================
+         SEFAZ
+         ============================================================================= -->
+    <logger name="br.com.jcho.fiscal"
+            level="${LOGGING_LEVEL_BR_COM_JCHO_FISCAL:-INFO}"
+            additivity="false">
+        <appender-ref ref="SEFAZ_FILE"/>
     </logger>
 
-    <logger name="br.com.borurio.fiscal.service.impl.NfeTransmitServiceImpl" level="INFO" additivity="false">
-        <appender-ref ref="SEFAZ_FILE" />
-    </logger>
-
-    <!-- ==========================================================================================
-         LOGGER OPCIONAL: Detalhamento adicional para SOAP (quando necessário)
-         __________________________________________________________________________________________
-         - Pode ser habilitado temporariamente via variáveis de ambiente
-         - Exemplo: LOGGING_LEVEL_BR_COM_BORURIO_FISCAL_SOAP=DEBUG
-         ========================================================================================== -->
-    <logger name="br.com.borurio.fiscal.soap" level="${LOGGING_LEVEL_BR_COM_BORURIO_FISCAL_SOAP:INFO}" additivity="false">
-        <appender-ref ref="SEFAZ_FILE" />
+    <logger name="br.com.jcho.fiscal.soap"
+            level="${LOGGING_LEVEL_BR_COM_JCHO_FISCAL_SOAP:-WARN}"
+            additivity="false">
+        <appender-ref ref="SEFAZ_FILE"/>
     </logger>
 
 </configuration>

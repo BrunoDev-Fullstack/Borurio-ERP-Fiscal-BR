@@ -1,167 +1,121 @@
 package br.com.borurio.fiscal.service.impl;
 
+import br.com.borurio.fiscal.config.SefazProperties;
 import br.com.borurio.fiscal.service.CertificadoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-/**
- * =============================================================================
- * SERVIÇO: NfeStatusServiceImpl
- * -----------------------------------------------------------------------------
- * Função:
- *   Realiza a consulta de status operacional da SEFAZ-SP (NFeStatusServico4)
- *   utilizando certificado digital A1 (.pfx) e comunicação HTTPS mútua (TLS 1.2+).
- *
- * Contexto:
- *   - Sprint Fiscal 3.4 — Integração Real SEFAZ-SP / NF-e 4.00
- *   - Endpoint: https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx
- *
- * Boas práticas DevSecOps:
- *   • Comunicação segura HTTPS com autenticação mútua
- *   • Timeouts configuráveis via application.yml
- *   • Nenhum dado sensível exposto em log
- * =============================================================================
- * Autor: Bruno Ribeiro — Desenvolvedor Java / DevSecOps
- * Data: 29/10/2025
- */
 @Service
-@Profile({"dev", "hom", "prd"})
+@Profile({"dev","hom","prd"})
 public class NfeStatusServiceImpl {
 
-    private static final Logger logger = LoggerFactory.getLogger(NfeStatusServiceImpl.class);
+    private static final Logger logger =
+            LoggerFactory.getLogger(NfeStatusServiceImpl.class);
 
     private final CertificadoService certificadoService;
+    private final SefazProperties sefazProperties;
 
-    @Value("${fiscal.ws.status.url:https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx}")
-    private String sefazUrl;
+    public NfeStatusServiceImpl(
+            CertificadoService certificadoService,
+            SefazProperties sefazProperties) {
 
-    @Value("${fiscal.ws.status.versao:4.00}")
-    private String versao;
-
-    @Value("${fiscal.ws.status.uf:35}") // 35 = SP
-    private String codigoUf;
-
-    @Value("${fiscal.ws.status.tpAmb:2}") // 2 = Homologação
-    private String tipoAmbiente;
-
-    @Value("${fiscal.ws.status.timeout.connect:10000}")
-    private int connectTimeout;
-
-    @Value("${fiscal.ws.status.timeout.read:15000}")
-    private int readTimeout;
-
-    public NfeStatusServiceImpl(CertificadoService certificadoService) {
         this.certificadoService = certificadoService;
+        this.sefazProperties = sefazProperties;
     }
 
-    /**
-     * Consulta o status do serviço NF-e na SEFAZ-SP (Homologação ou Produção).
-     *
-     * @return XML limpo da resposta SOAP ou XML de erro formatado.
-     */
     public String consultarStatusServico() {
-        logger.info("Iniciando consulta de status à SEFAZ-SP [UF={}, Ambiente={}]", codigoUf, tipoAmbiente);
+
+        logger.info("Iniciando consulta de status da SEFAZ");
 
         try {
-            // Garante o endpoint padrão
-            if (sefazUrl == null || sefazUrl.isBlank()) {
-                sefazUrl = "https://homologacao.nfe.fazenda.sp.gov.br/ws/NFeStatusServico4.asmx";
-                logger.warn("sefazUrl não definido via Spring — aplicando valor padrão: {}", sefazUrl);
-            }
 
-            // Obtém contexto SSL do certificado digital
             SSLContext sslContext = certificadoService.getSslContext();
+
             if (sslContext == null) {
-                logger.error("SSLContext indisponível — certificado A1 não carregado.");
+                logger.error("SSLContext não inicializado. Certificado não carregado.");
                 return "<erro>Certificado não carregado</erro>";
             }
 
-            // Corpo SOAP (NF-e 4.00)
             String soapEnvelope =
                     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                             + "<soap12:Envelope xmlns:soap12=\"http://www.w3.org/2003/05/soap-envelope\">"
-                            + "  <soap12:Body>"
-                            + "    <nfeStatusServicoNF xmlns=\"http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4\">"
-                            + "      <nfeDadosMsg>"
-                            + "        <consStatServ xmlns=\"http://www.portalfiscal.inf.br/nfe\" versao=\"" + versao + "\">"
-                            + "          <tpAmb>" + tipoAmbiente + "</tpAmb>"
-                            + "          <cUF>" + codigoUf + "</cUF>"
-                            + "          <xServ>STATUS</xServ>"
-                            + "        </consStatServ>"
-                            + "      </nfeDadosMsg>"
-                            + "    </nfeStatusServicoNF>"
-                            + "  </soap12:Body>"
+                            + "<soap12:Body>"
+                            + "<nfeStatusServicoNF xmlns=\"http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4\">"
+                            + "<nfeDadosMsg>"
+                            + "<consStatServ xmlns=\"http://www.portalfiscal.inf.br/nfe\" versao=\"4.00\">"
+                            + "<tpAmb>2</tpAmb>"
+                            + "<cUF>35</cUF>"
+                            + "<xServ>STATUS</xServ>"
+                            + "</consStatServ>"
+                            + "</nfeDadosMsg>"
+                            + "</nfeStatusServicoNF>"
+                            + "</soap12:Body>"
                             + "</soap12:Envelope>";
 
-            // Configuração da conexão HTTPS
-            URL url = new URL(sefazUrl);
-            HttpsURLConnection conexao = (HttpsURLConnection) url.openConnection();
-            conexao.setSSLSocketFactory(sslContext.getSocketFactory());
-            conexao.setRequestMethod("POST");
-            conexao.setRequestProperty("Content-Type", "application/soap+xml; charset=utf-8");
-            conexao.setRequestProperty("SOAPAction",
-                    "http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4/nfeStatusServicoNF");
-            conexao.setConnectTimeout(connectTimeout);
-            conexao.setReadTimeout(readTimeout);
-            conexao.setDoOutput(true);
+            String urlSefaz = sefazProperties.getStatus();
 
-            // Envio da requisição SOAP
-            try (OutputStream os = conexao.getOutputStream()) {
+            logger.info("Endpoint SEFAZ: {}", urlSefaz);
+
+            URL url = new URL(urlSefaz);
+
+            HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
+
+            conn.setSSLSocketFactory(sslContext.getSocketFactory());
+            conn.setRequestMethod("POST");
+
+            conn.setRequestProperty(
+                    "Content-Type",
+                    "application/soap+xml; charset=utf-8"
+            );
+
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(15000);
+
+            conn.setDoOutput(true);
+
+            try (OutputStream os = conn.getOutputStream()) {
                 os.write(soapEnvelope.getBytes(StandardCharsets.UTF_8));
-                os.flush();
             }
 
-            // Leitura da resposta SOAP
-            int httpCode = conexao.getResponseCode();
-            logger.info("Resposta HTTP {} recebida da SEFAZ-SP", httpCode);
+            int httpCode = conn.getResponseCode();
 
-            StringBuilder resposta = new StringBuilder();
+            logger.info("HTTP response SEFAZ: {}", httpCode);
+
+            InputStream stream =
+                    httpCode >= 400
+                            ? conn.getErrorStream()
+                            : conn.getInputStream();
+
+            StringBuilder response = new StringBuilder();
+
             try (BufferedReader br = new BufferedReader(
-                    new InputStreamReader(conexao.getInputStream(), StandardCharsets.UTF_8))) {
-                String linha;
-                while ((linha = br.readLine()) != null) {
-                    resposta.append(linha);
+                    new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+
+                String line;
+
+                while ((line = br.readLine()) != null) {
+                    response.append(line);
                 }
             }
 
-            String xmlResposta = resposta.toString();
-            if (xmlResposta.isEmpty()) {
-                logger.warn("Resposta vazia recebida da SEFAZ-SP.");
-                return "<erro>Resposta vazia</erro>";
-            }
+            return response.toString();
 
-            // Limpeza de namespaces e extração de código de status
-            String xmlLimpo = xmlResposta.replaceAll("(?i)<(/)?([a-zA-Z0-9_\\-:]+:)", "<$1");
+        } catch (Exception ex) {
 
-            if (xmlLimpo.contains("<cStat>")) {
-                int ini = xmlLimpo.indexOf("<cStat>") + 7;
-                int fim = xmlLimpo.indexOf("</cStat>");
-                if (fim > ini) {
-                    String cStat = xmlLimpo.substring(ini, fim);
-                    logger.info("SEFAZ-SP retornou cStat={} (Status do Serviço)", cStat);
-                } else {
-                    logger.warn("Elemento <cStat> encontrado, mas sem valor válido.");
-                }
-            } else {
-                logger.warn("Elemento <cStat> não encontrado no XML retornado.");
-            }
+            logger.error("Erro ao consultar status da SEFAZ", ex);
 
-            return xmlLimpo;
-
-        } catch (Exception e) {
-            logger.error("Falha ao consultar status NF-e na SEFAZ-SP: {}", e.getMessage(), e);
-            return "<erro>" + e.getClass().getSimpleName() + ": " + e.getMessage() + "</erro>";
+            return "<erro>" + ex.getMessage() + "</erro>";
         }
     }
 }
