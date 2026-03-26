@@ -1,6 +1,0 @@
-br\com\borurio\core\mvc\api\Result.class
-br\com\borurio\core\mvc\api\ResultCodeEnum.class
-br\com\borurio\core\mvc\api\ResultUtil.class
-br\com\borurio\App.class
-br\com\borurio\core\CoreMarker.class
-br\com\borurio\core\mvc\api\CommonStateEnum.class
