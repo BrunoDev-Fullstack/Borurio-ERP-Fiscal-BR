@@ -32,7 +32,7 @@ public class NfeController {
     )
     public ResponseEntity<ApiResponse> enviarNfe(
             @RequestBody String xmlAssinado,
-            @RequestHeader(value = "CNPJ-Emitente", required = true) String cnpjEmitente) {
+            @RequestHeader(value = "CNPJ-Emitente") String cnpjEmitente) {
 
         log.info("Requisição recebida | Operação: Envio NF-e | CNPJ: {}", cnpjEmitente);
 
@@ -43,7 +43,13 @@ public class NfeController {
 
         try {
 
-            String resposta = nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente);
+            // CORREÇÃO: nova assinatura do método
+            String resposta = nfeTransmitService.transmitirXml(
+                    xmlAssinado,
+                    cnpjEmitente,
+                    "SP",   // UF
+                    2       // ambiente homologação
+            );
 
             if (resposta == null) {
                 return buildResponse(HttpStatus.BAD_GATEWAY,
@@ -80,7 +86,8 @@ public class NfeController {
 
         try {
 
-            String status = nfeTransmitService.consultarStatus();
+            // CORREÇÃO: nova assinatura
+            String status = nfeTransmitService.consultarStatus("SP", 2);
 
             return buildResponse(HttpStatus.OK, status, null);
 
@@ -104,6 +111,5 @@ public class NfeController {
                 .body(new ApiResponse(status.value(), message, data));
     }
 
-    // DTO interno
     private record ApiResponse(int code, String message, Object data) {}
 }

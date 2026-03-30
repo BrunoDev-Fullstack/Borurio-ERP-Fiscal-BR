@@ -9,12 +9,9 @@ import org.springframework.web.bind.annotation.*;
 /**
  * =============================================================================
  * CONTROLADOR: NfeEnvioController
- * -----------------------------------------------------------------------------
+ * =============================================================================
  * Responsável por receber o XML assinado da NF-e (modelo 55) e enviar à SEFAZ-SP.
  * Ambiente padrão: Homologação (tpAmb=2)
- * =============================================================================
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Data: 03/11/2025
  * =============================================================================
  */
 @RestController
@@ -38,14 +35,18 @@ public class NfeEnvioController {
     public Result<String> enviarNfe(@RequestBody String xmlNfeAssinado) {
         try {
 
-            String resposta = nfeTransmitService.transmitir(xmlNfeAssinado);
+            // CORREÇÃO: método atualizado conforme nova interface
+            String resposta = nfeTransmitService.transmitirXml(
+                    xmlNfeAssinado,
+                    "00000000000000", // CNPJ mock (ajustar depois)
+                    "SP",              // UF
+                    2                  // ambiente homologação
+            );
 
-            // Aqui é o formato correto do seu ResultUtil
             return ResultUtil.success(resposta);
 
         } catch (Exception e) {
 
-            // Erro de retorno padrão do core
             return ResultUtil.error("Falha ao transmitir NF-e: " + e.getMessage());
         }
     }

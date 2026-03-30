@@ -27,7 +27,8 @@ public class NfeFiscalController {
 
         try {
 
-            String status = nfeTransmitService.consultarStatus();
+            // CORREÇÃO: agora exige UF + ambiente
+            String status = nfeTransmitService.consultarStatus("SP", 2);
 
             return ResponseEntity.ok(
                     new ApiResponse(200, status, null)
@@ -54,14 +55,20 @@ public class NfeFiscalController {
     public ResponseEntity<ApiResponse> enviar(
 
             @RequestBody String xml,
-            @RequestHeader(value = "CNPJ-Emitente", required = true) String cnpj
+            @RequestHeader(value = "CNPJ-Emitente") String cnpj
     ) {
 
         log.info("Envio NF-e | CNPJ {}", cnpj);
 
         try {
 
-            String resposta = nfeTransmitService.transmitirXml(xml, cnpj);
+            // CORREÇÃO: nova assinatura do método
+            String resposta = nfeTransmitService.transmitirXml(
+                    xml,
+                    cnpj,
+                    "SP",   // UF
+                    2       // ambiente homologação
+            );
 
             return ResponseEntity.ok(
                     new ApiResponse(200, "NF-e enviada com sucesso", resposta)
@@ -79,5 +86,4 @@ public class NfeFiscalController {
     // ---------------------------------------------------------------------
 
     private record ApiResponse(int code, String message, Object data) {}
-
 }
