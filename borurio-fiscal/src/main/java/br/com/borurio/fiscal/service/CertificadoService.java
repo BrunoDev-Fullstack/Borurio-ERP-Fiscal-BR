@@ -1,47 +1,58 @@
 package br.com.borurio.fiscal.service;
 
 import javax.net.ssl.SSLContext;
+import java.security.KeyStore;
 
 /**
  * =============================================================================
  * INTERFACE: CertificadoService
- * -----------------------------------------------------------------------------
- * Responsável por definir o contrato para o gerenciamento e obtenção do
- * certificado digital A1 (arquivo .pfx) utilizado na comunicação segura
- * com a SEFAZ-SP (NF-e 4.00).
+ * =============================================================================
+ * Responsável por gerenciar o certificado digital A1 (PKCS12) utilizado na
+ * comunicação segura com a SEFAZ (NF-e 4.00).
  *
- * Perfis de implementação:
- *   - dev / hom: modo simulado (mock SEFAZ, sem carga real de certificado)
- *   - prd: modo real (carrega o certificado digital A1 e inicializa SSLContext)
+ * Funcionalidades:
+ *  - Carregamento do certificado (.pfx)
+ *  - Inicialização do SSLContext (TLS 1.2+)
+ *  - Exposição do KeyStore para assinatura XML (XMLDSig)
+ *  - Exposição de alias e senha para acesso à chave privada
  *
- * Utilização:
- *   Implementações concretas devem garantir que o SSLContext esteja
- *   devidamente configurado para autenticação mútua via TLS 1.2+.
+ * Ambientes:
+ *  - dev / hom: pode operar com certificado mock
+ *  - prd: obrigatório certificado válido (ICP-Brasil)
  *
- * Autor: Bruno Ribeiro – Desenvolvedor Fullstack / DevSecOps
- * Projeto: Borurio ERP Fiscal BR
- * Data: 29/10/2025
  * =============================================================================
  */
 public interface CertificadoService {
 
     /**
-     * Retorna o contexto SSL configurado com base no certificado A1.
-     * Deve ser utilizado para conexões seguras com a SEFAZ-SP.
-     *
-     * Em ambientes de desenvolvimento ou homologação (mock SEFAZ),
-     * este método pode retornar null.
-     *
-     * @return SSLContext configurado (PRD) ou null (DEV/HOM)
-     * @throws Exception caso ocorra falha no carregamento do certificado.
+     * Retorna o SSLContext configurado com o certificado A1.
      */
-    SSLContext getSslContext() throws Exception;
+    SSLContext getSslContext();
 
     /**
-     * Retorna uma descrição textual do estado atual do serviço de certificado.
-     * Pode ser utilizada em endpoints de diagnóstico ou logs de auditoria.
+     * Retorna o KeyStore carregado do certificado A1.
+     */
+    KeyStore getKeyStore();
+
+    /**
+     * Retorna o alias da chave dentro do KeyStore.
      *
-     * @return Descrição do status atual (ex.: "Certificado A1 carregado com sucesso").
+     * Necessário para:
+     *  - recuperar chave privada
+     *  - assinatura XML
+     */
+    String getAlias();
+
+    /**
+     * Retorna a senha da chave privada do certificado.
+     *
+     * Necessário para:
+     *  - acesso à PrivateKey
+     */
+    char[] getSenha();
+
+    /**
+     * Retorna o status atual do certificado.
      */
     String getStatus();
 }

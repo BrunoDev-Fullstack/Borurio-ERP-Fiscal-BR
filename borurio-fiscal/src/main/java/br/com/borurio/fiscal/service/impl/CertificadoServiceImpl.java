@@ -12,6 +12,7 @@ import javax.net.ssl.SSLContext;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.security.KeyStore;
+import java.util.Enumeration;
 
 /**
  * =============================================================================
@@ -19,15 +20,8 @@ import java.security.KeyStore;
  * =============================================================================
  * Responsabilidade:
  *  - Carregar certificado digital A1 (PKCS12)
- *  - Inicializar SSLContext compatível com SEFAZ (TLSv1.2)
- *
- * Suporte:
- *  - Classpath (testes / jar)
- *  - Filesystem (docker / produção)
- *
- * Variáveis:
- *  - fiscal.certificate.path
- *  - fiscal.certificate.password
+ *  - Inicializar SSLContext (TLSv1.2)
+ *  - Expor KeyStore, alias e senha para assinatura XML
  * =============================================================================
  */
 @Service
@@ -37,6 +31,9 @@ public class CertificadoServiceImpl implements CertificadoService {
     private static final Logger log = LoggerFactory.getLogger(CertificadoServiceImpl.class);
 
     private SSLContext sslContext;
+    private KeyStore keyStore;
+    private String alias;
+    private String certPassword;
 
     @PostConstruct
     public void init() {
@@ -50,12 +47,24 @@ public class CertificadoServiceImpl implements CertificadoService {
                 throw new IllegalStateException("Propriedades do certificado não definidas");
             }
 
+            this.certPassword = certPass;
+
             log.info("[CERT] Carregando certificado A1: {}", certPath);
 
-            InputStream is = carregarArquivo(certPath);
+            try (InputStream is = carregarArquivo(certPath)) {
 
-            KeyStore keyStore = KeyStore.getInstance(certType);
-            keyStore.load(is, certPass.toCharArray());
+                keyStore = KeyStore.getInstance(certType);
+                keyStore.load(is, certPass.toCharArray());
+            }
+
+            Enumeration<String> aliases = keyStore.aliases();
+            if (!aliases.hasMoreElements()) {
+                throw new IllegalStateException("Nenhum alias encontrado no certificado");
+            }
+
+            alias = aliases.nextElement();
+
+            log.info("[CERT] Alias encontrado: {}", alias);
 
             KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
             kmf.init(keyStore, certPass.toCharArray());
@@ -67,6 +76,7 @@ public class CertificadoServiceImpl implements CertificadoService {
 
         } catch (Exception e) {
             sslContext = null;
+            keyStore = null;
             log.error("[CERT] Falha ao inicializar certificado A1", e);
             throw new RuntimeException("Erro ao carregar certificado A1", e);
         }
@@ -74,7 +84,6 @@ public class CertificadoServiceImpl implements CertificadoService {
 
     private InputStream carregarArquivo(String path) throws Exception {
 
-        // 1. tenta classpath (TESTES / JAR)
         InputStream is = getClass()
                 .getClassLoader()
                 .getResourceAsStream(path);
@@ -84,7 +93,6 @@ public class CertificadoServiceImpl implements CertificadoService {
             return is;
         }
 
-        // 2. fallback filesystem (DOCKER / PRODUÇÃO)
         log.info("[CERT] Certificado carregado via filesystem");
         return new FileInputStream(path);
     }
@@ -95,6 +103,30 @@ public class CertificadoServiceImpl implements CertificadoService {
             throw new IllegalStateException("SSLContext não inicializado");
         }
         return sslContext;
+    }
+
+    @Override
+    public KeyStore getKeyStore() {
+        if (keyStore == null) {
+            throw new IllegalStateException("KeyStore não inicializado");
+        }
+        return keyStore;
+    }
+
+    @Override
+    public String getAlias() {
+        if (alias == null) {
+            throw new IllegalStateException("Alias não inicializado");
+        }
+        return alias;
+    }
+
+    @Override
+    public char[] getSenha() {
+        if (certPassword == null) {
+            throw new IllegalStateException("Senha do certificado não inicializada");
+        }
+        return certPassword.toCharArray();
     }
 
     @Override

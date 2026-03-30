@@ -1,107 +1,128 @@
 package br.com.borurio.fiscal.service;
 
-
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
+import org.w3c.dom.*;
 
 import javax.xml.crypto.dsig.*;
 import javax.xml.crypto.dsig.dom.DOMSignContext;
-import javax.xml.crypto.dsig.keyinfo.KeyInfo;
-import javax.xml.crypto.dsig.keyinfo.KeyInfoFactory;
-import javax.xml.crypto.dsig.keyinfo.X509Data;
+import javax.xml.crypto.dsig.keyinfo.*;
 import javax.xml.crypto.dsig.spec.C14NMethodParameterSpec;
 import javax.xml.crypto.dsig.spec.TransformParameterSpec;
-import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.*;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+
+import java.io.ByteArrayInputStream;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
-import java.util.Collections;
+import java.util.List;
 
-/**
- * Serviço responsável por assinar digitalmente XMLs fiscais (NF-e)
- * usando certificado A1 (.pfx) conforme o padrão SEFAZ v4.00.
- *
- * Projeto compatível com pipelines DevSecOps e execução segura em ambiente CI/CD.
- */
 @Service
 public class AssinaturaXmlService {
 
-    private static final String CERT_PATH = "certs/generic-dev-cert.pfx";
-    private static final String CERT_PASSWORD = "123456";
+    private final CertificadoService certificadoService;
 
-    /**
-     * Assina o XML fiscal, localizando a tag <infNFe> e aplicando assinatura digital.
-     *
-     * @param xmlBytes XML em formato byte[]
-     * @return XML assinado em formato byte[]
-     */
-    public byte[] assinarXml(byte[] xmlBytes) {
+    public AssinaturaXmlService(CertificadoService certificadoService) {
+        this.certificadoService = certificadoService;
+    }
+
+    public String assinarXml(String xml) {
+
         try {
-            // Carrega o certificado digital A1 (.pfx)
-            KeyStore keyStore = KeyStore.getInstance("PKCS12");
-            keyStore.load(new ClassPathResource(CERT_PATH).getInputStream(), CERT_PASSWORD.toCharArray());
 
-            String alias = keyStore.aliases().nextElement();
-            PrivateKey privateKey = (PrivateKey) keyStore.getKey(alias, CERT_PASSWORD.toCharArray());
-            X509Certificate certificate = (X509Certificate) keyStore.getCertificate(alias);
-
-            // Prepara o documento XML
+            // =========================
+            // 1. PARSE XML
+            // =========================
             DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
             dbf.setNamespaceAware(true);
-            DocumentBuilder builder = dbf.newDocumentBuilder();
-            Document xml = builder.parse(new java.io.ByteArrayInputStream(xmlBytes));
 
-            // Localiza e marca o elemento <infNFe> como referência de assinatura
-            NodeList nodeList = xml.getElementsByTagName("infNFe");
-            if (nodeList.getLength() == 0) {
-                throw new RuntimeException("Tag <infNFe> não encontrada no XML.");
+            Document doc = dbf.newDocumentBuilder()
+                    .parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+
+            doc.getDocumentElement().normalize();
+
+            // =========================
+            // 2. LOCALIZA infNFe
+            // =========================
+            Element infNFe = (Element) doc.getElementsByTagName("infNFe").item(0);
+
+            if (infNFe == null) {
+                throw new RuntimeException("Tag <infNFe> não encontrada");
             }
 
-            Element element = (Element) nodeList.item(0);
-            String id = element.getAttribute("Id");
-            element.setIdAttribute("Id", true); // Define o atributo Id como identificador
+            String id = infNFe.getAttribute("Id");
 
-            // Cria a estrutura da assinatura digital
-            XMLSignatureFactory fac = XMLSignatureFactory.getInstance("DOM");
-            Reference ref = fac.newReference(
+            if (id == null || id.isEmpty()) {
+                throw new RuntimeException("Id da NF-e inválido");
+            }
+
+            infNFe.setIdAttribute("Id", true);
+
+            // =========================
+            // 3. CERTIFICADO
+            // =========================
+            KeyStore keyStore = certificadoService.getKeyStore();
+            String alias = certificadoService.getAlias();
+            char[] senha = certificadoService.getSenha();
+
+            PrivateKey privateKey = (PrivateKey) keyStore.getKey(alias, senha);
+            X509Certificate cert = (X509Certificate) keyStore.getCertificate(alias);
+
+            // =========================
+            // 4. ASSINATURA
+            // =========================
+            XMLSignatureFactory factory = XMLSignatureFactory.getInstance("DOM");
+
+            Reference ref = factory.newReference(
                     "#" + id,
-                    fac.newDigestMethod(DigestMethod.SHA1, null),
-                    Collections.singletonList(fac.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null)),
+                    factory.newDigestMethod(DigestMethod.SHA1, null),
+                    List.of(
+                            factory.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null),
+                            factory.newTransform(CanonicalizationMethod.INCLUSIVE, (TransformParameterSpec) null)
+                    ),
                     null,
                     null
             );
 
-            SignedInfo si = fac.newSignedInfo(
-                    fac.newCanonicalizationMethod(CanonicalizationMethod.INCLUSIVE, (C14NMethodParameterSpec) null),
-                    fac.newSignatureMethod(SignatureMethod.RSA_SHA1, null),
-                    Collections.singletonList(ref)
+            SignedInfo signedInfo = factory.newSignedInfo(
+                    factory.newCanonicalizationMethod(
+                            CanonicalizationMethod.INCLUSIVE,
+                            (C14NMethodParameterSpec) null
+                    ),
+                    factory.newSignatureMethod(SignatureMethod.RSA_SHA1, null),
+                    List.of(ref)
             );
 
-            // Adiciona informações do certificado ao XML
-            KeyInfoFactory kif = fac.getKeyInfoFactory();
-            X509Data x509Data = kif.newX509Data(Collections.singletonList(certificate));
-            KeyInfo ki = kif.newKeyInfo(Collections.singletonList(x509Data));
+            KeyInfoFactory keyInfoFactory = factory.getKeyInfoFactory();
 
-            // Executa a assinatura digital
-            DOMSignContext dsc = new DOMSignContext(privateKey, xml.getDocumentElement());
-            XMLSignature signature = fac.newXMLSignature(si, ki);
-            signature.sign(dsc);
+            X509Data x509Data = keyInfoFactory.newX509Data(List.of(cert));
+            KeyInfo keyInfo = keyInfoFactory.newKeyInfo(List.of(x509Data));
 
-            // Retorna o XML assinado
-            java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
-            javax.xml.transform.TransformerFactory.newInstance()
-                    .newTransformer()
-                    .transform(new javax.xml.transform.dom.DOMSource(xml),
-                            new javax.xml.transform.stream.StreamResult(os));
+            // CORREÇÃO CRÍTICA AQUI
+            DOMSignContext signContext = new DOMSignContext(
+                    privateKey,
+                    infNFe.getParentNode()
+            );
 
-            return os.toByteArray();
+            XMLSignature signature = factory.newXMLSignature(signedInfo, keyInfo);
+            signature.sign(signContext);
+
+            // =========================
+            // 5. OUTPUT
+            // =========================
+            Transformer transformer = TransformerFactory.newInstance().newTransformer();
+
+            StringWriter writer = new StringWriter();
+            transformer.transform(new DOMSource(doc), new StreamResult(writer));
+
+            return writer.toString();
 
         } catch (Exception e) {
-            throw new RuntimeException("Erro ao assinar XML fiscal: " + e.getMessage(), e);
+            throw new RuntimeException("Erro ao assinar XML NF-e", e);
         }
     }
 }
