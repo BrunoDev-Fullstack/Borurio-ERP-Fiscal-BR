@@ -2,6 +2,7 @@ package br.com.borurio.fiscal.service.impl;
 
 import br.com.borurio.fiscal.config.SefazProperties;
 import br.com.borurio.fiscal.service.CertificadoService;
+import br.com.borurio.fiscal.service.NfeStatusService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -18,7 +20,7 @@ import java.nio.charset.StandardCharsets;
 
 @Service
 @Profile({"dev","hom","prd"})
-public class NfeStatusServiceImpl {
+public class NfeStatusServiceImpl implements NfeStatusService {
 
     private static final Logger logger =
             LoggerFactory.getLogger(NfeStatusServiceImpl.class);
@@ -34,6 +36,7 @@ public class NfeStatusServiceImpl {
         this.sefazProperties = sefazProperties;
     }
 
+    @Override
     public String consultarStatusServico() {
 
         logger.info("Iniciando consulta de status da SEFAZ");
@@ -42,26 +45,9 @@ public class NfeStatusServiceImpl {
 
             SSLContext sslContext = certificadoService.getSslContext();
 
-            if (sslContext == null) {
-                logger.error("SSLContext não inicializado. Certificado não carregado.");
-                return "<erro>Certificado não carregado</erro>";
-            }
+            String soapEnvelope = montarSoapStatus();
 
-            String soapEnvelope =
-                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                            + "<soap12:Envelope xmlns:soap12=\"http://www.w3.org/2003/05/soap-envelope\">"
-                            + "<soap12:Body>"
-                            + "<nfeStatusServicoNF xmlns=\"http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4\">"
-                            + "<nfeDadosMsg>"
-                            + "<consStatServ xmlns=\"http://www.portalfiscal.inf.br/nfe\" versao=\"4.00\">"
-                            + "<tpAmb>2</tpAmb>"
-                            + "<cUF>35</cUF>"
-                            + "<xServ>STATUS</xServ>"
-                            + "</consStatServ>"
-                            + "</nfeDadosMsg>"
-                            + "</nfeStatusServicoNF>"
-                            + "</soap12:Body>"
-                            + "</soap12:Envelope>";
+            logger.debug("SOAP ENVIADO:\n{}", soapEnvelope);
 
             String urlSefaz = sefazProperties.getStatus();
 
@@ -79,8 +65,11 @@ public class NfeStatusServiceImpl {
                     "application/soap+xml; charset=utf-8"
             );
 
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(15000);
+            conn.setRequestProperty("Accept", "application/soap+xml");
+            conn.setRequestProperty("User-Agent", "Borurio-ERP/1.0");
+
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(20000);
 
             conn.setDoOutput(true);
 
@@ -97,25 +86,80 @@ public class NfeStatusServiceImpl {
                             ? conn.getErrorStream()
                             : conn.getInputStream();
 
-            StringBuilder response = new StringBuilder();
+            String response = lerResposta(stream);
 
-            try (BufferedReader br = new BufferedReader(
-                    new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            logger.debug("SOAP RETORNO:\n{}", response);
 
-                String line;
+            validarResposta(response);
 
-                while ((line = br.readLine()) != null) {
-                    response.append(line);
-                }
-            }
-
-            return response.toString();
+            return response;
 
         } catch (Exception ex) {
 
             logger.error("Erro ao consultar status da SEFAZ", ex);
 
-            return "<erro>" + ex.getMessage() + "</erro>";
+            throw new RuntimeException("Falha ao consultar SEFAZ", ex);
+        }
+    }
+
+    /**
+     * IMPORTANTE:
+     * - NÃO usar text block ("""")
+     * - NÃO usar indentação
+     * - NÃO usar quebra de linha
+     * - XML deve iniciar exatamente em <?xml
+     */
+    private String montarSoapStatus() {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                "<soap12:Envelope xmlns:soap12=\"http://www.w3.org/2003/05/soap-envelope\">" +
+                "<soap12:Body>" +
+                "<nfeDadosMsg xmlns=\"http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4\">" +
+                "<consStatServ xmlns=\"http://www.portalfiscal.inf.br/nfe\" versao=\"4.00\">" +
+                "<tpAmb>2</tpAmb>" +
+                "<cUF>35</cUF>" +
+                "<xServ>STATUS</xServ>" +
+                "</consStatServ>" +
+                "</nfeDadosMsg>" +
+                "</soap12:Body>" +
+                "</soap12:Envelope>";
+    }
+
+    private String lerResposta(InputStream stream) throws IOException {
+
+        if (stream == null) {
+            return "<erro>Resposta vazia</erro>";
+        }
+
+        StringBuilder response = new StringBuilder();
+
+        try (BufferedReader br = new BufferedReader(
+                new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+
+            String line;
+
+            while ((line = br.readLine()) != null) {
+                response.append(line);
+            }
+        }
+
+        return response.toString();
+    }
+
+    private void validarResposta(String xml) {
+
+        if (xml == null || xml.isEmpty()) {
+            throw new RuntimeException("Resposta SEFAZ vazia");
+        }
+
+        if (xml.contains("<Fault")) {
+            logger.error("SOAP Fault retornado pela SEFAZ:\n{}", xml);
+            throw new RuntimeException("Erro SOAP na SEFAZ");
+        }
+
+        if (xml.contains("<cStat>107</cStat>")) {
+            logger.info("SEFAZ operacional (cStat 107)");
+        } else {
+            logger.warn("Resposta inesperada da SEFAZ:\n{}", xml);
         }
     }
 }

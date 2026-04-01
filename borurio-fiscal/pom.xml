@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- ________________________________________________________________________________________________
      MÓDULO FISCAL — BORURIO ERP FISCAL BR
-     Ajustes:
-     - Inclusão do H2 para execução de testes com DataSource em memória
-     - Remoção de versões redundantes (gerenciadas pelo parent)
-     - Padronização do compilador via <release>
-     - Plugins mantidos mínimos para evitar conflitos
+
+     Observações importantes para manutenção:
+
+     1) O client SOAP da SEFAZ é gerado via WSDL LOCAL (não usar endpoint remoto).
+        A SEFAZ bloqueia requisições automatizadas (HTTP 403 / HTTP2).
+
+     2) O WSDL deve estar versionado no projeto:
+        src/main/resources/wsdl/NFeStatusServico4.wsdl
+
+     3) Evitar dependência de rede durante build (CI/CD determinístico).
+
+     4) JAXB runtime é obrigatório em Java 17 para funcionamento do CXF.
+
 ________________________________________________________________________________________________ -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -26,6 +34,7 @@ ________________________________________________________________________________
 
     <properties>
         <java.version>17</java.version>
+        <cxf.version>4.0.3</cxf.version>
     </properties>
 
     <dependencies>
@@ -37,7 +46,7 @@ ________________________________________________________________________________
             <version>${project.version}</version>
         </dependency>
 
-        <!-- SPRING BASE -->
+        <!-- SPRING -->
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
@@ -79,6 +88,24 @@ ________________________________________________________________________________
             <artifactId>jakarta.xml.bind-api</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+        </dependency>
+
+        <!-- CXF (SOAP SEFAZ) -->
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-frontend-jaxws</artifactId>
+            <version>${cxf.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-transports-http</artifactId>
+            <version>${cxf.version}</version>
+        </dependency>
+
         <!-- UTIL -->
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -104,7 +131,7 @@ ________________________________________________________________________________
             <scope>test</scope>
         </dependency>
 
-        <!-- Banco em memória para testes -->
+        <!-- H2 -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -117,7 +144,7 @@ ________________________________________________________________________________
 
         <plugins>
 
-            <!-- Compilação Java -->
+            <!-- COMPILADOR -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -126,13 +153,46 @@ ________________________________________________________________________________
                 </configuration>
             </plugin>
 
-            <!-- Execução de testes -->
+            <!-- TESTES -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
             </plugin>
 
-            <!-- Módulo não gera artefato executável -->
+            <!-- GERAÇÃO DO CLIENT SOAP SEFAZ -->
+            <plugin>
+                <groupId>org.apache.cxf</groupId>
+                <artifactId>cxf-codegen-plugin</artifactId>
+                <version>${cxf.version}</version>
+                <executions>
+                    <execution>
+                        <id>generate-sefaz-client</id>
+                        <phase>generate-sources</phase>
+                        <configuration>
+                            <wsdlOptions>
+                                <wsdlOption>
+
+                                    <!-- USO OBRIGATÓRIO: WSDL LOCAL -->
+                                    <wsdl>
+                                        ${project.basedir}/src/main/resources/wsdl/NFeStatusServico4.wsdl
+                                    </wsdl>
+
+                                    <extraargs>
+                                        <extraarg>-p</extraarg>
+                                        <extraarg>br.com.borurio.sefaz.client</extraarg>
+                                    </extraargs>
+
+                                </wsdlOption>
+                            </wsdlOptions>
+                        </configuration>
+                        <goals>
+                            <goal>wsdl2java</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- SPRING BOOT -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

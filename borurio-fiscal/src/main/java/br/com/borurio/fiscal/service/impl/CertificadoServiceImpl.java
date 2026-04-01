@@ -14,16 +14,6 @@ import java.io.InputStream;
 import java.security.KeyStore;
 import java.util.Enumeration;
 
-/**
- * =============================================================================
- * SERVIÇO: CertificadoServiceImpl
- * =============================================================================
- * Responsabilidade:
- *  - Carregar certificado digital A1 (PKCS12)
- *  - Inicializar SSLContext (TLSv1.2)
- *  - Expor KeyStore, alias e senha para assinatura XML
- * =============================================================================
- */
 @Service
 @Profile({"dev", "hom", "prd", "test"})
 public class CertificadoServiceImpl implements CertificadoService {
@@ -38,48 +28,58 @@ public class CertificadoServiceImpl implements CertificadoService {
     @PostConstruct
     public void init() {
         try {
-
-            String certPath = System.getProperty("fiscal.certificate.path");
-            String certPass = System.getProperty("fiscal.certificate.password");
-            String certType = System.getProperty("fiscal.certificate.type", "PKCS12");
-
-            if (certPath == null || certPass == null) {
-                throw new IllegalStateException("Propriedades do certificado não definidas");
-            }
-
-            this.certPassword = certPass;
-
-            log.info("[CERT] Carregando certificado A1: {}", certPath);
-
-            try (InputStream is = carregarArquivo(certPath)) {
-
-                keyStore = KeyStore.getInstance(certType);
-                keyStore.load(is, certPass.toCharArray());
-            }
-
-            Enumeration<String> aliases = keyStore.aliases();
-            if (!aliases.hasMoreElements()) {
-                throw new IllegalStateException("Nenhum alias encontrado no certificado");
-            }
-
-            alias = aliases.nextElement();
-
-            log.info("[CERT] Alias encontrado: {}", alias);
-
-            KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-            kmf.init(keyStore, certPass.toCharArray());
-
-            sslContext = SSLContext.getInstance("TLSv1.2");
-            sslContext.init(kmf.getKeyManagers(), null, null);
-
-            log.info("[CERT] Certificado A1 carregado com sucesso. SSLContext ativo.");
-
+            carregarCertificado();
         } catch (Exception e) {
-            sslContext = null;
-            keyStore = null;
-            log.error("[CERT] Falha ao inicializar certificado A1", e);
-            throw new RuntimeException("Erro ao carregar certificado A1", e);
+            log.error("[CERT] Falha na inicialização via @PostConstruct", e);
         }
+    }
+
+    private void carregarCertificado() throws Exception {
+
+        if (this.sslContext != null) {
+            return;
+        }
+
+        String certPath = System.getProperty("fiscal.certificate.path");
+        String certPass = System.getProperty("fiscal.certificate.password");
+        String certType = System.getProperty("fiscal.certificate.type", "PKCS12");
+
+        // 🔥 FALLBACK PARA TESTE / DEV
+        if (certPath == null || certPass == null) {
+            log.warn("[CERT] Propriedades não definidas, usando fallback local");
+
+            certPath = "C:\\Projetos\\borurio-erp-br\\docker\\certs\\pfx\\certificado-jcho.pfx";
+            certPass = "2025@Qz1";
+        }
+
+        this.certPassword = certPass;
+
+        log.info("[CERT] Carregando certificado A1: {}", certPath);
+
+        try (InputStream is = carregarArquivo(certPath)) {
+
+            keyStore = KeyStore.getInstance(certType);
+            keyStore.load(is, certPass.toCharArray());
+        }
+
+        Enumeration<String> aliases = keyStore.aliases();
+        if (!aliases.hasMoreElements()) {
+            throw new IllegalStateException("Nenhum alias encontrado no certificado");
+        }
+
+        alias = aliases.nextElement();
+
+        log.info("[CERT] Alias encontrado: {}", alias);
+
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(
+                KeyManagerFactory.getDefaultAlgorithm()
+        );
+        kmf.init(keyStore, certPass.toCharArray());
+
+        sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(kmf.getKeyManagers(), null, null);
+
+        log.info("[CERT] SSLContext inicializado com sucesso");
     }
 
     private InputStream carregarArquivo(String path) throws Exception {
@@ -99,10 +99,16 @@ public class CertificadoServiceImpl implements CertificadoService {
 
     @Override
     public SSLContext getSslContext() {
-        if (sslContext == null) {
-            throw new IllegalStateException("SSLContext não inicializado");
+        try {
+            if (sslContext == null) {
+                log.warn("[CERT] SSLContext null → inicializando via lazy load");
+                carregarCertificado();
+            }
+            return sslContext;
+
+        } catch (Exception e) {
+            throw new IllegalStateException("Erro ao obter SSLContext", e);
         }
-        return sslContext;
     }
 
     @Override
@@ -124,7 +130,7 @@ public class CertificadoServiceImpl implements CertificadoService {
     @Override
     public char[] getSenha() {
         if (certPassword == null) {
-            throw new IllegalStateException("Senha do certificado não inicializada");
+            throw new IllegalStateException("Senha não inicializada");
         }
         return certPassword.toCharArray();
     }
@@ -132,7 +138,7 @@ public class CertificadoServiceImpl implements CertificadoService {
     @Override
     public String getStatus() {
         return sslContext != null
-                ? "SSLContext ativo (Certificado A1 carregado)"
-                : "SSLContext inativo (Certificado não carregado)";
+                ? "SSLContext ativo"
+                : "SSLContext inativo";
     }
 }

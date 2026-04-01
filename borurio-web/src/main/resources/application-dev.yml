@@ -1,21 +1,12 @@
 ###################################################################################################
-# AMBIENTE DE HOMOLOGAÇÃO — BORURIO ERP FISCAL BR
+# AMBIENTE DEV — BORURIO ERP FISCAL BR
 # ________________________________________________________________________________________________
-# Módulo: borurio-web (API REST principal)
-# Integrações: MySQL, Redis, SEFAZ-SP (Homologação)
-#
-# Observações importantes:
-# - Ambiente de homologação É REAL (SEFAZ-SP)
-# - Certificado digital A1 é OBRIGATÓRIO
-# - Não utilizar dados fictícios
-#
-# Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
-# Última revisão: 02/02/2026
+# Execução local para integração com SEFAZ (homologação real)
 ###################################################################################################
 
 server:
   address: 0.0.0.0
-  port: 8081
+  port: 8080
   servlet:
     context-path: /
   error:
@@ -24,18 +15,18 @@ server:
 
 spring:
   application:
-    name: borurio-web-hom
+    name: borurio-web-dev
 
   ################################################################################################
-  # BANCO DE DADOS — MYSQL (HOMOLOGAÇÃO)
+  # BANCO DE DADOS — MYSQL (DEV)
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useSSL=true&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true
-    username: ${DB_USER}
-    password: ${DB_PASS}
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:borurio}?useSSL=false&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true
+    username: ${DB_USER:root}
+    password: ${DB_PASS:root}
     hikari:
-      pool-name: BorurioWebHikariPool-HOM
+      pool-name: BorurioWebHikariPool-DEV
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
@@ -44,7 +35,7 @@ spring:
       auto-commit: true
 
   ################################################################################################
-  # JPA — WEB NÃO GERENCIA SCHEMA
+  # JPA
   ################################################################################################
   jpa:
     open-in-view: false
@@ -56,23 +47,24 @@ spring:
         show_sql: false
 
   ################################################################################################
-  # FLYWAY — DESATIVADO NO WEB
+  # FLYWAY — CORREÇÃO CRÍTICA
   ################################################################################################
   flyway:
-    enabled: false
+    enabled: true
+    baseline-on-migrate: true
 
   ################################################################################################
-  # REDIS — HOMOLOGAÇÃO
+  # REDIS — DEV
   ################################################################################################
   data:
     redis:
-      host: ${REDIS_HOST}
-      port: ${REDIS_PORT}
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
       timeout: 2000
       connect-timeout: 2000
 
   ################################################################################################
-  # JACKSON — SERIALIZAÇÃO PADRÃO
+  # JACKSON
   ################################################################################################
   jackson:
     serialization:
@@ -82,27 +74,27 @@ spring:
     default-property-inclusion: non_null
 
 ###################################################################################################
-# LOGGING — HOMOLOGAÇÃO
+# LOGGING
 ###################################################################################################
 logging:
-  config: classpath:logback-hom.xml
+  config: classpath:logback-dev.xml
   level:
     root: INFO
     org.springframework: WARN
     org.hibernate: WARN
     org.apache: WARN
-    br.com.borurio: INFO
+    br.com.borurio: DEBUG
 
 ###################################################################################################
 # SEGURANÇA — JWT
 ###################################################################################################
 security:
   jwt:
-    secret: ${JWT_SECRET}
+    secret: "borurio-dev-secret-2026-sefaz-integration-abcdef"
     expiration-ms: 3600000
 
 ###################################################################################################
-# SEFAZ — CONFIGURAÇÃO OFICIAL (NF-e 4.00 | HOMOLOGAÇÃO SP)
+# SEFAZ — HOMOLOGAÇÃO SP
 ###################################################################################################
 sefaz:
   ambiente: HOM
@@ -116,16 +108,15 @@ sefaz:
     recepcao-evento: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
 
 ###################################################################################################
-# CERTIFICADO DIGITAL — A1 (ICP-BRASIL)
+# CERTIFICADO DIGITAL A1
 ###################################################################################################
 fiscal:
-  cert:
-    enabled: true
-    path: ${CERT_PFX_PATH}
-    pass: ${CERT_PFX_PASSWORD}
+  certificate:
+    path: ${CERT_PATH:C:/temp/cert.pfx}
+    password: ${CERT_PASS:123456}
 
 ###################################################################################################
-# ACTUATOR — OBSERVABILIDADE
+# ACTUATOR
 ###################################################################################################
 management:
   endpoints:
@@ -143,14 +134,11 @@ management:
       enabled: true
     ping:
       enabled: true
-  security:
-    enabled: false
 
 ###################################################################################################
-# METADADOS DA APLICAÇÃO
+# METADADOS
 ###################################################################################################
 app:
-  profile: hom
-  description: "Ambiente de Homologação — SEFAZ-SP (NF-e 4.00 real)"
+  profile: dev
+  description: "Ambiente DEV — Integração SEFAZ SP"
   version: ${project.version:1.0.0}
-  owner: "Bruno Ribeiro — DevSecOps / Fullstack Java"
