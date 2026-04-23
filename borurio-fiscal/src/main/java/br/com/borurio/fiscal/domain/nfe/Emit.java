@@ -2,16 +2,13 @@ package br.com.borurio.fiscal.domain.nfe;
 
 public class Emit {
 
-    // CNPJ do emitente (somente números)
     private String cnpj;
-
-    // Razão social
     private String xNome;
-
-    // Inscrição estadual
+    private String xFant;
     private String ie;
+    private String crt;
 
-    // getters/setters
+    private EnderEmit enderEmit;
 
     public String getCnpj() {
         return cnpj;
@@ -29,11 +26,35 @@ public class Emit {
         this.xNome = xNome;
     }
 
+    public String getXFant() {
+        return xFant;
+    }
+
+    public void setXFant(String xFant) {
+        this.xFant = xFant;
+    }
+
     public String getIe() {
         return ie;
     }
 
     public void setIe(String ie) {
         this.ie = ie;
+    }
+
+    public String getCrt() {
+        return crt;
+    }
+
+    public void setCrt(String crt) {
+        this.crt = crt;
+    }
+
+    public EnderEmit getEnderEmit() {
+        return enderEmit;
+    }
+
+    public void setEnderEmit(EnderEmit enderEmit) {
+        this.enderEmit = enderEmit;
     }
 }

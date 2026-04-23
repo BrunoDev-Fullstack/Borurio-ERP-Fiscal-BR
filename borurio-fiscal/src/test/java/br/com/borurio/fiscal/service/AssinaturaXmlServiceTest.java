@@ -1,49 +1,64 @@
 package br.com.borurio.fiscal.service;
 
 import br.com.borurio.fiscal.service.impl.CertificadoServiceImpl;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class AssinaturaXmlServiceTest {
 
     @Test
-    void deveAssinarXmlNFe() {
+    void deveAssinarXmlNFe() throws Exception {
 
-        try {
-            // CONFIGURA CERTIFICADO (TESTE)
-            System.setProperty("fiscal.certificate.path", "cert/test-cert.pfx");
-            System.setProperty("fiscal.certificate.password", "2025@Qz1");
-            System.setProperty("fiscal.certificate.type", "PKCS12");
+        CertificadoServiceImpl certificadoService = new CertificadoServiceImpl();
 
-            CertificadoServiceImpl certificadoService = new CertificadoServiceImpl();
-            certificadoService.init();
+        ReflectionTestUtils.setField(certificadoService, "certPath",     "cert/test-cert.pfx");
+        ReflectionTestUtils.setField(certificadoService, "certPassword", "2025@Qz1");
+        ReflectionTestUtils.setField(certificadoService, "certType",     "PKCS12");
 
-            AssinaturaXmlService service = new AssinaturaXmlService(certificadoService);
+        certificadoService.init();
 
-            // XML MÍNIMO VÁLIDO
-            String xml = """
-                    <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
-                        <infNFe Id="NFe12345678901234567890123456789012345678901234" versao="4.00">
-                            <ide>
-                                <cUF>35</cUF>
-                            </ide>
-                        </infNFe>
-                    </NFe>
-                    """;
+        AssinaturaXmlService service = new AssinaturaXmlService(certificadoService);
 
-            // EXECUTA ASSINATURA
-            String xmlAssinado = service.assinarXml(xml);
+        String xml = """
+            <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+                <infNFe Id="NFe12345678901234567890123456789012345678901234" versao="4.00">
+                    <ide>
+                        <cUF>35</cUF>
+                        <natOp>VENDA</natOp>
+                        <mod>55</mod>
+                        <serie>1</serie>
+                        <nNF>1</nNF>
+                        <dhEmi>2026-01-01T10:00:00-03:00</dhEmi>
+                        <tpNF>1</tpNF>
+                        <idDest>1</idDest>
+                        <cMunFG>3550308</cMunFG>
+                        <tpImp>1</tpImp>
+                        <tpEmis>1</tpEmis>
+                        <cDV>0</cDV>
+                        <tpAmb>2</tpAmb>
+                        <finNFe>1</finNFe>
+                        <indFinal>1</indFinal>
+                        <indPres>1</indPres>
+                        <procEmi>0</procEmi>
+                        <verProc>1.0</verProc>
+                    </ide>
+                </infNFe>
+            </NFe>
+            """;
 
-            // VALIDAÇÕES
-            Assertions.assertNotNull(xmlAssinado);
-            Assertions.assertTrue(xmlAssinado.contains("<Signature"));
-            Assertions.assertTrue(xmlAssinado.contains("DigestValue"));
-            Assertions.assertTrue(xmlAssinado.contains("SignatureValue"));
+        String xmlAssinado = service.assinar(xml);
 
-            System.out.println(xmlAssinado);
+        assertNotNull(xmlAssinado, "XML assinado não pode ser nulo");
+        assertTrue(xmlAssinado.contains("<Signature"),
+                "XML assinado deve conter o bloco <Signature>");
+        assertTrue(xmlAssinado.contains("DigestValue"),
+                "XML assinado deve conter DigestValue");
+        assertTrue(xmlAssinado.contains("SignatureValue"),
+                "XML assinado deve conter SignatureValue");
 
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        System.out.println("XML assinado gerado com sucesso.");
     }
 }

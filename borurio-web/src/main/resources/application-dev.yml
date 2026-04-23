@@ -1,7 +1,5 @@
 ###################################################################################################
 # AMBIENTE DEV — BORURIO ERP FISCAL BR
-# ________________________________________________________________________________________________
-# Execução local para integração com SEFAZ (homologação real)
 ###################################################################################################
 
 server:
@@ -18,13 +16,18 @@ spring:
     name: borurio-web-dev
 
   ################################################################################################
-  # BANCO DE DADOS — MYSQL (DEV)
+  # MYSQL — CONFIGURAÇÃO FIXA PARA EVITAR VARIÁVEIS INCONSISTENTES
   ################################################################################################
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:borurio}?useSSL=false&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true
-    username: ${DB_USER:root}
-    password: ${DB_PASS:root}
+
+    # Configuração fixa para garantir previsibilidade durante estabilização do ambiente
+    # Evita dependência de variáveis que podem não estar sendo carregadas no container
+    url: jdbc:mysql://borurio-mysql-dev:3306/borurio_fiscal_dev?useSSL=false&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true&connectTimeout=30000&socketTimeout=60000
+
+    username: borurio
+    password: H4ck3r123
+
     hikari:
       pool-name: BorurioWebHikariPool-DEV
       maximum-pool-size: 10
@@ -33,6 +36,9 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
       auto-commit: true
+
+      # Fail-fast ajuda a detectar erro imediatamente na subida
+      initialization-fail-timeout: 30000
 
   ################################################################################################
   # JPA
@@ -47,18 +53,20 @@ spring:
         show_sql: false
 
   ################################################################################################
-  # FLYWAY — CORREÇÃO CRÍTICA
+  # FLYWAY
   ################################################################################################
   flyway:
     enabled: true
     baseline-on-migrate: true
+    locations: classpath:db/migration
 
   ################################################################################################
-  # REDIS — DEV
+  # REDIS — DOCKER
   ################################################################################################
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      # Aqui faz sentido manter variável pois não afeta boot crítico
+      host: ${REDIS_HOST:borurio-redis-dev}
       port: ${REDIS_PORT:6379}
       timeout: 2000
       connect-timeout: 2000
@@ -86,7 +94,7 @@ logging:
     br.com.borurio: DEBUG
 
 ###################################################################################################
-# SEGURANÇA — JWT
+# JWT
 ###################################################################################################
 security:
   jwt:
@@ -108,12 +116,12 @@ sefaz:
     recepcao-evento: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
 
 ###################################################################################################
-# CERTIFICADO DIGITAL A1
+# CERTIFICADO A1 — CONFIGURAÇÃO FIXA
 ###################################################################################################
 fiscal:
   certificate:
-    path: ${CERT_PATH:C:/temp/cert.pfx}
-    password: ${CERT_PASS:123456}
+    path: /app/certificados/pfx/certificado-jcho.pfx
+    password: 2025@Qz1
 
 ###################################################################################################
 # ACTUATOR

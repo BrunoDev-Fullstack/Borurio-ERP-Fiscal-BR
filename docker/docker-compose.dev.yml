@@ -1,7 +1,4 @@
-# =============================================================================
-# Docker Compose - DEV
-# Projeto: Borurio ERP Fiscal BR
-# =============================================================================
+version: "3.9"
 
 services:
 
@@ -38,11 +35,12 @@ services:
       - borurio-net-dev
 
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p${MYSQL_ROOT_PASSWORD} --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 10s
       timeout: 5s
-      retries: 8
-      start_period: 25s
+      retries: 10
+      start_period: 40s
+
 
   # ---------------------------------------------------------------------------
   # Redis
@@ -66,7 +64,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 20s
+
 
   # ---------------------------------------------------------------------------
   # MinIO
@@ -80,9 +78,6 @@ services:
 
     env_file:
       - ./env/.env.dev
-
-    environment:
-      TZ: America/Sao_Paulo
 
     ports:
       - "9000:9000"
@@ -99,7 +94,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 4
-      start_period: 20s
+
 
   # ---------------------------------------------------------------------------
   # Aplicação
@@ -118,8 +113,6 @@ services:
         condition: service_healthy
       borurio-redis-dev:
         condition: service_healthy
-      borurio-minio-dev:
-        condition: service_healthy
 
     env_file:
       - ./env/.env.dev
@@ -127,49 +120,54 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: dev
 
-      SPRING_DATASOURCE_URL: jdbc:mysql://borurio-mysql-dev:3306/borurio_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-      SPRING_DATASOURCE_USERNAME: borurio
-      SPRING_DATASOURCE_PASSWORD: H4ck3r123
+      # BANCO (PADRÃO ÚNICO - SEM AMBIGUIDADE)
+      DB_HOST: borurio-mysql-dev
+      DB_PORT: 3306
+      DB_NAME: borurio_dev
+      DB_USER: borurio
+      DB_PASS: H4ck3r123
 
-      SPRING_REDIS_HOST: borurio-redis-dev
-      SPRING_REDIS_PORT: 6379
+      # REDIS
+      REDIS_HOST: borurio-redis-dev
+      REDIS_PORT: 6379
 
+      # FISCAL
       FISCAL_AMBIENTE: 2
-      TZ: America/Sao_Paulo
 
-      MANAGEMENT_SERVER_PORT: 8081
+      TZ: America/Sao_Paulo
 
     ports:
       - "8080:8080"
-      - "8081:8081"
 
     networks:
       - borurio-net-dev
 
     volumes:
       - ../sql:/app/sql:ro
-      - ../certificados:/app/certificados:ro
+      - ./certs:/app/certificados:ro
       - logs_dev:/var/log/borurio
 
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 45s
+      start_period: 60s
 
-# =============================================================================
+
+# ---------------------------------------------------------------------------
 # Volumes
-# =============================================================================
+# ---------------------------------------------------------------------------
 volumes:
   mysql_dev_data:
   redis_dev_data:
   minio_dev_data:
   logs_dev:
 
-# =============================================================================
+
+# ---------------------------------------------------------------------------
 # Network
-# =============================================================================
+# ---------------------------------------------------------------------------
 networks:
   borurio-net-dev:
     driver: bridge

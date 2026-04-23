@@ -7,7 +7,7 @@ public class InfNFe {
     // ID da NF-e (formato: NFe + chave)
     private String id;
 
-    // Versão do layout (fixo 4.00)
+    // Versão do layout (default 4.00)
     private String versao = "4.00";
 
     // Identificação
@@ -25,7 +25,9 @@ public class InfNFe {
     // Totais
     private Total total;
 
-    // getters/setters
+    // =========================
+    // GETTERS / SETTERS
+    // =========================
 
     public String getId() {
         return id;
@@ -37,6 +39,13 @@ public class InfNFe {
 
     public String getVersao() {
         return versao;
+    }
+
+    // ✔ necessário para compatibilidade com builder/debug
+    public void setVersao(String versao) {
+        if (versao != null && !versao.isBlank()) {
+            this.versao = versao;
+        }
     }
 
     public Ide getIde() {

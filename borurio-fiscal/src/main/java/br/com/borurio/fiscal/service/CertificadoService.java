@@ -2,57 +2,130 @@ package br.com.borurio.fiscal.service;
 
 import javax.net.ssl.SSLContext;
 import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 
 /**
- * =============================================================================
- * INTERFACE: CertificadoService
- * =============================================================================
- * Responsável por gerenciar o certificado digital A1 (PKCS12) utilizado na
- * comunicação segura com a SEFAZ (NF-e 4.00).
+ * Serviço responsável por fornecer acesso ao certificado digital A1 (PKCS12)
+ * utilizado na assinatura XML (NF-e) e na comunicação TLS com a SEFAZ.
  *
- * Funcionalidades:
- *  - Carregamento do certificado (.pfx)
- *  - Inicialização do SSLContext (TLS 1.2+)
- *  - Exposição do KeyStore para assinatura XML (XMLDSig)
- *  - Exposição de alias e senha para acesso à chave privada
+ * A interface expõe apenas os elementos base (KeyStore, alias e senha),
+ * e deriva automaticamente a chave privada e o certificado através de
+ * métodos default.
  *
- * Ambientes:
- *  - dev / hom: pode operar com certificado mock
- *  - prd: obrigatório certificado válido (ICP-Brasil)
- *
- * =============================================================================
+ * Essa abordagem evita duplicação de lógica nas implementações e mantém
+ * compatibilidade com diferentes formas de armazenamento do certificado.
  */
 public interface CertificadoService {
 
     /**
-     * Retorna o SSLContext configurado com o certificado A1.
+     * SSLContext configurado com o certificado.
+     * Usado na comunicação HTTPS com a SEFAZ.
      */
     SSLContext getSslContext();
 
     /**
-     * Retorna o KeyStore carregado do certificado A1.
+     * KeyStore carregado do arquivo PKCS12 (.pfx).
      */
     KeyStore getKeyStore();
 
     /**
-     * Retorna o alias da chave dentro do KeyStore.
+     * Alias da entrada de chave dentro do KeyStore.
      *
-     * Necessário para:
-     *  - recuperar chave privada
-     *  - assinatura XML
+     * IMPORTANTE:
+     * O alias não deve ser fixo. Deve ser resolvido dinamicamente,
+     * pois varia conforme a autoridade certificadora.
      */
     String getAlias();
 
     /**
-     * Retorna a senha da chave privada do certificado.
+     * Senha da chave privada.
      *
-     * Necessário para:
-     *  - acesso à PrivateKey
+     * Para certificados A1, geralmente é a mesma senha do KeyStore.
      */
     char[] getSenha();
 
     /**
-     * Retorna o status atual do certificado.
+     * Status do certificado (controle interno).
      */
     String getStatus();
+
+    // ---------------------------------------------------------------------
+    // MÉTODOS DERIVADOS (default)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Retorna a chave privada utilizada na assinatura XMLDSIG.
+     *
+     * A chave é obtida diretamente do KeyStore com base no alias e senha.
+     */
+    default PrivateKey getPrivateKey() {
+        try {
+            KeyStore ks = getKeyStore();
+            String alias = getAlias();
+            char[] senha = getSenha();
+
+            if (ks == null) {
+                throw new IllegalStateException("KeyStore não inicializado");
+            }
+
+            if (alias == null || alias.isBlank()) {
+                throw new IllegalStateException("Alias do certificado não definido");
+            }
+
+            var key = ks.getKey(alias, senha);
+
+            if (key == null) {
+                throw new IllegalStateException(
+                        "Chave privada não encontrada para o alias: " + alias);
+            }
+
+            if (!(key instanceof PrivateKey)) {
+                throw new IllegalStateException(
+                        "Entrada não é uma chave privada: " + key.getClass().getName());
+            }
+
+            return (PrivateKey) key;
+
+        } catch (Exception e) {
+            throw new IllegalStateException("Erro ao obter PrivateKey", e);
+        }
+    }
+
+    /**
+     * Retorna o certificado X509 utilizado na assinatura.
+     *
+     * Esse certificado será incluído no bloco <KeyInfo> da assinatura XML.
+     */
+    default X509Certificate getCertificate() {
+        try {
+            KeyStore ks = getKeyStore();
+            String alias = getAlias();
+
+            if (ks == null) {
+                throw new IllegalStateException("KeyStore não inicializado");
+            }
+
+            if (alias == null || alias.isBlank()) {
+                throw new IllegalStateException("Alias do certificado não definido");
+            }
+
+            var cert = ks.getCertificate(alias);
+
+            if (cert == null) {
+                throw new IllegalStateException(
+                        "Certificado não encontrado para o alias: " + alias);
+            }
+
+            if (!(cert instanceof X509Certificate)) {
+                throw new IllegalStateException(
+                        "Certificado inválido: " + cert.getClass().getName());
+            }
+
+            return (X509Certificate) cert;
+
+        } catch (Exception e) {
+            throw new IllegalStateException("Erro ao obter certificado X509", e);
+        }
+    }
 }

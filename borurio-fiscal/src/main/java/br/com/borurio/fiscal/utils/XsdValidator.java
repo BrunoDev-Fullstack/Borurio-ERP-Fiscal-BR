@@ -7,9 +7,9 @@ import org.w3c.dom.ls.DOMImplementationLS;
 import org.w3c.dom.ls.LSInput;
 import org.w3c.dom.ls.LSResourceResolver;
 import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
 
 import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamSource;
@@ -18,100 +18,73 @@ import javax.xml.validation.SchemaFactory;
 import javax.xml.validation.Validator;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
-/**
- * =============================================================================
- * COMPONENTE: XsdValidator
- * _____________________________________________________________________________
- * Utilitário de validação de XMLs fiscais (NF-e 4.00) contra os schemas XSD.
- *
- * Ajustes aplicados:
- * - Compatibilidade com Java 17 (liberação controlada de imports XSD)
- * - Suporte completo a include/import (resolver classpath)
- * - Hardening contra XXE e ataques XML
- * - Execução estável em ambiente Docker/JAR
- * =============================================================================
- */
 @Component
 public class XsdValidator {
 
     /**
-     * Valida um documento XML contra um XSD.
-     *
-     * @param xmlDocumento Documento XML (DOM)
-     * @param xsdPath Caminho no classpath (ex: xsd/custom/nfe_v4.00_consolidado.xsd)
+     * Valida um documento XML utilizando um XSD fornecido via InputStream.
+     * Permite resolução de dependências locais (includes/imports) via classpath.
      */
-    public void validate(Document xmlDocumento, String xsdPath) throws Exception {
+    public void validate(Document xmlDocumento, InputStream xsdStream) throws Exception {
+
         try {
-            // ================================================================
-            // HARDENING JVM XML LIMITS
-            // ================================================================
-            System.setProperty("jdk.xml.maxOccurLimit", "10000");
-            System.setProperty("jdk.xml.entityExpansionLimit", "10000");
-            System.setProperty("jdk.xml.elementAttributeLimit", "10000");
-            System.setProperty("jdk.xml.totalEntitySizeLimit", "10000000");
 
             SchemaFactory schemaFactory = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
 
-            // ================================================================
-            // LIBERAÇÃO CONTROLADA (JAVA 17)
-            // ================================================================
-            schemaFactory.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "all");
-            schemaFactory.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "all");
-
             schemaFactory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            schemaFactory.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            schemaFactory.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "file");
+
             schemaFactory.setResourceResolver(new ClasspathResourceResolver());
 
-            // ================================================================
-            // CARREGAMENTO DO XSD
-            // ================================================================
-            try (InputStream schemaStream = getResourceAsStream(xsdPath)) {
-
-                if (schemaStream == null) {
-                    throw new FileNotFoundException("Schema XSD não encontrado: " + xsdPath);
-                }
-
-                Schema schema = schemaFactory.newSchema(new StreamSource(schemaStream));
-                Validator validator = schema.newValidator();
-
-                // Liberação também no Validator (necessário para imports)
-                validator.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "all");
-                validator.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "all");
-
-                // Garante namespace padrão NF-e
-                if (xmlDocumento.getDocumentElement().getNamespaceURI() == null) {
-                    xmlDocumento.getDocumentElement()
-                            .setAttribute("xmlns", "http://www.portalfiscal.inf.br/nfe");
-                }
-
-                // ============================================================
-                // EXECUÇÃO DA VALIDAÇÃO
-                // ============================================================
-                validator.validate(new DOMSource(xmlDocumento));
-
-                System.out.println("[XSD] XML validado com sucesso: " + xsdPath);
+            if (xsdStream == null) {
+                throw new FileNotFoundException("Stream do XSD não pode ser nulo.");
             }
 
+            Schema schema = schemaFactory.newSchema(new StreamSource(xsdStream));
+
+            Validator validator = schema.newValidator();
+            validator.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            validator.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "file");
+
+            validator.validate(new DOMSource(xmlDocumento));
+
+            System.out.println("XML VALIDADO COM SUCESSO");
+
+        } catch (SAXParseException e) {
+            throw new Exception(
+                    "Erro XSD na linha " + e.getLineNumber() +
+                            ", coluna " + e.getColumnNumber() +
+                            ": " + e.getMessage(), e
+            );
         } catch (SAXException e) {
             throw new Exception("Falha de conformidade XML/XSD: " + e.getMessage(), e);
-        } catch (FileNotFoundException e) {
-            throw e;
         } catch (Exception e) {
             throw new Exception("Erro ao validar XML da NF-e: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Resolver de recursos para includes/imports XSD.
-     */
+    public void validate(Document xmlDocumento, String xsdPath) throws Exception {
+
+        try (InputStream stream = getResourceAsStream(xsdPath)) {
+
+            if (stream == null) {
+                throw new FileNotFoundException("Schema XSD não encontrado: " + xsdPath);
+            }
+
+            validate(xmlDocumento, stream);
+        }
+    }
+
     private static class ClasspathResourceResolver implements LSResourceResolver {
 
         @Override
         public LSInput resolveResource(String type, String namespaceURI, String publicId,
                                        String systemId, String baseURI) {
+
             try {
+
                 if (systemId == null || systemId.contains("..")) {
                     return null;
                 }
@@ -124,7 +97,9 @@ public class XsdValidator {
                 };
 
                 for (String path : searchPaths) {
+
                     InputStream stream = getResourceAsStream(path);
+
                     if (stream != null) {
 
                         DOMImplementationLS impl = (DOMImplementationLS)
@@ -142,46 +117,19 @@ public class XsdValidator {
                     }
                 }
 
-                return null;
+                throw new RuntimeException("Dependência XSD não encontrada: " + systemId);
 
             } catch (Exception e) {
-                return null;
+                throw new RuntimeException("Erro ao resolver recurso XSD: " + systemId, e);
             }
         }
     }
 
-    /**
-     * Busca recurso no classpath com segurança.
-     */
     private static InputStream getResourceAsStream(String path) throws IOException {
         ClassPathResource resource = new ClassPathResource(path);
         if (!resource.exists()) {
             return null;
         }
         return new BufferedInputStream(resource.getInputStream());
-    }
-
-    /**
-     * Execução standalone para debug.
-     */
-    public static void main(String[] args) {
-        String xmlPath = "docs/xml/nfe.xml";
-        String xsdPath = "xsd/custom/nfe_v4.00_consolidado.xsd";
-
-        try {
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-            dbf.setNamespaceAware(true);
-            dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-
-            DocumentBuilder builder = dbf.newDocumentBuilder();
-            Document xmlDoc = builder.parse(new File(xmlPath));
-
-            new XsdValidator().validate(xmlDoc, xsdPath);
-
-            System.out.println("[OK] XML válido");
-
-        } catch (Exception e) {
-            System.err.println("[ERRO] " + e.getMessage());
-        }
     }
 }

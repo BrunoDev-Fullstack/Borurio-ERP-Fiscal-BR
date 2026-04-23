@@ -11,10 +11,8 @@ WORKDIR /build
 
 VOLUME /root/.m2
 
-# Copia tudo direto (evita inconsistência de módulo)
 COPY . .
 
-# Build FORÇADO do módulo web (corrige problema do -am)
 RUN mvn -B clean install -DskipTests
 
 
@@ -73,7 +71,7 @@ USER borurio
 
 
 # =============================================================================
-# ARTEFATO (AGORA GARANTIDO)
+# ARTEFATO
 # =============================================================================
 COPY --from=builder /build/borurio-web/target/borurio-web-1.0.0.jar /app/app.jar
 
@@ -85,17 +83,21 @@ ENV TZ=America/Sao_Paulo \
     JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport \
     -XX:MaxRAMPercentage=75.0 \
     -Dfile.encoding=UTF-8 \
-    -Duser.timezone=America/Sao_Paulo"
+    -Duser.timezone=America/Sao_Paulo" \
+    SERVER_PORT=8080
 
 
-EXPOSE 8081
+# =============================================================================
+# PORTA DA APLICAÇÃO
+# =============================================================================
+EXPOSE 8080
 
 
 # =============================================================================
 # HEALTHCHECK
 # =============================================================================
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-CMD curl -fsS http://localhost:8081/actuator/health || exit 1
+CMD curl -fsS http://localhost:8080/actuator/health || exit 1
 
 
 # =============================================================================

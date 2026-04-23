@@ -18,7 +18,7 @@ hs_err_pid*
 replay_pid*
 
 ###############################################################################
-# IDE
+# IDE / EDITORES
 ###############################################################################
 .idea/
 .vscode/
@@ -59,12 +59,13 @@ docker/env/.env.*
 *.keystore
 *.p12
 
+# Certificados reais (produção / local)
 docker/certs/*
 !docker/certs/.gitkeep
 
-# Certificados de teste (muito importante)
-src/test/resources/cert/*
-!src/test/resources/cert/.gitkeep
+# Certificados de teste (necessários para testes automatizados)
+!src/test/resources/cert/
+!src/test/resources/cert/test-cert.pfx
 
 ###############################################################################
 # DOCKER VOLUMES
@@ -115,6 +116,19 @@ test-output/
 application-local.yml
 application-dev-local.yml
 application-test-local.yml
+
+###############################################################################
+# DEBUG / EXPERIMENTOS (CRÍTICO PARA LIMPEZA DO REPO)
+###############################################################################
+borurio-fiscal/src/main/java/br/com/borurio/fiscal/debug/
+
+###############################################################################
+# DOCUMENTOS LOCAIS / APOIO (NÃO VERSIONAR)
+###############################################################################
+docs/xml/
+estrutura.txt
+fiscal.txt
+nfe_map.txt
 
 ###############################################################################
 # HISTÓRICO / SEGURANÇA

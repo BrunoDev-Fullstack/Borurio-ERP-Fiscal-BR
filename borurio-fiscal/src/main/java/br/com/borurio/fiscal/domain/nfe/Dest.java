@@ -8,7 +8,18 @@ public class Dest {
     // Nome do destinatário
     private String xNome;
 
-    // getters/setters
+    // Indicador IE do destinatário
+    // 1 = Contribuinte ICMS
+    // 2 = Isento
+    // 9 = Não contribuinte
+    private String indIEDest;
+
+    // Inscrição estadual (opcional dependendo do caso)
+    private String ie;
+
+    // =========================
+    // GETTERS / SETTERS
+    // =========================
 
     public String getCpfCnpj() {
         return cpfCnpj;
@@ -24,5 +35,21 @@ public class Dest {
 
     public void setXNome(String xNome) {
         this.xNome = xNome;
+    }
+
+    public String getIndIEDest() {
+        return indIEDest;
+    }
+
+    public void setIndIEDest(String indIEDest) {
+        this.indIEDest = indIEDest;
+    }
+
+    public String getIe() {
+        return ie;
+    }
+
+    public void setIe(String ie) {
+        this.ie = ie;
     }
 }
