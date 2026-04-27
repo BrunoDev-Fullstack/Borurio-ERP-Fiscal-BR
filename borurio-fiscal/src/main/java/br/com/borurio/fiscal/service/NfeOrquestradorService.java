@@ -14,34 +14,40 @@ import java.nio.charset.StandardCharsets;
  * SERVIÇO: NfeOrquestradorService
  * =============================================================================
  * Fluxo:
- * XML → Converter → Validar XSD → Transmitir → Retornar
+ * XML → Converter → Validar XSD → Assinar XMLDSIG → Transmitir → Retornar
  * =============================================================================
  */
 @Service
 public class NfeOrquestradorService {
 
     private final XsdValidator xsdValidator;
+    private final AssinaturaXmlService assinaturaXmlService;
     private final NfeTransmitService nfeTransmitService;
 
     @Autowired
     public NfeOrquestradorService(XsdValidator xsdValidator,
+                                  AssinaturaXmlService assinaturaXmlService,
                                   NfeTransmitService nfeTransmitService) {
         this.xsdValidator = xsdValidator;
+        this.assinaturaXmlService = assinaturaXmlService;
         this.nfeTransmitService = nfeTransmitService;
     }
 
-    public String processar(String xmlNfeAssinado) throws Exception {
+    public String processar(String xmlNfe, String cnpjEmitente) throws Exception {
 
         // 1. Converter XML para Document
-        Document document = converterParaDocument(xmlNfeAssinado);
+        Document document = converterParaDocument(xmlNfe);
 
-        // 2. Validar XSD (usar seu XSD consolidado)
+        // 2. Validar XSD antes de assinar
         xsdValidator.validate(document, "xsd/custom/nfe_v4.00_consolidado.xsd");
 
-        // 3. Transmitir para SEFAZ
+        // 3. Assinar XML (XMLDSIG RSA-SHA256 — obrigatório NF-e 4.00)
+        String xmlAssinado = assinaturaXmlService.assinar(xmlNfe);
+
+        // 4. Transmitir para SEFAZ com XML assinado
         return nfeTransmitService.transmitirXml(
-                xmlNfeAssinado,
-                "00000000000000", // ajustar depois
+                xmlAssinado,
+                cnpjEmitente,
                 "SP",
                 2
         );

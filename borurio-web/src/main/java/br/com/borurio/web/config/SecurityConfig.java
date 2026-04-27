@@ -1,14 +1,18 @@
 package br.com.borurio.web.config;
 
 import br.com.borurio.web.auth.JwtFilter;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 
 @Configuration
 public class SecurityConfig {
@@ -19,58 +23,61 @@ public class SecurityConfig {
         this.jwtFilter = jwtFilter;
     }
 
+    // Chain 1: Actuator — public, sem JWT, maior prioridade.
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-
+    @Order(1)
+    public SecurityFilterChain actuatorSecurityFilterChain(HttpSecurity http) throws Exception {
         http
-                // API stateless
+                .securityMatcher(EndpointRequest.toAnyEndpoint())
                 .csrf(csrf -> csrf.disable())
-
-                // CORS liberado
-                .cors(cors -> {})
-
-                // Sem sessão
+                .cors(cors -> cors.disable())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
-
-                // Regras de autorização
                 .authorizeHttpRequests(auth -> auth
+                        .anyRequest().permitAll()
+                );
+        return http.build();
+    }
 
-                        // ==========================
-                        // PÚBLICOS
-                        // ==========================
+    // Chain 2: Aplicacao principal — JWT obrigatorio para rotas protegidas.
+    @Bean
+    @Order(2)
+    public SecurityFilterChain appSecurityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.disable())
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/auth/**",
-                                "/ping",
-                                "/api/test/**",
-                                "/api/fiscal/nfe/test/**",
-
-                                // SWAGGER
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-
-                                // ACTUATOR
-                                "/actuator/health",
-                                "/actuator/info",
-
-                                // ==========================
-                                // NF-e (HOM LIBERADO)
-                                // ==========================
-                                "/api/fiscal/nfe/enviar",
-                                "/api/fiscal/nfe/status"
+                                new AntPathRequestMatcher("/auth/**"),
+                                new AntPathRequestMatcher("/ping"),
+                                new AntPathRequestMatcher("/api/test/**"),
+                                new AntPathRequestMatcher("/api/fiscal/nfe/test/**"),
+                                new AntPathRequestMatcher("/swagger-ui/**"),
+                                new AntPathRequestMatcher("/swagger-ui.html"),
+                                new AntPathRequestMatcher("/v3/api-docs/**"),
+                                new AntPathRequestMatcher("/v3/api-docs.yaml"),
+                                new AntPathRequestMatcher("/api/fiscal/nfe/enviar"),
+                                new AntPathRequestMatcher("/api/fiscal/nfe/status")
                         ).permitAll()
-
-                        // ==========================
-                        // RESTO PROTEGIDO
-                        // ==========================
                         .anyRequest().authenticated()
                 )
-
-                // JWT filter
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    // JwtFilter e @Component — Spring Boot o registra automaticamente no servlet container.
+    // Como ele tambem e adicionado via addFilterBefore, ele executaria duas vezes por request.
+    // setEnabled(false) desabilita o registro automatico, mantendo apenas o gerenciado pelo Security.
+    @Bean
+    public FilterRegistrationBean<JwtFilter> jwtFilterRegistration(JwtFilter filter) {
+        FilterRegistrationBean<JwtFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean

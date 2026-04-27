@@ -10,14 +10,11 @@ services:
     container_name: borurio-mysql-dev
     restart: unless-stopped
 
-    env_file:
-      - ./env/.env.dev
-
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-SENHA_NOVA_DO_ROOT}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_dev}
-      MYSQL_USER: ${MYSQL_USER:-borurio}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
+      MYSQL_ROOT_PASSWORD: SENHA_NOVA_DO_ROOT
+      MYSQL_DATABASE: borurio_fiscal_dev
+      MYSQL_USER: borurio
+      MYSQL_PASSWORD: H4ck3r123
       TZ: America/Sao_Paulo
 
     command: >
@@ -35,7 +32,7 @@ services:
       - borurio-net-dev
 
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD} --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -pSENHA_NOVA_DO_ROOT --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -43,7 +40,7 @@ services:
 
 
   # ---------------------------------------------------------------------------
-  # Redis
+  # Redis (DEV)
   # ---------------------------------------------------------------------------
   borurio-redis-dev:
     image: redis:7.2
@@ -67,7 +64,7 @@ services:
 
 
   # ---------------------------------------------------------------------------
-  # MinIO
+  # MinIO (DEV)
   # ---------------------------------------------------------------------------
   borurio-minio-dev:
     image: minio/minio:latest
@@ -76,8 +73,10 @@ services:
 
     command: server /data --console-address ":9001"
 
-    env_file:
-      - ./env/.env.dev
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
+      TZ: America/Sao_Paulo
 
     ports:
       - "9000:9000"
@@ -97,7 +96,7 @@ services:
 
 
   # ---------------------------------------------------------------------------
-  # Aplicação
+  # Aplicação (DEV)
   # ---------------------------------------------------------------------------
   borurio-web-dev:
     build:
@@ -120,19 +119,25 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: dev
 
-      # BANCO (PADRÃO ÚNICO - SEM AMBIGUIDADE)
-      DB_HOST: borurio-mysql-dev
-      DB_PORT: 3306
-      DB_NAME: borurio_dev
-      DB_USER: borurio
-      DB_PASS: H4ck3r123
+      # Datasource explícito para execução dentro do Docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://borurio-mysql-dev:3306/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo&connectTimeout=30000&socketTimeout=60000
+      SPRING_DATASOURCE_USERNAME: borurio
+      SPRING_DATASOURCE_PASSWORD: H4ck3r123
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
 
-      # REDIS
+      # Redis
       REDIS_HOST: borurio-redis-dev
       REDIS_PORT: 6379
 
-      # FISCAL
+      # MinIO
+      MINIO_URL: http://borurio-minio-dev:9000
+      MINIO_CONSOLE_URL: http://borurio-minio-dev:9001
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
+
+      # Fiscal
       FISCAL_AMBIENTE: 2
+      FISCAL_CERT_PATH: /app/certificados/pfx/certificado-jcho.pfx
 
       TZ: America/Sao_Paulo
 
