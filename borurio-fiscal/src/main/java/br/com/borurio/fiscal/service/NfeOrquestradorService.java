@@ -38,6 +38,16 @@ public class NfeOrquestradorService {
         // 1. Converter XML para Document
         Document document = converterParaDocument(xmlNfe);
 
+        // Contrato de input: apenas <NFe> bare é aceito como corpo da requisição.
+        // O lote <enviNFe> é responsabilidade exclusiva de NfeTransmitServiceImpl.
+        String rootElement = document.getDocumentElement().getLocalName();
+        if (!"NFe".equals(rootElement)) {
+            throw new IllegalArgumentException(
+                    "XML inválido: o elemento raiz deve ser <NFe>. " +
+                    "O lote <enviNFe> é montado internamente pelo sistema."
+            );
+        }
+
         // 2. Validar XSD antes de assinar
         xsdValidator.validate(document, "xsd/custom/nfe_v4.00_consolidado.xsd");
 
