@@ -47,4 +47,14 @@ public interface NfeLogService {
      * @return lista de registros associados à chave.
      */
     List<NfeLog> buscarPorChave(String chaveNfe);
+
+    /**
+     * Conta quantos eventos de um tipo foram registrados para uma NF-e.
+     * Utilizado para controle de sequência (CC-e máximo 20 eventos por chave).
+     *
+     * @param chaveNfe   chave de acesso da NF-e (44 dígitos).
+     * @param tipoEvento tipo do evento (ex: "CCE").
+     * @return total de registros encontrados.
+     */
+    int contarEventos(String chaveNfe, String tipoEvento);
 }

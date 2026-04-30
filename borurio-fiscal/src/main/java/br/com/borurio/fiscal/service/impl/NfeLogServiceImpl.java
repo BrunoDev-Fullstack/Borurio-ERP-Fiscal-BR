@@ -65,6 +65,7 @@ public class NfeLogServiceImpl implements NfeLogService {
         NfeLog log = NfeLog.builder()
                 .chaveNfe(chaveNfe)
                 .tipoEvento(tipoEvento)
+                .status("SUCCESS")
                 .descricao(descricao)
                 .dataEvento(LocalDateTime.now())
                 .usuario(usuario)
@@ -91,5 +92,10 @@ public class NfeLogServiceImpl implements NfeLogService {
     @Override
     public List<NfeLog> buscarPorChave(String chaveNfe) {
         return nfeLogMapper.findByChave(chaveNfe);
+    }
+
+    @Override
+    public int contarEventos(String chaveNfe, String tipoEvento) {
+        return nfeLogMapper.contarEventosPorChaveTipo(chaveNfe, tipoEvento);
     }
 }

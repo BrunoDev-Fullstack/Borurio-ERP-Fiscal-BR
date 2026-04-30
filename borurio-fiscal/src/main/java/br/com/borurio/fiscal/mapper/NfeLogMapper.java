@@ -23,7 +23,6 @@ import java.util.List;
  * Tabela: nfe_log
  * Campos: id, chave_nfe, tipo_evento, descricao, status, xml_envio, xml_retorno, data_evento, cnpj_emitente, usuario
  */
-@Mapper
 public interface NfeLogMapper {
 
     /**
@@ -96,4 +95,17 @@ public interface NfeLogMapper {
         WHERE data_evento < (NOW() - INTERVAL #{diasAntigos} DAY)
         """)
     int deleteAntigos(@Param("diasAntigos") int diasAntigos);
+
+    /**
+     * Conta eventos de um tipo específico para uma NF-e.
+     * Usado para controlar sequência de CC-e (máximo 20 por chave).
+     */
+    @Select("""
+        SELECT COUNT(*)
+        FROM nfe_log
+        WHERE chave_nfe = #{chaveNfe}
+          AND tipo_evento = #{tipoEvento}
+        """)
+    int contarEventosPorChaveTipo(@Param("chaveNfe") String chaveNfe,
+                                   @Param("tipoEvento") String tipoEvento);
 }
