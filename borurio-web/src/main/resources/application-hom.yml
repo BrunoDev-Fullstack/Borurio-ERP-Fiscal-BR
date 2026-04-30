@@ -20,7 +20,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/borurio?useSSL=false&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:root}
+    password: ${SPRING_DATASOURCE_PASSWORD}
 
     hikari:
       pool-name: BorurioHikariPool-HOM
@@ -79,7 +79,7 @@ logging:
 ###################################################################################################
 security:
   jwt:
-    secret: ${SECURITY_JWT_SECRET:borurio-hom-secret-2026-sefaz-integration-abcdef}
+    secret: ${SECURITY_JWT_SECRET}
     expiration-ms: ${SECURITY_JWT_EXPIRATION_MS:3600000}
 
 ###################################################################################################
@@ -100,10 +100,23 @@ sefaz:
 # CERTIFICADO DIGITAL A1
 ###################################################################################################
 fiscal:
-  cert:
-    enabled: true
-    path: ${CERT_PFX_PATH:C:/temp/cert.pfx}
-    pass: ${CERT_PFX_PASSWORD:123456}
+  certificate:
+    path: ${FISCAL_CERT_PATH:/app/certificados/pfx/certificado-jcho.pfx}
+    password: ${FISCAL_CERT_PASSWORD}
+
+  emitente:
+    cnpj:              ${FISCAL_EMITENTE_CNPJ}
+    razao-social:      ${FISCAL_EMITENTE_RAZAO_SOCIAL}
+    nome-fantasia:     ${FISCAL_EMITENTE_NOME_FANTASIA:}
+    ie:                ${FISCAL_EMITENTE_IE}
+    crt:               ${FISCAL_EMITENTE_CRT:1}
+    logradouro:        ${FISCAL_EMITENTE_LOGRADOURO}
+    numero:            ${FISCAL_EMITENTE_NUMERO}
+    bairro:            ${FISCAL_EMITENTE_BAIRRO}
+    municipio:         ${FISCAL_EMITENTE_MUNICIPIO}
+    codigo-municipio:  ${FISCAL_EMITENTE_CODIGO_MUNICIPIO}
+    uf:                ${FISCAL_EMITENTE_UF}
+    cep:               ${FISCAL_EMITENTE_CEP}
 
 ###################################################################################################
 # ACTUATOR

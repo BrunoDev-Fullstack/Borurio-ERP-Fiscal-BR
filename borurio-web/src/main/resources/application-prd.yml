@@ -73,10 +73,23 @@ sefaz:
     recepcao-evento: https://nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
 
 fiscal:
-  cert:
-    enabled: true
-    path: ${CERT_PFX_PATH}
-    pass: ${CERT_PFX_PASSWORD}
+  certificate:
+    path: ${FISCAL_CERT_PATH}
+    password: ${FISCAL_CERT_PASSWORD}
+
+  emitente:
+    cnpj:              ${FISCAL_EMITENTE_CNPJ}
+    razao-social:      ${FISCAL_EMITENTE_RAZAO_SOCIAL}
+    nome-fantasia:     ${FISCAL_EMITENTE_NOME_FANTASIA:}
+    ie:                ${FISCAL_EMITENTE_IE}
+    crt:               ${FISCAL_EMITENTE_CRT:1}
+    logradouro:        ${FISCAL_EMITENTE_LOGRADOURO}
+    numero:            ${FISCAL_EMITENTE_NUMERO}
+    bairro:            ${FISCAL_EMITENTE_BAIRRO}
+    municipio:         ${FISCAL_EMITENTE_MUNICIPIO}
+    codigo-municipio:  ${FISCAL_EMITENTE_CODIGO_MUNICIPIO}
+    uf:                ${FISCAL_EMITENTE_UF}
+    cep:               ${FISCAL_EMITENTE_CEP}
 
 management:
   endpoints:

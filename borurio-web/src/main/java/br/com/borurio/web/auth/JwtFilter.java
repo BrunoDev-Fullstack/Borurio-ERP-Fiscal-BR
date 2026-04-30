@@ -18,11 +18,29 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Set;
 
 @Component
 public class JwtFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtFilter.class);
+
+    // Prefixos e paths exatos que nunca exigem JWT.
+    // shouldNotFilter() faz OncePerRequestFilter pular doFilterInternal por completo
+    // e chamar chain.doFilter() diretamente, sem tocar no SecurityContext.
+    private static final Set<String> PUBLIC_PREFIXES = Set.of(
+            "/actuator/",
+            "/auth/",
+            "/swagger-ui",
+            "/v3/api-docs",
+            "/api/test/",
+            "/api/fiscal/nfe/test/"
+    );
+
+    private static final Set<String> PUBLIC_EXACT = Set.of(
+            "/ping",
+            "/actuator"
+    );
 
     private final JwtUtil jwtUtil;
     private final UserDetailsService userDetailsService;
@@ -33,22 +51,24 @@ public class JwtFilter extends OncePerRequestFilter {
     }
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) throws ServletException {
+        String path = request.getServletPath();
+        return PUBLIC_EXACT.contains(path)
+                || PUBLIC_PREFIXES.stream().anyMatch(path::startsWith);
+    }
+
+    @Override
     protected void doFilterInternal(
             HttpServletRequest request,
             HttpServletResponse response,
             FilterChain chain
     ) throws ServletException, IOException {
 
-        String path = request.getRequestURI();
         String authHeader = request.getHeader("Authorization");
 
-        log.info("JWT FILTER EXECUTANDO → {}", path);
+        log.debug("JWT FILTER → {}", request.getRequestURI());
 
-        // ============================
-        // SEM TOKEN → SEGUE FLUXO
-        // ============================
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.debug("Sem Authorization header");
             chain.doFilter(request, response);
             return;
         }
@@ -57,8 +77,6 @@ public class JwtFilter extends OncePerRequestFilter {
 
         try {
             String username = jwtUtil.extractUsername(token);
-
-            log.debug("Token recebido para usuário: {}", username);
 
             if (username != null &&
                     SecurityContextHolder.getContext().getAuthentication() == null) {
@@ -80,8 +98,7 @@ public class JwtFilter extends OncePerRequestFilter {
                                     .buildDetails(request)
                     );
 
-                    SecurityContextHolder.getContext()
-                            .setAuthentication(authToken);
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
 
                     log.info("Usuário autenticado: {}", username);
 

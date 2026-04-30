@@ -1,6 +1,5 @@
 package br.com.borurio.web;
 
-import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.ComponentScan;
@@ -40,10 +39,6 @@ import java.time.format.DateTimeFormatter;
         "br.com.borurio.app",
         "br.com.borurio.fiscal",
         "br.com.borurio.web"
-})
-@MapperScan(basePackages = {
-        "br.com.borurio.app.mapper",
-        "br.com.borurio.fiscal.mapper"
 })
 public class Application {
 

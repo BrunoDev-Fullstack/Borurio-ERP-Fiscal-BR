@@ -43,10 +43,12 @@ dist/
 .env
 .env.*
 docker/.env
+docker/*.env
 docker/env/.env.*
 
-# Permitir exemplo
+# Permitir arquivos de exemplo e templates (sem segredos reais)
 !docker/env/.env.example
+!docker/env/.env.*.template
 
 ###############################################################################
 # CERTIFICADOS / SEGURANÇA (CRÍTICO)
@@ -60,7 +62,7 @@ docker/env/.env.*
 *.p12
 
 # Certificados reais (produção / local)
-docker/certs/*
+docker/certs/**
 !docker/certs/.gitkeep
 
 # Certificados de teste (necessários para testes automatizados)
@@ -116,6 +118,11 @@ test-output/
 application-local.yml
 application-dev-local.yml
 application-test-local.yml
+
+###############################################################################
+# CLAUDE CODE / FERRAMENTAS LOCAIS (CRÍTICO)
+###############################################################################
+.claude/
 
 ###############################################################################
 # DEBUG / EXPERIMENTOS (CRÍTICO PARA LIMPEZA DO REPO)
