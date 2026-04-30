@@ -1,28 +1,16 @@
-# =============================================================================
-# Workflow CD - Deploy Automatizado Multiambiente
-# Projeto: Borurio ERP Fiscal BR
-# Objetivo: Construir imagens Docker e implantar automaticamente em DEV e PRD
-# Disparo: Push nos branches main e dev, ou execução manual (workflow_dispatch)
-# =============================================================================
-
-name: CD - Deploy Automatizado Multiambiente
+name: CD - Homologação Manual
 
 on:
-  push:
-    branches: [ main, dev ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Deploy em ambiente de desenvolvimento / homologação
-  # ---------------------------------------------------------------------------
-  deploy-dev:
-    name: Deploy em Ambiente de Homologação (DEV)
+  deploy-homologacao:
+    name: Build de Homologação
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/dev'
+    environment: homologacao
 
     steps:
       - name: Checkout do código
@@ -35,83 +23,31 @@ jobs:
           java-version: 17
           cache: maven
 
-      - name: Compilar módulos do ERP Fiscal (DEV)
+      - name: Empacotar aplicação
         run: mvn clean package -DskipTests=true -B
 
       - name: Instalar Docker e Docker Compose
         run: |
           sudo apt-get update
           sudo apt-get install -y docker.io docker-compose
-          sudo systemctl enable docker
-          sudo systemctl start docker
           docker --version
           docker-compose --version
 
-      - name: Construir imagens Docker (DEV)
-        run: |
-          docker-compose -f docker/docker-compose.dev.yml build --no-cache
+      - name: Construir imagens Docker de homologação
+        run: docker-compose -f docker/docker-compose.dev.yml build --no-cache
 
-      - name: Subir containers DEV
+      - name: Subir stack de homologação
         run: |
           docker-compose -f docker/docker-compose.dev.yml up -d
           docker ps -a
 
-      - name: Verificar logs do container WEB (DEV)
-        run: docker logs vboot-web-dev || true
+      - name: Exibir logs do ambiente
+        if: always()
+        run: docker-compose -f docker/docker-compose.dev.yml logs --no-color || true
 
-      - name: Arquivar logs do ambiente DEV
+      - name: Arquivar logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-dev
-          path: /var/lib/docker/containers/
-
-  # ---------------------------------------------------------------------------
-  # Deploy em ambiente de produção
-  # ---------------------------------------------------------------------------
-  deploy-prd:
-    name: Deploy em Ambiente de Produção (PRD)
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout do código
-        uses: actions/checkout@v4
-
-      - name: Configurar JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: maven
-
-      - name: Compilar módulos do ERP Fiscal (PRD)
-        run: mvn clean package -DskipTests=true -B
-
-      - name: Instalar Docker e Docker Compose
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y docker.io docker-compose
-          sudo systemctl enable docker
-          sudo systemctl start docker
-          docker --version
-          docker-compose --version
-
-      - name: Construir imagens Docker (PRD)
-        run: |
-          docker-compose -f docker/docker-compose.yml build --no-cache
-
-      - name: Subir containers PRD
-        run: |
-          docker-compose -f docker/docker-compose.yml up -d
-          docker ps -a
-
-      - name: Verificar logs do container WEB (PRD)
-        run: docker logs vboot-web || true
-
-      - name: Arquivar logs do ambiente PRD
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-prd
+          name: logs-homologacao
           path: /var/lib/docker/containers/
