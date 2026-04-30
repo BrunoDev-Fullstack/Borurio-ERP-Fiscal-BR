@@ -66,38 +66,52 @@ borurio-erp-br/
 
 ## 🧮 **Ambientes Docker**
 
+> Todos os comandos executados a partir da **raiz do projeto** (`borurio-erp-br/`).
+> Pré-requisito: criar `docker/env/.env.<ambiente>` a partir do template correspondente.
+
 ### 🔹 Desenvolvimento (DEV)
 
-```powershell
-cd "docker"
-docker-compose -f "docker-compose.dev.yml" up -d
+```bash
+# Validar configuração antes de subir
+docker compose -f docker/docker-compose.dev.yml --env-file docker/env/.env.dev config
+
+# Subir ambiente
+docker compose -f docker/docker-compose.dev.yml --env-file docker/env/.env.dev up -d --build
 ```
 
 * Porta principal: **8080**
-* Actuator: **8081**
-* Fiscal Mock: **8082**
-* Certificado: `certificados/certificado-hom.pfx`
+* Certificado: `docker/certs/pfx/certificado-jcho.pfx`
 
 ---
 
 ### 🔹 Homologação (HOM)
 
-```powershell
-docker-compose -f "docker-compose.hom.yml" up -d
+```bash
+# Validar configuração antes de subir (não inicia containers)
+docker compose -f docker/docker-compose.hom.yml --env-file docker/env/.env.hom config
+
+# Subir ambiente HOM
+docker compose -f docker/docker-compose.hom.yml --env-file docker/env/.env.hom up -d --build
 ```
 
-* Ambiente SEFAZ-SP (tpAmb=2)
-* Certificado A1 de homologação
-* Logs: `/var/log/borurio/borurio-web-hom.log`
+* Ambiente SEFAZ-SP (`tpAmb=2`)
+* Porta principal: **8081**
+* Certificado: `docker/certs/pfx/certificado-jcho.pfx`
+* Logs: `/var/log/borurio/borurio-hom.log`
 
 ---
 
 ### 🔹 Produção (PRD)
 
-```powershell
-docker-compose -f "docker-compose.yml" up -d --build
+```bash
+# Validar configuração antes de subir (não inicia containers)
+docker compose -f docker/docker-compose.prd.yml --env-file docker/env/.env.prd config
+
+# Subir ambiente PRD
+docker compose -f docker/docker-compose.prd.yml --env-file docker/env/.env.prd up -d --build
 ```
 
+* Ambiente SEFAZ-SP (`tpAmb=1` — produção real)
 * Porta principal: **8282**
 * Actuator: **8281**
 * Certificado: `/app/certificados/certificado-prd.pfx`
