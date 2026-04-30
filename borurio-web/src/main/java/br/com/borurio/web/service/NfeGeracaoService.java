@@ -70,8 +70,8 @@ public class NfeGeracaoService {
 
         String cUF    = resolverCUF(emitente.getUf());
         String cnpj   = apenasDigitos(emitente.getCnpj());
-        String serie  = padLeft(req.getSerie(), 3);
-        String nNF    = padLeft(req.getNumero(), 9);
+        String serie  = padLeft(req.getSerie(), 3);   // zero-padded for chave43 key
+        String nNF    = padLeft(req.getNumero(), 9);  // zero-padded for chave43 key
         String cNF    = gerarCNF();
         String aaaMM  = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyMM"));
         String tpEmis = "1";
@@ -80,11 +80,15 @@ public class NfeGeracaoService {
         String cDV     = calcularCDV(chave43);
         String chave   = chave43 + cDV;
 
+        // SEFAZ XSD TSerie=0|[1-9][0-9]{0,2} and TNF=[1-9][0-9]{0,8}: no leading zeros in XML elements
+        String serieXml = stripLeadingZeros(serie);
+        String nNFXml   = stripLeadingZeros(nNF);
+
         NFe nfe = new NFe();
 
         InfNFe inf = new InfNFe();
         inf.setId("NFe" + chave);
-        inf.setIde(montarIde(req, cUF, cNF, nNF, serie, cDV));
+        inf.setIde(montarIde(req, cUF, cNF, nNFXml, serieXml, cDV));
         inf.setEmit(montarEmit());
         inf.setDest(montarDest(req));
         inf.setDet(montarDet(req));
@@ -184,6 +188,22 @@ public class NfeGeracaoService {
         dest.setXNome(req.getDestRazaoSocial());
         dest.setIndIEDest(resolverIndIEDest(req.getDestIe()));
         dest.setIe(req.getDestIe());
+
+        if (req.getDestLogradouro() != null && !req.getDestLogradouro().isBlank()) {
+            EnderDest ender = new EnderDest();
+            ender.setXLgr(req.getDestLogradouro());
+            ender.setNro(req.getDestNumero() != null ? req.getDestNumero() : "SN");
+            ender.setXCompl(req.getDestComplemento());
+            ender.setXBairro(req.getDestBairro());
+            ender.setCMun(req.getDestCodigoMunicipio());
+            ender.setXMun(req.getDestMunicipio());
+            ender.setUF(req.getDestUf());
+            ender.setCEP(apenasDigitos(req.getDestCep()));
+            ender.setCPais("1058");
+            ender.setXPais("Brasil");
+            dest.setEnderDest(ender);
+        }
+
         return dest;
     }
 
@@ -264,6 +284,12 @@ public class NfeGeracaoService {
     private String padLeft(String s, int length) {
         if (s == null) s = "";
         return String.format("%" + length + "s", s).replace(' ', '0');
+    }
+
+    private String stripLeadingZeros(String s) {
+        if (s == null || s.isBlank()) return "0";
+        String stripped = s.replaceFirst("^0+", "");
+        return stripped.isEmpty() ? "0" : stripped;
     }
 
     private String formatDecimal(BigDecimal value, int scale) {

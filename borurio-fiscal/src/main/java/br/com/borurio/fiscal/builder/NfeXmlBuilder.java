@@ -129,9 +129,30 @@ public class NfeXmlBuilder {
             append(doc, destEl, "CPF", cpfCnpj);
         }
 
-        append(doc, destEl, "xNome",     dest.getXNome());
+        append(doc, destEl, "xNome", dest.getXNome());
+
+        EnderDest end = dest.getEnderDest();
+        if (end != null) {
+            Element enderDestEl = doc.createElementNS(NS, "enderDest");
+            append(doc, enderDestEl, "xLgr",    end.getXLgr());
+            append(doc, enderDestEl, "nro",     end.getNro());
+            append(doc, enderDestEl, "xCompl",  end.getXCompl());
+            append(doc, enderDestEl, "xBairro", end.getXBairro());
+            append(doc, enderDestEl, "cMun",    end.getCMun());
+            append(doc, enderDestEl, "xMun",    end.getXMun());
+            append(doc, enderDestEl, "UF",      end.getUF());
+            append(doc, enderDestEl, "CEP",     end.getCEP());
+            append(doc, enderDestEl, "cPais",   end.getCPais());
+            append(doc, enderDestEl, "xPais",   end.getXPais());
+            destEl.appendChild(enderDestEl);
+        }
+
         append(doc, destEl, "indIEDest", dest.getIndIEDest());
-        append(doc, destEl, "IE",        dest.getIe());
+        // TIeDestNaoIsento accepts only [0-9]{2,14} — never emit "ISENTO" string here
+        String destIe = dest.getIe();
+        if (destIe != null && destIe.matches("[0-9]{2,14}")) {
+            append(doc, destEl, "IE", destIe);
+        }
 
         return destEl;
     }
@@ -168,18 +189,20 @@ public class NfeXmlBuilder {
     }
 
     // -----------------------------------------------------------------
-    // IMPOSTO — ICMS40 (Isento) + PISNt + COFINSNt
-    // Regime tributário mínimo válido para homologação SEFAZ
+    // IMPOSTO — ICMSSN400 (Simples Nacional sem tributação) + PISNt + COFINSNt
+    // CRT=1: obrigatório usar ICMSSN (CSOSN), nunca ICMSxx (CST).
     // -----------------------------------------------------------------
     private Element buildImposto(Document doc) {
         Element impostoEl = doc.createElementNS(NS, "imposto");
 
-        // ICMS — CST 40 (Isento): orig + CST são os únicos campos obrigatórios
-        Element icmsEl   = doc.createElementNS(NS, "ICMS");
-        Element icms40El = doc.createElementNS(NS, "ICMS40");
-        append(doc, icms40El, "orig", "0");
-        append(doc, icms40El, "CST",  "40");
-        icmsEl.appendChild(icms40El);
+        // ICMSSN102 — CSOSN 400: Não tributada pelo Simples Nacional (v.2.0)
+        // No XSD oficial SEFAZ, CSOSN 102/103/300/400 usam o elemento ICMSSN102.
+        // O elemento ICMSSN400 não existe no leiaute NF-e 4.00.
+        Element icmsEl      = doc.createElementNS(NS, "ICMS");
+        Element icmssn102El = doc.createElementNS(NS, "ICMSSN102");
+        append(doc, icmssn102El, "orig",  "0");
+        append(doc, icmssn102El, "CSOSN", "400");
+        icmsEl.appendChild(icmssn102El);
         impostoEl.appendChild(icmsEl);
 
         // PIS — CST 07 (Operação isenta): apenas CST é obrigatório em PISNt
