@@ -137,7 +137,7 @@ services:
       - borurio-net-prd
 
     volumes:
-      - ../docker/certs:/app/certificados:ro   # Certificados A1 (Produção)
+      - ./certs:/app/certificados:ro            # Certificados A1 (Produção)
       - ../logs:/var/log/borurio:rw            # Logs persistentes
       - ~/.m2:/root/.m2:rw                     # Cache Maven local
 
