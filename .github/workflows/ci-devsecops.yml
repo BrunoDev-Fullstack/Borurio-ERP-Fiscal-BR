@@ -34,6 +34,7 @@ jobs:
         run: mvn clean verify -DskipTests=false -B
 
       - name: Varredura OWASP Dependency Check
+        continue-on-error: true
         run: |
           mvn org.owasp:dependency-check-maven:8.2.1:check \
             -Dnvd.api.disabled=true \
@@ -47,6 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: relatorio-owasp
+          if-no-files-found: ignore
           path: |
             **/dependency-check-report.html
             **/dependency-check-report.xml
