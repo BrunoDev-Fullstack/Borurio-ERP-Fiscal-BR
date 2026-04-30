@@ -10,6 +10,8 @@ public interface ClienteService {
 
     Cliente buscarPorId(Long id);
 
+    Cliente buscarPorCnpj(String cnpj);
+
     Cliente salvar(Cliente cliente);
 
     Cliente atualizar(Long id, Cliente cliente);

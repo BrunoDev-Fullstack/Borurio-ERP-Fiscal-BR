@@ -5,22 +5,97 @@ import org.apache.ibatis.annotations.*;
 
 import java.util.List;
 
-@Mapper
 public interface ClienteMapper {
 
-    @Select("SELECT id, nome, email, telefone, estado FROM cliente")
+    // =========================================================================
+    // QUERIES REUTILIZÁVEIS
+    // =========================================================================
+
+    String SELECT_COLUMNS = """
+            SELECT id,
+                   tipo_pessoa        AS tipoPessoa,
+                   cnpj,
+                   cpf,
+                   razao_social       AS razaoSocial,
+                   nome_fantasia      AS nomeFantasia,
+                   inscricao_estadual AS inscricaoEstadual,
+                   nome,
+                   email,
+                   telefone,
+                   logradouro,
+                   numero,
+                   complemento,
+                   bairro,
+                   codigo_municipio   AS codigoMunicipio,
+                   municipio,
+                   uf,
+                   cep,
+                   estado,
+                   criado_em          AS criadoEm,
+                   atualizado_em      AS atualizadoEm
+            FROM cliente
+            """;
+
+    // =========================================================================
+    // LEITURA
+    // =========================================================================
+
+    @Select(SELECT_COLUMNS)
     List<Cliente> listarTodos();
 
-    @Select("SELECT id, nome, email, telefone, estado FROM cliente WHERE id = #{id}")
+    @Select(SELECT_COLUMNS + "WHERE id = #{id}")
     Cliente buscarPorId(Long id);
 
-    @Insert("INSERT INTO cliente (nome, email, telefone, estado) VALUES (#{nome}, #{email}, #{telefone}, #{estado})")
+    @Select(SELECT_COLUMNS + "WHERE cnpj = #{cnpj}")
+    Cliente buscarPorCnpj(@Param("cnpj") String cnpj);
+
+    // =========================================================================
+    // ESCRITA
+    // =========================================================================
+
+    @Insert("""
+            INSERT INTO cliente (
+                tipo_pessoa, cnpj, cpf, razao_social, nome_fantasia,
+                inscricao_estadual, nome, email, telefone,
+                logradouro, numero, complemento, bairro,
+                codigo_municipio, municipio, uf, cep,
+                estado, criado_em, atualizado_em
+            ) VALUES (
+                #{tipoPessoa}, #{cnpj}, #{cpf}, #{razaoSocial}, #{nomeFantasia},
+                #{inscricaoEstadual}, #{nome}, #{email}, #{telefone},
+                #{logradouro}, #{numero}, #{complemento}, #{bairro},
+                #{codigoMunicipio}, #{municipio}, #{uf}, #{cep},
+                #{estado}, NOW(), NOW()
+            )
+            """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int inserir(Cliente cliente);
 
-    @Update("UPDATE cliente SET nome=#{nome}, email=#{email}, telefone=#{telefone}, estado=#{estado} WHERE id=#{id}")
+    @Update("""
+            UPDATE cliente SET
+                tipo_pessoa        = #{tipoPessoa},
+                cnpj               = #{cnpj},
+                cpf                = #{cpf},
+                razao_social       = #{razaoSocial},
+                nome_fantasia      = #{nomeFantasia},
+                inscricao_estadual = #{inscricaoEstadual},
+                nome               = #{nome},
+                email              = #{email},
+                telefone           = #{telefone},
+                logradouro         = #{logradouro},
+                numero             = #{numero},
+                complemento        = #{complemento},
+                bairro             = #{bairro},
+                codigo_municipio   = #{codigoMunicipio},
+                municipio          = #{municipio},
+                uf                 = #{uf},
+                cep                = #{cep},
+                estado             = #{estado},
+                atualizado_em      = NOW()
+            WHERE id = #{id}
+            """)
     int atualizar(Cliente cliente);
 
-    @Update("UPDATE cliente SET estado = 0 WHERE id=#{id}")
+    @Update("UPDATE cliente SET estado = 0, atualizado_em = NOW() WHERE id = #{id}")
     int desativar(Long id);
 }

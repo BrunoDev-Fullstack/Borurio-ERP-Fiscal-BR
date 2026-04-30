@@ -2,14 +2,12 @@ package br.com.borurio.fiscal.mapper;
 
 import br.com.borurio.fiscal.entity.NcmSyncLog;
 import org.apache.ibatis.annotations.Insert;
-import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 import java.util.List;
 
 /**
  * Mapper responsável pelos registros de log da sincronização de NCM.
  */
-@Mapper
 public interface NcmSyncLogMapper {
 
     @Select("SELECT id, arquivo, registros_importados AS registrosImportados, data_execucao AS dataExecucao, usuario_responsavel AS usuarioResponsavel " +

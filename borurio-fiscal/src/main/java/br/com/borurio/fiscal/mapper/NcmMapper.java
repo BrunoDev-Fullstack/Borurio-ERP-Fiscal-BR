@@ -5,13 +5,12 @@ import org.apache.ibatis.annotations.*;
 
 import java.util.List;
 
-@Mapper
 public interface NcmMapper {
 
-    @Select("SELECT * FROM ncm WHERE ativo = TRUE")
+    @Select("SELECT id, codigo, descricao, ativo FROM ncm WHERE ativo = TRUE ORDER BY codigo")
     List<Ncm> listarNcmAtivos();
 
-    @Select("SELECT * FROM ncm WHERE codigo = #{codigo}")
+    @Select("SELECT id, codigo, descricao, ativo FROM ncm WHERE codigo = #{codigo}")
     Ncm buscarPorCodigo(String codigo);
 
     @Insert("""

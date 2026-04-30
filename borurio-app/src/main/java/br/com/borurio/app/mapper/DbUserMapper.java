@@ -22,7 +22,6 @@ import java.util.List;
  * Graduação: Cyber Security
  * Desde: Sprint Fiscal 2.2 (Refatoração e nacionalização ERP)
  */
-@Mapper
 public interface DbUserMapper {
 
     /**

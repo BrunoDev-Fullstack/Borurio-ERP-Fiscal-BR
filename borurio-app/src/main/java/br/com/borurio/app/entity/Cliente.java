@@ -1,51 +1,70 @@
 package br.com.borurio.app.entity;
 
+import lombok.Data;
+import java.time.LocalDateTime;
+
+@Data
 public class Cliente {
 
     private Long id;
+
+    // =========================================================================
+    // IDENTIFICAÇÃO FISCAL
+    // =========================================================================
+
+    /** "PJ" para Pessoa Jurídica, "PF" para Pessoa Física. */
+    private String tipoPessoa;
+
+    /** 14 dígitos, sem pontuação. Obrigatório quando tipoPessoa=PJ. */
+    private String cnpj;
+
+    /** 11 dígitos, sem pontuação. Obrigatório quando tipoPessoa=PF. */
+    private String cpf;
+
+    /** Razão social (PJ) ou nome completo (PF). Mapeado para <xNome> na NF-e. */
+    private String razaoSocial;
+
+    /** Nome fantasia (PJ). Opcional. */
+    private String nomeFantasia;
+
+    /** Inscrição Estadual. Obrigatório para PJ contribuinte do ICMS. */
+    private String inscricaoEstadual;
+
+    // =========================================================================
+    // CONTATO (mantido para compatibilidade com dados legados)
+    // =========================================================================
+
     private String nome;
     private String email;
     private String telefone;
+
+    // =========================================================================
+    // ENDEREÇO — obrigatório para emissão de NF-e
+    // =========================================================================
+
+    private String logradouro;
+    private String numero;
+    private String complemento;
+    private String bairro;
+
+    /** Código IBGE do município (7 dígitos). Mapeado para <cMun> na NF-e. */
+    private String codigoMunicipio;
+
+    private String municipio;
+
+    /** Sigla do estado (ex: "SP"). */
+    private String uf;
+
+    /** 8 dígitos, sem hífen. */
+    private String cep;
+
+    // =========================================================================
+    // CONTROLE
+    // =========================================================================
+
+    /** 1 = ativo, 0 = inativo. */
     private Integer estado;
 
-    // GETTERS E SETTERS
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getNome() {
-        return nome;
-    }
-
-    public void setNome(String nome) {
-        this.nome = nome;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
-    public String getTelefone() {
-        return telefone;
-    }
-
-    public void setTelefone(String telefone) {
-        this.telefone = telefone;
-    }
-
-    public Integer getEstado() {
-        return estado;
-    }
-
-    public void setEstado(Integer estado) {
-        this.estado = estado;
-    }
+    private LocalDateTime criadoEm;
+    private LocalDateTime atualizadoEm;
 }
