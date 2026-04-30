@@ -1,5 +1,6 @@
 package br.com.borurio.fiscal.service;
 
+import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.service.impl.CertificadoServiceImpl;
 import br.com.borurio.fiscal.utils.XsdValidator;
 import org.junit.jupiter.api.DisplayName;
@@ -276,9 +277,10 @@ public class NfePipelineLocalTest {
         XsdValidator xsdValidator        = new XsdValidator();
         AssinaturaXmlService mockAssina  = Mockito.mock(AssinaturaXmlService.class);
         NfeTransmitService   mockTransmit = Mockito.mock(NfeTransmitService.class);
+        EmitenteProperties   emitente    = new EmitenteProperties();
 
         NfeOrquestradorService orquestrador = new NfeOrquestradorService(
-                xsdValidator, mockAssina, mockTransmit);
+                xsdValidator, mockAssina, mockTransmit, emitente);
 
         // Input inválido: raiz <enviNFe> com <NFe> interno (shape que NÃO deve ser aceito)
         String xmlEnviNFe = """

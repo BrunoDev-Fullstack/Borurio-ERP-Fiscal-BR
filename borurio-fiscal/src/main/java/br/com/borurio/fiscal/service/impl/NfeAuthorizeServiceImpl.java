@@ -42,13 +42,12 @@ public class NfeAuthorizeServiceImpl implements NfeAuthorizeService {
         Document xmlAutorizado = gerarProtocolo(xmlDocumento);
 
         String chaveNFe = extrairChave(xmlDocumento);
-        String xmlString = documentToString(xmlAutorizado);
 
         nfeLogService.registrarEvento(
+                chaveNFe,
                 "AUTORIZACAO_MOCK",
                 "NF-e autorizada localmente (mock SEFAZ)",
-                chaveNFe,
-                xmlString
+                "system"
         );
 
         return xmlAutorizado;

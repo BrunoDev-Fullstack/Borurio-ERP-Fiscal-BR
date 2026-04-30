@@ -38,90 +38,83 @@ public class AssinaturaXmlService {
         this.certificadoService = certificadoService;
     }
 
+    /**
+     * Assina NF-e: localiza infNFe, assina com XMLDSIG e insere Signature em NFe raiz.
+     */
     public String assinar(String xmlNfe) throws Exception {
-
-        // Parse do XML com namespace habilitado (obrigatório para XMLDSIG)
         Document doc = parseXml(xmlNfe);
+        Element infNFe = localizarElementoPorTag(doc, "infNFe");
+        return assinarElemento(doc, infNFe, doc.getDocumentElement());
+    }
 
-        // Busca o nó infNFe que será assinado
-        Element infNFe = localizarInfNFe(doc);
-        String id = infNFe.getAttribute("Id");
+    /**
+     * Assina evento fiscal (cancelamento, CC-e etc): localiza infEvento, assina
+     * e insere Signature dentro do elemento pai evento.
+     */
+    public String assinarEvento(String xmlEvento) throws Exception {
+        Document doc = parseXml(xmlEvento);
+        Element infEvento = localizarElementoPorTag(doc, "infEvento");
+        Element eventoContainer = (Element) infEvento.getParentNode();
+        return assinarElemento(doc, infEvento, eventoContainer);
+    }
 
+    /**
+     * Assina inutNFe: localiza infInut, assina e insere Signature em inutNFe raiz.
+     */
+    public String assinarInutilizacao(String xmlInut) throws Exception {
+        Document doc = parseXml(xmlInut);
+        Element infInut = localizarElementoPorTag(doc, "infInut");
+        Element inutContainer = (Element) infInut.getParentNode();
+        return assinarElemento(doc, infInut, inutContainer);
+    }
+
+    private String assinarElemento(Document doc, Element elementoParaAssinar,
+                                   Element containerAssinatura) throws Exception {
+        String id = elementoParaAssinar.getAttribute("Id");
         if (id == null || id.isBlank()) {
-            throw new IllegalArgumentException("infNFe sem atributo Id");
+            throw new IllegalArgumentException(
+                    elementoParaAssinar.getTagName() + " sem atributo Id");
         }
-
-        // Marca o atributo Id como ID real para referência na assinatura
-        infNFe.setIdAttribute("Id", true);
+        elementoParaAssinar.setIdAttribute("Id", true);
 
         PrivateKey privateKey = certificadoService.getPrivateKey();
         X509Certificate cert = certificadoService.getCertificate();
 
         XMLSignatureFactory sigFactory = XMLSignatureFactory.getInstance("DOM");
 
-        // Transformações obrigatórias:
-        // - enveloped (remove a própria assinatura do cálculo)
-        // - canonicalização exclusiva (padrão SEFAZ)
         List<Transform> transforms = new ArrayList<>();
+        transforms.add(sigFactory.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null));
+        transforms.add(sigFactory.newTransform(C14N_EXCLUSIVO, (TransformParameterSpec) null));
 
-        transforms.add(sigFactory.newTransform(
-                Transform.ENVELOPED,
-                (TransformParameterSpec) null));
-
-        transforms.add(sigFactory.newTransform(
-                C14N_EXCLUSIVO,
-                (TransformParameterSpec) null));
-
-        // Referência ao elemento infNFe
         Reference reference = sigFactory.newReference(
                 "#" + id,
                 sigFactory.newDigestMethod(DIGEST_SHA256, null),
-                transforms,
-                null,
-                null
-        );
+                transforms, null, null);
 
-        // Estrutura principal da assinatura
         SignedInfo signedInfo = sigFactory.newSignedInfo(
-                sigFactory.newCanonicalizationMethod(
-                        C14N_EXCLUSIVO,
-                        (C14NMethodParameterSpec) null
-                ),
+                sigFactory.newCanonicalizationMethod(C14N_EXCLUSIVO, (C14NMethodParameterSpec) null),
                 sigFactory.newSignatureMethod(SIGN_RSA_SHA256, null),
-                Collections.singletonList(reference)
-        );
+                Collections.singletonList(reference));
 
-        // Inclui o certificado na assinatura
         KeyInfoFactory kif = sigFactory.getKeyInfoFactory();
         X509Data x509Data = kif.newX509Data(Collections.singletonList(cert));
         KeyInfo keyInfo = kif.newKeyInfo(Collections.singletonList(x509Data));
 
         XMLSignature signature = sigFactory.newXMLSignature(signedInfo, keyInfo);
-
-        // A assinatura deve ser adicionada diretamente abaixo de <NFe>
-        DOMSignContext context = new DOMSignContext(
-                privateKey,
-                doc.getDocumentElement()
-        );
-
+        DOMSignContext context = new DOMSignContext(privateKey, containerAssinatura);
         signature.sign(context);
 
         return serializar(doc);
     }
 
-    private Element localizarInfNFe(Document doc) {
-
-        NodeList nodes = doc.getElementsByTagNameNS(
-                "http://www.portalfiscal.inf.br/nfe", "infNFe");
-
+    private Element localizarElementoPorTag(Document doc, String tag) {
+        NodeList nodes = doc.getElementsByTagNameNS("http://www.portalfiscal.inf.br/nfe", tag);
         if (nodes.getLength() == 0) {
-            nodes = doc.getElementsByTagName("infNFe");
+            nodes = doc.getElementsByTagName(tag);
         }
-
         if (nodes.getLength() == 0) {
-            throw new IllegalArgumentException("infNFe não encontrado");
+            throw new IllegalArgumentException(tag + " não encontrado no XML");
         }
-
         return (Element) nodes.item(0);
     }
 

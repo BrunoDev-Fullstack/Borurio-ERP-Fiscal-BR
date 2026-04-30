@@ -86,6 +86,11 @@ public class NfeAuthorizeServiceTest {
                     System.out.println("[MOCK-LOG] buscando logs pela chave: " + chave);
                     return Collections.emptyList();
                 }
+
+                @Override
+                public int contarEventos(String chaveNfe, String tipoEvento) {
+                    return 0;
+                }
             };
         }
 

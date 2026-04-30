@@ -1,12 +1,14 @@
 package br.com.borurio.fiscal.builder;
 
 import br.com.borurio.fiscal.domain.nfe.*;
+import org.springframework.stereotype.Component;
 import org.w3c.dom.*;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.util.List;
 
+@Component
 public class NfeXmlBuilder {
 
     private static final String NS = "http://www.portalfiscal.inf.br/nfe";

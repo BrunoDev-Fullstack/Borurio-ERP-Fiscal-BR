@@ -1,7 +1,9 @@
 package br.com.borurio.fiscal.service;
 
+import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.utils.XsdValidator;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Document;
 
@@ -23,14 +25,20 @@ public class NfeOrquestradorService {
     private final XsdValidator xsdValidator;
     private final AssinaturaXmlService assinaturaXmlService;
     private final NfeTransmitService nfeTransmitService;
+    private final EmitenteProperties emitente;
+
+    @Value("${sefaz.tpAmb:2}")
+    private int tpAmb;
 
     @Autowired
     public NfeOrquestradorService(XsdValidator xsdValidator,
                                   AssinaturaXmlService assinaturaXmlService,
-                                  NfeTransmitService nfeTransmitService) {
+                                  NfeTransmitService nfeTransmitService,
+                                  EmitenteProperties emitente) {
         this.xsdValidator = xsdValidator;
         this.assinaturaXmlService = assinaturaXmlService;
         this.nfeTransmitService = nfeTransmitService;
+        this.emitente = emitente;
     }
 
     public String processar(String xmlNfe, String cnpjEmitente) throws Exception {
@@ -55,12 +63,9 @@ public class NfeOrquestradorService {
         String xmlAssinado = assinaturaXmlService.assinar(xmlNfe);
 
         // 4. Transmitir para SEFAZ com XML assinado
-        return nfeTransmitService.transmitirXml(
-                xmlAssinado,
-                cnpjEmitente,
-                "SP",
-                2
-        );
+        String uf = (emitente.getUf() != null && !emitente.getUf().isBlank())
+                ? emitente.getUf() : "SP";
+        return nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, uf, tpAmb);
     }
 
     private Document converterParaDocument(String xml) throws Exception {

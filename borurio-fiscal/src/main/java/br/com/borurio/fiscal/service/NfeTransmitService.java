@@ -1,30 +1,20 @@
 package br.com.borurio.fiscal.service;
 
 /**
- * =============================================================================
- * SERVIÇO FISCAL: NfeTransmitService
- * =============================================================================
- * Responsável pela comunicação com a SEFAZ para:
- *  - Envio de NF-e (lote)
- *  - Consulta de status do serviço
- *  - Futuramente: consulta de recibo
- *
- * Padrões:
- *  - SOAP 1.2
- *  - TLS 1.2+
- *  - XML assinado (XMLDSig)
- * =============================================================================
+ * Comunicação com a SEFAZ: envio de NF-e, consulta de status e recibo.
+ * SOAP 1.2 / TLS 1.2+ / XML assinado (XMLDSig).
  */
 public interface NfeTransmitService {
 
     /**
-     * Transmite um XML de NF-e já assinado para SEFAZ.
+     * Transmite um lote síncrono contendo uma NF-e já assinada.
+     * Envelopa o XML em enviNFe (versao=4.00, indSinc=1) antes de enviar.
      *
-     * @param xmlAssinado XML completo da NF-e (já assinado)
-     * @param cnpjEmitente CNPJ do emitente
-     * @param uf Unidade Federativa (ex: "SP")
+     * @param xmlAssinado XML completo da NFe já assinado (inclui Signature)
+     * @param cnpjEmitente CNPJ do emitente (usado no log fiscal)
+     * @param uf Unidade Federativa sigla (ex: "SP")
      * @param ambiente 1=Produção, 2=Homologação
-     * @return XML SOAP de resposta da SEFAZ
+     * @return XML SOAP de resposta da SEFAZ (retEnviNFe)
      */
     String transmitirXml(String xmlAssinado,
                          String cnpjEmitente,
@@ -32,11 +22,33 @@ public interface NfeTransmitService {
                          int ambiente);
 
     /**
-     * Consulta status do serviço SEFAZ.
+     * Consulta status do serviço SEFAZ para a UF informada.
      *
-     * @param uf Unidade Federativa
+     * @param uf Unidade Federativa sigla (ex: "SP")
      * @param ambiente 1=Produção, 2=Homologação
-     * @return XML SOAP de resposta (cStat esperado: 107)
+     * @return XML SOAP de resposta (cStat esperado: 107 = Serviço em Operação)
      */
     String consultarStatus(String uf, int ambiente);
+
+    /**
+     * Consulta o resultado de um lote enviado de forma assíncrona (indSinc=0).
+     * Envia consReciNFe para o endpoint NFeRetAutorizacao4.
+     *
+     * @param nRec Número do recibo retornado pela SEFAZ no enviNFe assíncrono
+     * @param uf Unidade Federativa sigla (ex: "SP")
+     * @param ambiente 1=Produção, 2=Homologação
+     * @return XML SOAP de resposta (retConsReciNFe)
+     */
+    String consultarRecibo(String nRec, String uf, int ambiente);
+
+    /**
+     * Consulta situação de uma NF-e pela chave de acesso (consSitNFe).
+     * Endpoint: NFeConsultaProtocolo4.
+     *
+     * @param chaveNfe Chave de acesso NF-e (44 dígitos numéricos)
+     * @param uf Unidade Federativa sigla (ex: "SP")
+     * @param ambiente 1=Produção, 2=Homologação
+     * @return XML SOAP de resposta SEFAZ (retConsSitNFe) com cStat e xMotivo
+     */
+    String consultarNfe(String chaveNfe, String uf, int ambiente);
 }
