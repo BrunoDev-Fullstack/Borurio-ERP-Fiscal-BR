@@ -1,261 +1,267 @@
-# 🚀 **Borurio ERP Fiscal BR**
-
-**ERP Fiscal Nacionalizado — Integração SEFAZ-SP (NF-e 4.00)**
+# Borurio ERP Logístico + Fiscal BR
+
+ERP modular em Java 17 com motor fiscal NF-e 4.00, integração com SEFAZ, autenticação JWT e organização técnica orientada a ambientes DEV, HOM e PRD.
+
+## Visão geral
+
+O Borurio ERP Logístico + Fiscal BR foi concebido como uma plataforma integrada para gestão operacional e fiscal, unindo domínio ERP com um motor fiscal especializado em emissão de NF-e.
+
+A arquitetura do projeto busca combinar:
+
+- cadastro e regras de negócio
+- processamento fiscal
+- comunicação com SEFAZ
+- rastreabilidade técnica e operacional
+- evolução gradual para fluxo completo de ERP logístico
+
+## Objetivo do sistema
+
+O sistema tem como objetivo oferecer uma base robusta para:
+
+- gerenciar clientes, emitentes e entidades de negócio
+- gerenciar produtos com classificação fiscal
+- suportar futuras operações logísticas, pedidos e movimentações
+- gerar, validar, assinar e transmitir NF-e
+- persistir e rastrear o ciclo fiscal completo
+- sustentar evolução controlada entre desenvolvimento, homologação e produção
+
+## Arquitetura modular
+
+O projeto está organizado em módulos Maven com separação clara de responsabilidades:
+
+```text
+borurio-erp-br
+├── borurio-core    → núcleo compartilhado, enums, utilitários e resposta padrão
+├── borurio-app     → camada de domínio e regras de negócio ERP
+├── borurio-fiscal  → motor fiscal NF-e, XML, assinatura, SEFAZ, NCM e auditoria
+└── borurio-web     → API REST, autenticação JWT, controllers e integração app ↔ fiscal
+borurio-core
+
+Núcleo compartilhado da aplicação:
+
+enums
+utilitários
+padrão de resposta
+componentes comuns
+borurio-app
+
+Camada de domínio e regras de negócio:
+
+entidades ERP
+serviços de aplicação
+base evolutiva para clientes, produtos e operações
+borurio-fiscal
+
+Motor fiscal NF-e:
+
+geração de XML
+validação XSD
+assinatura XMLDSIG
+comunicação SOAP 1.2
+certificado A1
+NCM
+auditoria fiscal
+borurio-web
+
+Camada de exposição da aplicação:
+
+API REST
+autenticação JWT
+controllers
+Swagger / OpenAPI
+integração entre domínio e motor fiscal
+Stack tecnológica
+Java 17
+Spring Boot 3.3.x
+Maven multi-module
+MyBatis
+MySQL 8.4
+Redis 7.2
+MinIO
+Flyway
+Docker / Docker Compose
+JWT
+Swagger / OpenAPI
+SOAP 1.2
+XMLDSIG
+GitHub Actions
+Escopo funcional
+Núcleo já estruturado
+autenticação JWT
+API REST principal
+domínio inicial de clientes
+base de produtos e classificação fiscal
+módulo NCM
+geração de XML NF-e
+validação XSD
+assinatura digital com certificado A1
+transmissão fiscal via SOAP
+logs e rastreabilidade fiscal
+Evolução prevista do ERP
+pedidos / ordens
+estoque / logística
+vínculo entre operação e documento fiscal
+relatórios operacionais
+multiempresa
+expansão fiscal avançada
+Fluxo operacional do sistema
 
-O **Borurio ERP Fiscal BR** é um sistema modular desenvolvido em **Java 17 / Spring Boot 3.3.2**, projetado para automação fiscal, emissão e controle de **Notas Fiscais Eletrônicas (NF-e)**, 100% compatível com a **SEFAZ-SP**.
+A visão arquitetural do projeto segue a lógica:
 
-A solução segue padrões **DevSecOps**, com ênfase em **segurança, rastreabilidade e automação CI/CD** (GitHub Actions + Docker Compose), integrando múltiplos módulos de negócio, certificação digital (A1) e monitoramento de serviços fiscais.
+Cliente → Operação → Itens → Processamento Fiscal → NF-e → SEFAZ
 
----
+Na trilha fiscal, o fluxo técnico central é:
 
-## 🧬 **Arquitetura Modular**
+recepção da requisição
+montagem do XML NF-e
+validação contra XSD
+assinatura digital XMLDSIG
+montagem do lote fiscal
+transmissão via SOAP 1.2 / TLS
+recebimento e rastreamento do retorno
+persistência de eventos, status e evidências
+Motor fiscal NF-e
 
-| Módulo             | Descrição                                                                                   | Artefato                   |
-| ------------------ | ------------------------------------------------------------------------------------------- | -------------------------- |
-| **borurio-core**   | Núcleo compartilhado (enums, padrões, utilitários, resposta padrão `{code, message, data}`) | `borurio-core-1.0.0.jar`   |
-| **borurio-app**    | Camada de negócios (usuários, permissões, cadastros básicos, entidades comuns)              | `borurio-app-1.0.0.jar`    |
-| **borurio-fiscal** | Módulo fiscal — NF-e 4.00 (envio, retorno, status, logs, certificado digital, XSD SEFAZ-SP) | `borurio-fiscal-1.0.0.jar` |
-| **borurio-web**    | API REST principal (autenticação JWT, controladores fiscais, Swagger/OpenAPI 3)             | `borurio-web-1.0.0.jar`    |
-
----
+O módulo fiscal concentra os componentes de emissão eletrônica e comunicação com SEFAZ.
 
-## ⚙️ **Stack Tecnológica**
+Capacidades do motor fiscal
+montagem de XML NF-e 4.00
+validação estrutural por XSD
+assinatura digital com certificado A1
+integração SOAP 1.2 / TLS
+suporte a auditoria fiscal
+base para eventos fiscais e evolução regulatória
+Integrações fiscais
+SEFAZ homologação
+SEFAZ produção
+truststore / ICP-Brasil
+certificado digital A1
+tabela NCM oficial
+Ambientes
 
-* **Linguagem:** Java 17
-* **Framework:** Spring Boot 3.3.2
-* **Mapper:** MyBatis / MyBatis-Plus
-* **Banco de Dados:** MySQL 8.4
-* **Cache:** Redis 7.2
-* **Storage:** MinIO
-* **Migração de Banco:** Flyway 10.19
-* **Documentação:** Swagger / SpringDoc OpenAPI 3
-* **Segurança:** Spring Security + JWT
-* **Logs:** Logback (configurações por ambiente DEV / HOM / PRD)
-* **Build & Testes:** Maven + Jacoco (meta ≥ 80%)
-* **CI/CD:** GitHub Actions (`ci-devsecops.yml`, `cd-docker.yml`)
-* **Containerização:** Docker Compose (ambientes dev, hom, prd)
-
----
-
-## 🧱 **Estrutura de Diretórios**
-
-```plaintext
-borurio-erp-br/
-│
-├── borurio-core/          → Núcleo comum (respostas, enums, padrões MVC)
-├── borurio-app/           → Lógica de negócios e persistência base
-├── borurio-fiscal/        → Integração NF-e 4.00 (SEFAZ-SP)
-├── borurio-web/           → API REST principal e autenticação JWT
-│
-├── docker/                → Ambientes Docker (DEV, HOM, PRD)
-│   ├── docker-compose.dev.yml
-│   ├── docker-compose.hom.yml
-│   ├── docker-compose.yml (produção)
-│   ├── .env.dev / .env.hom / .env.prd
-│   └── certificados/, mysql/, redis/, minio/
-│
-├── certificados/          → Certificados digitais ICP-Brasil (.pfx, .cer)
-├── docs/                  → Relatórios técnicos e documentação
-├── sql/                   → Scripts SQL e migrações (Flyway)
-├── logs/                  → Logs de execução e auditoria fiscal
-├── scripts/               → Automação (PowerShell, shell scripts)
-└── pom.xml                → Reactor POM Maven principal
-```
-
----
-
-## 🧮 **Ambientes Docker**
-
-> Todos os comandos executados a partir da **raiz do projeto** (`borurio-erp-br/`).
-> Pré-requisito: criar `docker/env/.env.<ambiente>` a partir do template correspondente.
-
-### 🔹 Desenvolvimento (DEV)
-
-```bash
-# Validar configuração antes de subir
-docker compose -f docker/docker-compose.dev.yml --env-file docker/env/.env.dev config
-
-# Subir ambiente
-docker compose -f docker/docker-compose.dev.yml --env-file docker/env/.env.dev up -d --build
-```
-
-* Porta principal: **8080**
-* Certificado: `docker/certs/pfx/certificado-jcho.pfx`
-
----
-
-### 🔹 Homologação (HOM)
-
-```bash
-# Validar configuração antes de subir (não inicia containers)
-docker compose -f docker/docker-compose.hom.yml --env-file docker/env/.env.hom config
-
-# Subir ambiente HOM
-docker compose -f docker/docker-compose.hom.yml --env-file docker/env/.env.hom up -d --build
-```
-
-* Ambiente SEFAZ-SP (`tpAmb=2`)
-* Porta principal: **8081**
-* Certificado: `docker/certs/pfx/certificado-jcho.pfx`
-* Logs: `/var/log/borurio/borurio-hom.log`
-
----
-
-### 🔹 Produção (PRD)
-
-```bash
-# Validar configuração antes de subir (não inicia containers)
-docker compose -f docker/docker-compose.prd.yml --env-file docker/env/.env.prd config
-
-# Subir ambiente PRD
-docker compose -f docker/docker-compose.prd.yml --env-file docker/env/.env.prd up -d --build
-```
-
-* Ambiente SEFAZ-SP (`tpAmb=1` — produção real)
-* Porta principal: **8282**
-* Actuator: **8281**
-* Certificado: `/app/certificados/certificado-prd.pfx`
-* Logs:
-
-    * `/var/log/borurio/borurio-prd.log`
-    * `/var/log/borurio/sefaz-integration.log`
-
----
-
-## 🔐 **Segurança e Autenticação**
-
-* Autenticação via **JWT (JSON Web Token)**
-* Implementações: `AuthController`, `JwtUtil`, `JwtFilter`
-* Usuário padrão: configurável via base de dados ou variáveis de ambiente
-
-**Endpoints públicos:**
-
-```
-/auth/login
-/swagger-ui/**
-/v3/api-docs/**
-/actuator/**
-```
-
-**Endpoints protegidos:**
-Requerem header:
-
-```
-Authorization: Bearer <token>
-```
-
----
-
-## 🧲 **Integração Fiscal — SEFAZ-SP NF-e 4.00**
-
-### WebServices suportados:
-
-* `NFeAutorizacao4.asmx`
-* `NFeRetAutorizacao4.asmx`
-* `NFeStatusServico4.asmx`
-* `NFeConsultaProtocolo4.asmx`
-* `NFeInutilizacao4.asmx`
-
-### Certificados Digitais:
-
-* **Tipo:** A1 (PFX)
-* **Carregamento:** dinâmico via `CertificadoServiceImpl`
-* **Armazenamento:** `/app/certificados/`
-
-### Validação XML:
-
-Consolidada via schema oficial:
-
-```
-borurio-fiscal/src/main/resources/xsd/custom/nfe_v4.00_consolidado.xsd
-```
-
-### Logs fiscais:
-
-* Banco: `nfe_log`
-* Arquivo: `/var/log/borurio/sefaz-integration.log`
-
----
-
-## 📊 **Monitoramento e Observabilidade**
-
-* Health Check: `/actuator/health`
-* Swagger UI: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
-* OpenAPI JSON: `/v3/api-docs`
-* Logs estruturados: `logback-dev.xml` / `logback-prd.xml`
-* Jacoco Coverage: meta ≥ 80%
-
----
-
-## 🥪 **Testes**
-
-Executar todos os módulos:
-
-```powershell
-mvn clean test
-```
-
-Somente o módulo fiscal:
-
-```powershell
-mvn clean install -pl borurio-fiscal -am -DskipTests
-```
-
-Smoke Test (DEV):
-
-```bash
-curl http://localhost:8080/api/test/ping
-curl http://localhost:8080/actuator/health
-```
-
----
-
-## 🚀 **Deploy e Versionamento**
-
-| Ambiente | Descrição                             | Tag                           |
-| -------- | ------------------------------------- | ----------------------------- |
-| **DEV**  | Desenvolvimento e integração local    | `v3.5.0-dev`                  |
-| **HOM**  | Homologação SEFAZ-SP (tpAmb=2)        | `v3.5.0-homologacao-sefaz-ok` |
-| **PRD**  | Produção (tpAmb=1) com certificado A1 | `v3.5.1-producao`             |
-
----
-
-## 📚 **Relatórios Técnicos**
-
-Relatórios de progresso e validação disponíveis em:
-
-```
-/docs/report/Relatorio_Tecnico_DD-MM.md
-```
-
-Exemplos:
-
-* `Relatorio_Tecnico_06-11.md`
-* `Relatorio_Tecnico_07-11.md`
-
----
-
-## 🗾 **Próximos Passos**
-
-1. Importar Certificado A1 ICP-Brasil para emissão real NF-e
-2. Implementar cancelamento e inutilização (SEFAZ-SP)
-3. Integrar consultas de protocolo e auditoria fiscal
-4. Criar dashboard de monitoramento (API + logs SEFAZ)
-5. Testes de carga e observabilidade (Actuator + Redis)
-
----
-
-## 👤 **Autor**
-
-**Bruno Ribeiro**
-Desenvolvedor Fullstack / DevSecOps
-📍 São Paulo — Brasil
-📧 *(inserir e-mail profissional se desejar)*
-
----
-
-## 🛡️ **Licença**
-
-> Sistema de uso interno restrito.
-> Todos os direitos reservados © 2025 — **Borurio ERP Fiscal BR**
-> Repositório oficial: [github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR](https://github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR)
+O projeto foi modelado para operar com separação de ambientes.
+
+DEV
+
+Ambiente de validação técnica e desenvolvimento local:
+
+execução controlada
+Swagger / API Client
+debug e observabilidade
+validação técnica do pipeline
+HOM
+
+Ambiente destinado à homologação funcional e fiscal:
+
+validações integradas
+testes controlados
+preparação de operação
+PRD
+
+Ambiente destinado à operação real, com promoção controlada após homologação.
+
+Segurança
+
+O projeto segue uma linha de endurecimento técnico com foco em segurança aplicada ao ciclo fiscal.
+
+Medidas incorporadas na arquitetura:
+
+autenticação JWT
+proteção de endpoints fiscais
+leitura de credenciais por variável de ambiente
+certificado A1 fora do código-fonte
+proteção contra XXE
+padrão stateless
+separação por ambiente
+governança de branch principal com pull request obrigatório
+CI/CD
+
+O repositório possui automação de pipeline organizada em GitHub Actions.
+
+CI - Build e Segurança
+
+Fluxo de integração contínua voltado para:
+
+build
+testes
+validação técnica do pipeline
+verificação de segurança em escopo controlado
+CD - Homologação Manual
+
+Fluxo de deploy manual orientado ao ambiente de homologação:
+
+sem promoção automática para produção
+execução controlada
+alinhado à estratégia de homologação técnica
+Topologias arquiteturais
+
+O projeto possui um pacote arquitetural com diagramas que documentam a visão atual da solução, o fluxo fiscal e a organização dos ambientes.
+
+1. Topologia geral do sistema
+
+2. Topologia alvo funcional com motor fiscal NF-e
+
+3. Fluxo técnico de emissão NF-e / SEFAZ
+
+4. Topologia de ambientes DEV / HOM / PRD
+
+5. Topologia de segurança, certificado e comunicação fiscal
+
+6. Topologia de CI/CD, versionamento e evidências de deploy
+
+Documentação técnica
+
+O projeto possui documentação técnica complementar para apoiar entendimento arquitetural, onboarding e rastreabilidade de evolução.
+
+Estrutura documental
+docs/
+├── architecture/
+│   ├── drawio/
+│   └── exports/
+├── data/
+├── report/
+└── xml/
+Estrutura do repositório
+.github/
+borurio-app/
+borurio-core/
+borurio-fiscal/
+borurio-web/
+docker/
+docs/
+scripts/
+sql/
+Roadmap de evolução
+
+A evolução do sistema foi desenhada para ocorrer de forma incremental e controlada.
+
+Curto prazo
+consolidação do motor fiscal atual
+estabilização técnica dos fluxos centrais
+amadurecimento da documentação operacional
+refinamento do pipeline de homologação
+Médio prazo
+expansão do domínio ERP
+pedidos
+estoque / logística
+integração mais forte entre operação e emissão fiscal
+Longo prazo
+fiscal avançado
+multiempresa
+DANFE
+relatórios operacionais e gerenciais
+expansão funcional do ERP
+Observações
+
+Este repositório representa uma base arquitetural e funcional em evolução contínua, com foco em solidez técnica, separação de responsabilidades e crescimento incremental do ERP Logístico + Fiscal BR.
+
+A estratégia do projeto prioriza:
+
+consistência arquitetural
+rastreabilidade técnica
+segurança
+homologação controlada
+evolução gradual do domínio de negócio
+Autor
+
+Bruno Ribeiro
