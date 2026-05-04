@@ -205,16 +205,16 @@ public class NfeXmlBuilder {
         icmsEl.appendChild(icmssn102El);
         impostoEl.appendChild(icmsEl);
 
-        // PIS — CST 07 (Operação isenta): apenas CST é obrigatório em PISNt
+        // PIS — CST 07 (Operação isenta): elemento PISNT (maiúsculas) conforme XSD oficial SEFAZ
         Element pisEl   = doc.createElementNS(NS, "PIS");
-        Element pisNtEl = doc.createElementNS(NS, "PISNt");
+        Element pisNtEl = doc.createElementNS(NS, "PISNT");
         append(doc, pisNtEl, "CST", "07");
         pisEl.appendChild(pisNtEl);
         impostoEl.appendChild(pisEl);
 
-        // COFINS — CST 07 (Operação isenta): apenas CST é obrigatório em COFINSNt
+        // COFINS — CST 07 (Operação isenta): elemento COFINSNT (maiúsculas) conforme XSD oficial SEFAZ
         Element cofinsEl   = doc.createElementNS(NS, "COFINS");
-        Element cofinsNtEl = doc.createElementNS(NS, "COFINSNt");
+        Element cofinsNtEl = doc.createElementNS(NS, "COFINSNT");
         append(doc, cofinsNtEl, "CST", "07");
         cofinsEl.appendChild(cofinsNtEl);
         impostoEl.appendChild(cofinsEl);

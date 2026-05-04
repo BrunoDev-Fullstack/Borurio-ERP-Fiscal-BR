@@ -124,6 +124,16 @@ public class NfeXmlBuilderTest {
         assertTrue(xml.contains("<CSOSN>400</CSOSN>"), "CSOSN esperado é 400 (não tributado SN).");
         assertFalse(xml.contains("ICMS00"), "CRT=1 não deve gerar ICMS00 (regime normal).");
 
+        // versao="4.00" pertence ao <infNFe>, não ao <NFe> raiz (XSD oficial leiauteNFe_v4.00 linha 6485)
+        assertTrue(xml.contains("versao=\"4.00\""),
+                "Atributo versao=\"4.00\" deve estar presente no <infNFe>.");
+
+        // PIS/COFINS: nomes de elementos conforme XSD oficial SEFAZ (tudo maiúsculas)
+        assertTrue(xml.contains("PISNT"), "Elemento PIS não-tributado deve ser PISNT (maiúsculas), não PISNt.");
+        assertTrue(xml.contains("COFINSNT"), "Elemento COFINS não-tributado deve ser COFINSNT (maiúsculas), não COFINSNt.");
+        assertFalse(xml.contains("PISNt"), "PISNt (casing errado) não deve aparecer no XML.");
+        assertFalse(xml.contains("COFINSNt"), "COFINSNt (casing errado) não deve aparecer no XML.");
+
         // Validação XSD — guarda de regressão estrutural
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
@@ -144,4 +154,5 @@ public class NfeXmlBuilderTest {
                 "XML gerado pelo NfeXmlBuilder deve ser válido conforme nfe_v4.00_consolidado.xsd."
         );
     }
+
 }

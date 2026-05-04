@@ -9,6 +9,8 @@ import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.service.NcmService;
 import br.com.borurio.fiscal.service.NfeLogService;
 import br.com.borurio.fiscal.service.NfeOrquestradorService;
+import br.com.borurio.fiscal.service.NfeSequenciaService;
+import br.com.borurio.fiscal.utils.CpfCnpjValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,6 +51,7 @@ public class NfeGeracaoService {
     private final NfeOrquestradorService nfeOrquestradorService;
     private final NfeLogService nfeLogService;
     private final NcmService ncmService;
+    private final NfeSequenciaService sequenciaService;
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
@@ -57,21 +60,33 @@ public class NfeGeracaoService {
                              NfeXmlBuilder nfeXmlBuilder,
                              NfeOrquestradorService nfeOrquestradorService,
                              NfeLogService nfeLogService,
-                             NcmService ncmService) {
+                             NcmService ncmService,
+                             NfeSequenciaService sequenciaService) {
         this.emitente = emitente;
         this.nfeXmlBuilder = nfeXmlBuilder;
         this.nfeOrquestradorService = nfeOrquestradorService;
         this.nfeLogService = nfeLogService;
         this.ncmService = ncmService;
+        this.sequenciaService = sequenciaService;
     }
 
     public String gerar(NfeEmissaoRequest req) throws Exception {
         validarRequest(req);
 
-        String cUF    = resolverCUF(emitente.getUf());
-        String cnpj   = apenasDigitos(emitente.getCnpj());
-        String serie  = padLeft(req.getSerie(), 3);   // zero-padded for chave43 key
-        String nNF    = padLeft(req.getNumero(), 9);  // zero-padded for chave43 key
+        String cUF  = resolverCUF(emitente.getUf());
+        String cnpj = apenasDigitos(emitente.getCnpj());
+        String serie = padLeft(req.getSerie(), 3);
+
+        // Se o número não for informado, o sequenciador atribui o próximo de forma atômica.
+        String numeroStr;
+        if (req.getNumero() == null || req.getNumero().isBlank()) {
+            int proximo = sequenciaService.proximoNumero(cnpj, req.getSerie());
+            numeroStr = String.valueOf(proximo);
+            log.info("[NfeGeracao] Número auto-atribuído pelo sequenciador | serie={} | numero={}", req.getSerie(), proximo);
+        } else {
+            numeroStr = req.getNumero();
+        }
+        String nNF = padLeft(numeroStr, 9);  // zero-padded for chave43 key
         String cNF    = gerarCNF();
         String aaaMM  = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyMM"));
         String tpEmis = "1";
@@ -300,10 +315,14 @@ public class NfeGeracaoService {
     private void validarRequest(NfeEmissaoRequest req) {
         if (req.getSerie() == null || req.getSerie().isBlank())
             throw new IllegalArgumentException("Série da NF-e é obrigatória.");
-        if (req.getNumero() == null || req.getNumero().isBlank())
-            throw new IllegalArgumentException("Número da NF-e é obrigatório.");
+        // numero é opcional — se ausente, o sequenciador atribui automaticamente
+        if (req.getNumero() != null && !req.getNumero().isBlank()) {
+            if (!req.getNumero().matches("\\d{1,9}"))
+                throw new IllegalArgumentException("Número da NF-e deve conter entre 1 e 9 dígitos numéricos.");
+        }
         if (req.getDestCnpjCpf() == null || req.getDestCnpjCpf().isBlank())
             throw new IllegalArgumentException("CNPJ/CPF do destinatário é obrigatório.");
+        CpfCnpjValidator.validar(req.getDestCnpjCpf());
         if (req.getDestRazaoSocial() == null || req.getDestRazaoSocial().isBlank())
             throw new IllegalArgumentException("Razão social do destinatário é obrigatória.");
         if (req.getItens() == null || req.getItens().isEmpty())
