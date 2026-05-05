@@ -4,6 +4,7 @@ import br.com.borurio.fiscal.service.impl.CertificadoServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static br.com.borurio.fiscal.support.TestResourceSupport.assumeTestCertificateAvailable;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,6 +12,8 @@ public class AssinaturaXmlServiceTest {
 
     @Test
     void deveAssinarXmlNFe() throws Exception {
+
+        assumeTestCertificateAvailable();
 
         CertificadoServiceImpl certificadoService = new CertificadoServiceImpl();
 

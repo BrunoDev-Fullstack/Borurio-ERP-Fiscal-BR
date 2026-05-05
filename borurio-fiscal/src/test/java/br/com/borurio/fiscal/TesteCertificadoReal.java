@@ -7,12 +7,15 @@ import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.util.Enumeration;
 
+import static br.com.borurio.fiscal.support.TestResourceSupport.assumeTestCertificateAvailable;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class TesteCertificadoReal {
 
     @Test
     void deveCarregarCertificadoPfx() throws Exception {
+
+        assumeTestCertificateAvailable();
 
         ClassPathResource resource = new ClassPathResource("cert/test-cert.pfx");
         assertTrue(resource.exists(),

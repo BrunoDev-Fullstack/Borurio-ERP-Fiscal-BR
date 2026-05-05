@@ -6,12 +6,15 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.net.ssl.SSLContext;
 
+import static br.com.borurio.fiscal.support.TestResourceSupport.assumeTestCertificateAvailable;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class CertificadoServiceImplTest {
 
     @Test
     void deveCarregarCertificadoEAbrirSSLContext() {
+
+        assumeTestCertificateAvailable();
 
         CertificadoServiceImpl service = new CertificadoServiceImpl();
 
