@@ -84,6 +84,7 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
         try {
             String idLote  = gerarIdLote();
             String envelope = criarEnvelopeEnviNFe(xmlAssinado, idLote, ambiente);
+
             String resposta = enviarSoap(urlAutorizacao, envelope);
 
             logFiscal.setStatus("SUCCESS");

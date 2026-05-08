@@ -84,7 +84,13 @@ public class NfeXmlBuilder {
                 emitEl.appendChild(enderEmitEl);
             }
 
-            append(doc, emitEl, "IE",  emit.getIe());
+            // TIe aceita [0-9]{2,14} ou "ISENTO" — IE é obrigatório na sequência XSD do emit
+            String emitIe = emit.getIe();
+            if (emitIe != null && emitIe.matches("[0-9]{2,14}")) {
+                append(doc, emitEl, "IE", emitIe);
+            } else {
+                append(doc, emitEl, "IE", "ISENTO");
+            }
             append(doc, emitEl, "CRT", emit.getCrt());
 
             infEl.appendChild(emitEl);
@@ -136,7 +142,7 @@ public class NfeXmlBuilder {
             Element enderDestEl = doc.createElementNS(NS, "enderDest");
             append(doc, enderDestEl, "xLgr",    end.getXLgr());
             append(doc, enderDestEl, "nro",     end.getNro());
-            append(doc, enderDestEl, "xCompl",  end.getXCompl());
+            append(doc, enderDestEl, "xCpl",    end.getXCpl());
             append(doc, enderDestEl, "xBairro", end.getXBairro());
             append(doc, enderDestEl, "cMun",    end.getCMun());
             append(doc, enderDestEl, "xMun",    end.getXMun());
@@ -272,6 +278,7 @@ public class NfeXmlBuilder {
         Element pagEl    = doc.createElementNS(NS, "pag");
         Element detPagEl = doc.createElementNS(NS, "detPag");
 
+        append(doc, detPagEl, "indPag", "0");
         append(doc, detPagEl, "tPag", "01");
         append(doc, detPagEl, "vPag", total.getVNF());
 

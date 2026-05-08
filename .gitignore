@@ -128,6 +128,10 @@ application-test-local.yml
 # DEBUG / EXPERIMENTOS (CRÍTICO PARA LIMPEZA DO REPO)
 ###############################################################################
 borurio-fiscal/src/main/java/br/com/borurio/fiscal/debug/
+nfe_hom_*.xml
+nfe_assinada.xml
+*nfe_hom_envio*
+*nfe_hom_retorno*
 
 ###############################################################################
 # DOCUMENTOS LOCAIS / APOIO (NÃO VERSIONAR)

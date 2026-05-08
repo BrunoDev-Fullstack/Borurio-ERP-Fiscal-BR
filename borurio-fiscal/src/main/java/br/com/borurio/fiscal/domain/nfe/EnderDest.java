@@ -4,7 +4,7 @@ public class EnderDest {
 
     private String xLgr;
     private String nro;
-    private String xCompl;
+    private String xCpl;
     private String xBairro;
     private String cMun;
     private String xMun;
@@ -19,8 +19,8 @@ public class EnderDest {
     public String getNro()   { return nro; }
     public void setNro(String nro) { this.nro = nro; }
 
-    public String getXCompl() { return xCompl; }
-    public void setXCompl(String xCompl) { this.xCompl = xCompl; }
+    public String getXCpl() { return xCpl; }
+    public void setXCpl(String xCpl) { this.xCpl = xCpl; }
 
     public String getXBairro() { return xBairro; }
     public void setXBairro(String xBairro) { this.xBairro = xBairro; }

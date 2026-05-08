@@ -27,10 +27,11 @@ public class AssinaturaXmlService {
 
     private static final Logger log = LoggerFactory.getLogger(AssinaturaXmlService.class);
 
-    // Algoritmos exigidos pela NF-e 4.00
-    private static final String C14N_EXCLUSIVO = "http://www.w3.org/2001/10/xml-exc-c14n#";
-    private static final String DIGEST_SHA256 = "http://www.w3.org/2001/04/xmlenc#sha256";
-    private static final String SIGN_RSA_SHA256 = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+    // Algoritmos exigidos pela NF-e 4.00 (NT 2019.001)
+    private static final String C14N_INCLUSIVO   = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+    private static final String C14N_EXCLUSIVO   = "http://www.w3.org/2001/10/xml-exc-c14n#";
+    private static final String DIGEST_SHA256    = "http://www.w3.org/2001/04/xmlenc#sha256";
+    private static final String SIGN_RSA_SHA256  = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
 
     private final CertificadoService certificadoService;
 
@@ -84,7 +85,7 @@ public class AssinaturaXmlService {
 
         List<Transform> transforms = new ArrayList<>();
         transforms.add(sigFactory.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null));
-        transforms.add(sigFactory.newTransform(C14N_EXCLUSIVO, (TransformParameterSpec) null));
+        transforms.add(sigFactory.newTransform(C14N_INCLUSIVO, (TransformParameterSpec) null));
 
         Reference reference = sigFactory.newReference(
                 "#" + id,
@@ -92,7 +93,7 @@ public class AssinaturaXmlService {
                 transforms, null, null);
 
         SignedInfo signedInfo = sigFactory.newSignedInfo(
-                sigFactory.newCanonicalizationMethod(C14N_EXCLUSIVO, (C14NMethodParameterSpec) null),
+                sigFactory.newCanonicalizationMethod(C14N_INCLUSIVO, (C14NMethodParameterSpec) null),
                 sigFactory.newSignatureMethod(SIGN_RSA_SHA256, null),
                 Collections.singletonList(reference));
 

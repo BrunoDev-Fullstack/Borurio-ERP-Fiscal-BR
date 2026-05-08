@@ -51,15 +51,20 @@ public class NcmServiceImpl implements NcmService {
             int count = 0;
 
             for (int i = 1; i < linhas.size(); i++) {
-                String[] colunas = linhas.get(i).split(";");
+                String linha = linhas.get(i);
+                // CSV uses comma delimiter with optional double-quote wrapping
+                String[] colunas = linha.split(",", -1);
 
                 if (colunas.length >= 2) {
-                    String codigo = colunas[0].trim();
-                    String descricao = colunas[1].trim();
+                    // Remove BOM, surrounding quotes and whitespace; strip dots for SEFAZ format
+                    String codigo    = colunas[0].replaceAll("[\"\\s﻿]", "").replace(".", "");
+                    String descricao = colunas[1].replaceAll("^\"|\"$", "").trim();
+
+                    if (codigo.isEmpty()) continue;
 
                     Ncm ncm = new Ncm();
                     ncm.setCodigo(codigo);
-                    ncm.setDescricao(descricao);
+                    ncm.setDescricao(descricao.length() > 500 ? descricao.substring(0, 500) : descricao);
 
                     ncmMapper.upsertNcm(ncm);
                     count++;

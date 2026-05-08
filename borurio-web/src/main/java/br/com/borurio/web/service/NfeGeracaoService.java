@@ -5,10 +5,13 @@ import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.domain.nfe.*;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
+import br.com.borurio.fiscal.dto.NfeSefazRetorno;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.service.NcmService;
+import br.com.borurio.fiscal.service.NfeDocumentoService;
 import br.com.borurio.fiscal.service.NfeLogService;
 import br.com.borurio.fiscal.service.NfeOrquestradorService;
+import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
 import br.com.borurio.fiscal.utils.CpfCnpjValidator;
 import org.slf4j.Logger;
@@ -52,6 +55,8 @@ public class NfeGeracaoService {
     private final NfeLogService nfeLogService;
     private final NcmService ncmService;
     private final NfeSequenciaService sequenciaService;
+    private final NfeSefazRetornoParser retornoParser;
+    private final NfeDocumentoService documentoService;
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
@@ -61,13 +66,17 @@ public class NfeGeracaoService {
                              NfeOrquestradorService nfeOrquestradorService,
                              NfeLogService nfeLogService,
                              NcmService ncmService,
-                             NfeSequenciaService sequenciaService) {
+                             NfeSequenciaService sequenciaService,
+                             NfeSefazRetornoParser retornoParser,
+                             NfeDocumentoService documentoService) {
         this.emitente = emitente;
         this.nfeXmlBuilder = nfeXmlBuilder;
         this.nfeOrquestradorService = nfeOrquestradorService;
         this.nfeLogService = nfeLogService;
         this.ncmService = ncmService;
         this.sequenciaService = sequenciaService;
+        this.retornoParser = retornoParser;
+        this.documentoService = documentoService;
     }
 
     public String gerar(NfeEmissaoRequest req) throws Exception {
@@ -119,6 +128,20 @@ public class NfeGeracaoService {
             String resposta = nfeOrquestradorService.processar(xml, cnpj);
             registrarLog(chave, cnpj, "TRANSMISSAO_SEFAZ", "SUCCESS",
                     "NF-e gerada e transmitida via /api/fiscal/nfe/gerar", xml, resposta);
+
+            // Fase 4: parsear retorno SEFAZ e persistir estado do documento
+            NfeSefazRetorno retorno = retornoParser.parse(resposta);
+            BigDecimal valorTotal = req.getItens().stream()
+                    .map(NfeEmissaoItem::getValorTotal)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            documentoService.salvarComRetorno(
+                    chave, nNFXml, serieXml, cnpj,
+                    apenasDigitos(req.getDestCnpjCpf()), req.getDestRazaoSocial(),
+                    valorTotal, tpAmb, LocalDateTime.now(), xml, retorno);
+
+            log.info("[NfeGeracao] cStat={} | xMotivo={} | nProt={} | chave={}",
+                    retorno.getCStat(), retorno.getXMotivo(), retorno.getNProt(), chave);
+
             return resposta;
         } catch (Exception e) {
             registrarLog(chave, cnpj, "ERRO_TRANSMISSAO", "ERROR",
@@ -208,7 +231,7 @@ public class NfeGeracaoService {
             EnderDest ender = new EnderDest();
             ender.setXLgr(req.getDestLogradouro());
             ender.setNro(req.getDestNumero() != null ? req.getDestNumero() : "SN");
-            ender.setXCompl(req.getDestComplemento());
+            ender.setXCpl(req.getDestComplemento());
             ender.setXBairro(req.getDestBairro());
             ender.setCMun(req.getDestCodigoMunicipio());
             ender.setXMun(req.getDestMunicipio());
