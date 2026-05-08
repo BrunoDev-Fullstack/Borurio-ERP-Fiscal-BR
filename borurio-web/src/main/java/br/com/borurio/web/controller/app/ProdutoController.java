@@ -1,5 +1,6 @@
 package br.com.borurio.web.controller.app;
 
+import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Produto;
 import br.com.borurio.app.service.ProdutoService;
 import br.com.borurio.core.mvc.api.Result;
@@ -57,6 +58,7 @@ public class ProdutoController {
     @Operation(summary = "Cadastra novo produto")
     public Result<?> salvar(@RequestBody Produto produto) {
         try {
+            produto.setEmpresaId(EmpresaContextHolder.get());
             return ResultUtil.success(produtoService.salvar(produto));
         } catch (IllegalArgumentException e) {
             return ResultUtil.error(e.getMessage());

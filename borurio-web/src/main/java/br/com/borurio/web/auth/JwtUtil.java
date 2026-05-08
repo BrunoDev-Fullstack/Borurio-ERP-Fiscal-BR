@@ -77,15 +77,35 @@ public class JwtUtil {
     }
 
     public String generateToken(String username) {
+        return generateToken(username, null);
+    }
+
+    public String generateToken(String username, Long empresaId) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expirationTime);
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .setSubject(username)
                 .setIssuedAt(now)
-                .setExpiration(expiry)
-                .signWith(getSignKey(), SignatureAlgorithm.HS256)
-                .compact();
+                .setExpiration(expiry);
+
+        if (empresaId != null) {
+            builder.claim("eid", empresaId);
+        }
+
+        return builder.signWith(getSignKey(), SignatureAlgorithm.HS256).compact();
+    }
+
+    public Long extractEmpresaId(String token) {
+        try {
+            Object eid = extractClaim(token, claims -> claims.get("eid"));
+            if (eid == null) return null;
+            if (eid instanceof Long l) return l;
+            if (eid instanceof Integer i) return i.longValue();
+            return Long.parseLong(eid.toString());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public boolean validateToken(String token, String username) {

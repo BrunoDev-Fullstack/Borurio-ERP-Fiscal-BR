@@ -52,6 +52,7 @@ public class ProdutoServiceImpl implements ProdutoService {
             throw new IllegalArgumentException("Já existe um produto com o código: " + produto.getCodigo());
         }
         produto.setEstado(1);
+        aplicarDefaultsFiscais(produto);
         produtoMapper.inserir(produto);
         return produto;
     }
@@ -68,6 +69,7 @@ public class ProdutoServiceImpl implements ProdutoService {
         validar(produto);
         produto.setId(id);
         produto.setEstado(existente.getEstado());
+        aplicarDefaultsFiscais(produto);
         produtoMapper.atualizar(produto);
         return produtoMapper.buscarPorId(id);
     }
@@ -76,6 +78,12 @@ public class ProdutoServiceImpl implements ProdutoService {
     public void desativar(Long id) {
         buscarPorId(id);
         produtoMapper.desativar(id);
+    }
+
+    private void aplicarDefaultsFiscais(Produto p) {
+        if (p.getOrigem() == null) p.setOrigem(0);
+        if (p.getCsosn() == null || p.getCsosn().isBlank()) p.setCsosn("400");
+        if (p.getEstoque() == null) p.setEstoque(java.math.BigDecimal.ZERO);
     }
 
     private void validar(Produto p) {

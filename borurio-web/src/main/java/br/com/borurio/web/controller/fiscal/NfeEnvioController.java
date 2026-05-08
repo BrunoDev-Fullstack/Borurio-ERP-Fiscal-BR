@@ -4,6 +4,7 @@ import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
+import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.service.NfeOrquestradorService;
 import br.com.borurio.fiscal.service.NfeTransmitService;
 import br.com.borurio.web.service.NfeGeracaoService;
@@ -72,8 +73,8 @@ public class NfeEnvioController {
         log.info("[NF-e] Geração solicitada | dest={} | itens={}",
                 request.getDestCnpjCpf(), request.getItens() != null ? request.getItens().size() : 0);
         try {
-            String resposta = nfeGeracaoService.gerar(request);
-            return ResultUtil.success(resposta);
+            NfeGeracaoResult result = nfeGeracaoService.gerar(request);
+            return ResultUtil.success(result.getSoapRetorno());
         } catch (IllegalArgumentException e) {
             log.warn("[NF-e] Dados inválidos para geração | erro={}", e.getMessage());
             return ResultUtil.error(e.getMessage());

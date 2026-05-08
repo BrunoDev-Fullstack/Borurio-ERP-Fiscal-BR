@@ -2,27 +2,24 @@ package br.com.borurio.fiscal.domain.nfe;
 
 public class Det {
 
-    // Número do item (1, 2, 3...)
     private int nItem;
-
-    // Produto do item
     private Produto prod;
 
-    // getters/setters
+    /** Origem da mercadoria: 0=Nacional, 1–8=Importada (AT 1/2013). */
+    private String orig = "0";
 
-    public int getNItem() {
-        return nItem;
-    }
+    /** CSOSN Simples Nacional (CRT=1). Determina o grupo ICMSSN no XML. */
+    private String csosn = "400";
 
-    public void setNItem(int nItem) {
-        this.nItem = nItem;
-    }
+    public int getNItem() { return nItem; }
+    public void setNItem(int nItem) { this.nItem = nItem; }
 
-    public Produto getProd() {
-        return prod;
-    }
+    public Produto getProd() { return prod; }
+    public void setProd(Produto prod) { this.prod = prod; }
 
-    public void setProd(Produto prod) {
-        this.prod = prod;
-    }
+    public String getOrig() { return orig; }
+    public void setOrig(String orig) { this.orig = orig != null ? orig : "0"; }
+
+    public String getCsosn() { return csosn; }
+    public void setCsosn(String csosn) { this.csosn = csosn != null ? csosn : "400"; }
 }

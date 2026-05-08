@@ -29,7 +29,7 @@ public interface DbUserMapper {
      *
      * @return lista de usuários.
      */
-    @Select("SELECT id, nome, email, senha, ativo, data_criacao AS dataCriacao, data_atualizacao AS dataAtualizacao FROM db_user")
+    @Select("SELECT id, empresa_id AS empresaId, nome, email, senha, ativo, data_criacao AS dataCriacao, data_atualizacao AS dataAtualizacao FROM db_user")
     List<DbUser> findAll();
 
     /**
@@ -38,7 +38,7 @@ public interface DbUserMapper {
      * @param email e-mail do usuário.
      * @return objeto DbUser correspondente ou null se não encontrado.
      */
-    @Select("SELECT id, nome, email, senha, ativo, data_criacao AS dataCriacao, data_atualizacao AS dataAtualizacao FROM db_user WHERE email = #{email}")
+    @Select("SELECT id, empresa_id AS empresaId, nome, email, senha, ativo, data_criacao AS dataCriacao, data_atualizacao AS dataAtualizacao FROM db_user WHERE email = #{email}")
     DbUser findByEmail(@Param("email") String email);
 
     /**
@@ -47,10 +47,14 @@ public interface DbUserMapper {
      * @param user entidade DbUser a ser persistida.
      */
     @Insert("""
-            INSERT INTO db_user (nome, email, senha, ativo, data_criacao, data_atualizacao)
-            VALUES (#{nome}, #{email}, #{senha}, #{ativo}, NOW(), NOW())
+            INSERT INTO db_user (empresa_id, nome, email, senha, ativo, data_criacao, data_atualizacao)
+            VALUES (#{empresaId, jdbcType=BIGINT}, #{nome}, #{email}, #{senha}, #{ativo}, NOW(), NOW())
             """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
     void insert(DbUser user);
+
+    @Select("SELECT COUNT(*) FROM db_user")
+    int count();
 
     /**
      * Atualiza os dados de um usuário existente.

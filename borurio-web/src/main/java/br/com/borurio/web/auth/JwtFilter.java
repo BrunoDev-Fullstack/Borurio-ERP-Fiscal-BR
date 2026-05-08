@@ -1,5 +1,6 @@
 package br.com.borurio.web.auth;
 
+import br.com.borurio.app.context.EmpresaContextHolder;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -100,7 +101,10 @@ public class JwtFilter extends OncePerRequestFilter {
 
                     SecurityContextHolder.getContext().setAuthentication(authToken);
 
-                    log.info("Usuário autenticado: {}", username);
+                    Long empresaId = jwtUtil.extractEmpresaId(token);
+                    EmpresaContextHolder.set(empresaId);
+
+                    log.info("Usuário autenticado: {} | empresaId={}", username, empresaId);
 
                 } else {
                     log.warn("Token inválido para usuário: {}", username);
@@ -112,6 +116,10 @@ public class JwtFilter extends OncePerRequestFilter {
             SecurityContextHolder.clearContext();
         }
 
-        chain.doFilter(request, response);
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            EmpresaContextHolder.clear();
+        }
     }
 }

@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 public class Produto {
 
     private Long id;
+    private Long empresaId;
 
     /** Código interno do produto. Mapeado para <cProd> na NF-e. */
     private String codigo;
@@ -29,6 +30,15 @@ public class Produto {
 
     /** 1 = ativo, 0 = inativo. */
     private Integer estado;
+
+    /** Origem da mercadoria: 0=Nacional, 1–8=Importada (AT 1/2013). */
+    private Integer origem;
+
+    /** CSOSN para Simples Nacional (CRT=1): 102,103,300,400,500,900… */
+    private String csosn;
+
+    /** Quantidade em estoque (baixa após NF-e autorizada). */
+    private java.math.BigDecimal estoque;
 
     private LocalDateTime criadoEm;
     private LocalDateTime atualizadoEm;

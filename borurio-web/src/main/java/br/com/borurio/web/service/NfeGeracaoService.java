@@ -1,10 +1,12 @@
 package br.com.borurio.web.service;
 
+import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.fiscal.builder.NfeXmlBuilder;
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.domain.nfe.*;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
+import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.dto.NfeSefazRetorno;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.service.NcmService;
@@ -79,11 +81,20 @@ public class NfeGeracaoService {
         this.documentoService = documentoService;
     }
 
-    public String gerar(NfeEmissaoRequest req) throws Exception {
+    public NfeGeracaoResult gerar(NfeEmissaoRequest req) throws Exception {
+        return gerar(req, null);
+    }
+
+    public NfeGeracaoResult gerar(NfeEmissaoRequest req, Empresa empresa) throws Exception {
         validarRequest(req);
 
-        String cUF  = resolverCUF(emitente.getUf());
-        String cnpj = apenasDigitos(emitente.getCnpj());
+        String ufEmitente   = empresa != null && empresa.getUf() != null
+                ? empresa.getUf() : emitente.getUf();
+        String cnpjEmitente = empresa != null && empresa.getCnpj() != null
+                ? empresa.getCnpj().replaceAll("\\D", "") : apenasDigitos(emitente.getCnpj());
+
+        String cUF  = resolverCUF(ufEmitente);
+        String cnpj = cnpjEmitente;
         String serie = padLeft(req.getSerie(), 3);
 
         // Se o número não for informado, o sequenciador atribui o próximo de forma atômica.
@@ -112,8 +123,8 @@ public class NfeGeracaoService {
 
         InfNFe inf = new InfNFe();
         inf.setId("NFe" + chave);
-        inf.setIde(montarIde(req, cUF, cNF, nNFXml, serieXml, cDV));
-        inf.setEmit(montarEmit());
+        inf.setIde(montarIde(req, cUF, cNF, nNFXml, serieXml, cDV, ufEmitente));
+        inf.setEmit(montarEmit(empresa));
         inf.setDest(montarDest(req));
         inf.setDet(montarDet(req));
         inf.setTotal(montarTotal(req));
@@ -142,7 +153,7 @@ public class NfeGeracaoService {
             log.info("[NfeGeracao] cStat={} | xMotivo={} | nProt={} | chave={}",
                     retorno.getCStat(), retorno.getXMotivo(), retorno.getNProt(), chave);
 
-            return resposta;
+            return new NfeGeracaoResult(chave, resposta);
         } catch (Exception e) {
             registrarLog(chave, cnpj, "ERRO_TRANSMISSAO", "ERROR",
                     e.getMessage(), xml, null);
@@ -174,7 +185,7 @@ public class NfeGeracaoService {
     // -------------------------------------------------------------------------
 
     private Ide montarIde(NfeEmissaoRequest req, String cUF, String cNF,
-                          String nNF, String serie, String cDV) {
+                          String nNF, String serie, String cDV, String ufEmitente) {
         Ide ide = new Ide();
         ide.setCUF(cUF);
         ide.setCNF(cNF);
@@ -183,7 +194,7 @@ public class NfeGeracaoService {
         ide.setNNF(nNF);
         ide.setDhEmi(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) + "-03:00");
         ide.setTpNF("1");
-        ide.setIdDest(resolverIdDest(req.getDestUf()));
+        ide.setIdDest(resolverIdDest(req.getDestUf(), ufEmitente));
         ide.setCMunFG(emitente.getCodigoMunicipio());
         ide.setTpImp("1");
         ide.setTpEmis("1");
@@ -197,25 +208,46 @@ public class NfeGeracaoService {
         return ide;
     }
 
-    private Emit montarEmit() {
+    private Emit montarEmit(Empresa empresa) {
         Emit emit = new Emit();
-        emit.setCnpj(apenasDigitos(emitente.getCnpj()));
-        emit.setXNome(emitente.getRazaoSocial());
-        emit.setXFant(emitente.getNomeFantasia());
-        emit.setIe(emitente.getIe());
-        emit.setCrt(emitente.getCrt());
 
-        EnderEmit ender = new EnderEmit();
-        ender.setXLgr(emitente.getLogradouro());
-        ender.setNro(emitente.getNumero());
-        ender.setXBairro(emitente.getBairro());
-        ender.setCMun(emitente.getCodigoMunicipio());
-        ender.setXMun(emitente.getMunicipio());
-        ender.setUF(emitente.getUf());
-        ender.setCEP(apenasDigitos(emitente.getCep()));
-        ender.setCPais("1058");
-        ender.setXPais("Brasil");
-        emit.setEnderEmit(ender);
+        if (empresa != null) {
+            emit.setCnpj(apenasDigitos(empresa.getCnpj()));
+            emit.setXNome(empresa.getRazaoSocial());
+            emit.setXFant(empresa.getNomeFantasia());
+            emit.setIe(empresa.getIe());
+            emit.setCrt(empresa.getCrt() != null ? empresa.getCrt() : "1");
+
+            EnderEmit ender = new EnderEmit();
+            ender.setXLgr(empresa.getLogradouro());
+            ender.setNro(empresa.getNumero());
+            ender.setXBairro(empresa.getBairro());
+            ender.setCMun(empresa.getCodigoMunicipio());
+            ender.setXMun(empresa.getMunicipio());
+            ender.setUF(empresa.getUf());
+            ender.setCEP(apenasDigitos(empresa.getCep()));
+            ender.setCPais("1058");
+            ender.setXPais("Brasil");
+            emit.setEnderEmit(ender);
+        } else {
+            emit.setCnpj(apenasDigitos(emitente.getCnpj()));
+            emit.setXNome(emitente.getRazaoSocial());
+            emit.setXFant(emitente.getNomeFantasia());
+            emit.setIe(emitente.getIe());
+            emit.setCrt(emitente.getCrt());
+
+            EnderEmit ender = new EnderEmit();
+            ender.setXLgr(emitente.getLogradouro());
+            ender.setNro(emitente.getNumero());
+            ender.setXBairro(emitente.getBairro());
+            ender.setCMun(emitente.getCodigoMunicipio());
+            ender.setXMun(emitente.getMunicipio());
+            ender.setUF(emitente.getUf());
+            ender.setCEP(apenasDigitos(emitente.getCep()));
+            ender.setCPais("1058");
+            ender.setXPais("Brasil");
+            emit.setEnderEmit(ender);
+        }
 
         return emit;
     }
@@ -262,6 +294,8 @@ public class NfeGeracaoService {
             Det det = new Det();
             det.setNItem(nItem++);
             det.setProd(prod);
+            det.setOrig(item.getOrigem());
+            det.setCsosn(item.getCsosn());
             lista.add(det);
         }
         return lista;
@@ -288,9 +322,9 @@ public class NfeGeracaoService {
         return cuf;
     }
 
-    private String resolverIdDest(String destUf) {
+    private String resolverIdDest(String destUf, String ufEmitente) {
         if (destUf == null || destUf.isBlank()) return "1";
-        return destUf.equalsIgnoreCase(emitente.getUf()) ? "1" : "2";
+        return destUf.equalsIgnoreCase(ufEmitente != null ? ufEmitente : emitente.getUf()) ? "1" : "2";
     }
 
     private String resolverIndIEDest(String ie) {

@@ -12,6 +12,12 @@ public class NfeEmissaoItem {
     private BigDecimal quantidade;
     private BigDecimal valorUnitario;
 
+    /** Origem da mercadoria: 0=Nacional, 1–8=Importada. Default "0". */
+    private String origem = "0";
+
+    /** CSOSN Simples Nacional. Default "400" (não tributada). */
+    private String csosn = "400";
+
     public NfeEmissaoItem() {}
 
     public NfeEmissaoItem(String codigoProduto, String descricao, String ncm,
@@ -51,4 +57,10 @@ public class NfeEmissaoItem {
 
     public BigDecimal getValorUnitario() { return valorUnitario; }
     public void setValorUnitario(BigDecimal valorUnitario) { this.valorUnitario = valorUnitario; }
+
+    public String getOrigem() { return origem; }
+    public void setOrigem(String origem) { this.origem = origem != null ? origem : "0"; }
+
+    public String getCsosn() { return csosn; }
+    public void setCsosn(String csosn) { this.csosn = csosn != null ? csosn : "400"; }
 }

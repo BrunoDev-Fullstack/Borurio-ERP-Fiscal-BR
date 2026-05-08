@@ -189,26 +189,30 @@ public class NfeXmlBuilder {
         append(doc, prodEl, "indTot",   "1");
 
         detEl.appendChild(prodEl);
-        detEl.appendChild(buildImposto(doc));
+        detEl.appendChild(buildImposto(doc, det));
 
         return detEl;
     }
 
     // -----------------------------------------------------------------
-    // IMPOSTO — ICMSSN400 (Simples Nacional sem tributação) + PISNt + COFINSNt
-    // CRT=1: obrigatório usar ICMSSN (CSOSN), nunca ICMSxx (CST).
+    // IMPOSTO — Simples Nacional (CRT=1): ICMSSN + PISNT + COFINSNT
+    // orig e csosn vêm do Det (produto cadastrado).
+    // CSOSN 101,102,103,300,400 → ICMSSN102
+    // CSOSN 500               → ICMSSN500 (crédito presumido)
+    // CSOSN 900               → ICMSSN900 (tributado/isento/outro)
     // -----------------------------------------------------------------
-    private Element buildImposto(Document doc) {
+    private Element buildImposto(Document doc, Det det) {
+        String orig  = det.getOrig();
+        String csosn = det.getCsosn();
+
         Element impostoEl = doc.createElementNS(NS, "imposto");
 
-        // ICMSSN102 — CSOSN 400: Não tributada pelo Simples Nacional (v.2.0)
-        // No XSD oficial SEFAZ, CSOSN 102/103/300/400 usam o elemento ICMSSN102.
-        // O elemento ICMSSN400 não existe no leiaute NF-e 4.00.
-        Element icmsEl      = doc.createElementNS(NS, "ICMS");
-        Element icmssn102El = doc.createElementNS(NS, "ICMSSN102");
-        append(doc, icmssn102El, "orig",  "0");
-        append(doc, icmssn102El, "CSOSN", "400");
-        icmsEl.appendChild(icmssn102El);
+        Element icmsEl = doc.createElementNS(NS, "ICMS");
+        String icmssn = resolverElementoIcmssn(csosn);
+        Element icmssnEl = doc.createElementNS(NS, icmssn);
+        append(doc, icmssnEl, "orig",  orig);
+        append(doc, icmssnEl, "CSOSN", csosn);
+        icmsEl.appendChild(icmssnEl);
         impostoEl.appendChild(icmsEl);
 
         // PIS — CST 07 (Operação isenta): elemento PISNT (maiúsculas) conforme XSD oficial SEFAZ
@@ -289,6 +293,22 @@ public class NfeXmlBuilder {
     // -----------------------------------------------------------------
     // Helper
     // -----------------------------------------------------------------
+
+    /**
+     * Mapeia CSOSN para o elemento ICMSSN correto do leiaute NF-e 4.00:
+     *   ICMSSN102 → CSOSN 101,102,103,300,400
+     *   ICMSSN500 → CSOSN 500 (crédito presumido pelo STR)
+     *   ICMSSN900 → CSOSN 900 (outros)
+     */
+    private String resolverElementoIcmssn(String csosn) {
+        if (csosn == null) return "ICMSSN102";
+        return switch (csosn) {
+            case "500"        -> "ICMSSN500";
+            case "900"        -> "ICMSSN900";
+            default           -> "ICMSSN102";
+        };
+    }
+
     private void append(Document doc, Element parent, String tag, String value) {
         if (value == null || value.isBlank()) return;
 
