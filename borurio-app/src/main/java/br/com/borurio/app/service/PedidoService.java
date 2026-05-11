@@ -2,6 +2,7 @@ package br.com.borurio.app.service;
 
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
+import br.com.borurio.core.mvc.api.PageResponse;
 
 import java.util.List;
 
@@ -20,6 +21,8 @@ public interface PedidoService {
     List<Pedido> listarTodos();
 
     List<Pedido> listarPorEmpresa(Long empresaId);
+
+    PageResponse<Pedido> listarPaginado(Long empresaId, int page, int size);
 
     void atualizarStatus(Long id, String status, String chaveNfe);
 }

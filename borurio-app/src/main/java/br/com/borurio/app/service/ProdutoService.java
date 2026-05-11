@@ -1,6 +1,7 @@
 package br.com.borurio.app.service;
 
 import br.com.borurio.app.entity.Produto;
+import br.com.borurio.core.mvc.api.PageResponse;
 
 import java.util.List;
 
@@ -25,4 +26,6 @@ public interface ProdutoService {
     Produto atualizar(Long id, Produto produto);
 
     void desativar(Long id);
+
+    PageResponse<Produto> listarPaginado(Long empresaId, int page, int size);
 }

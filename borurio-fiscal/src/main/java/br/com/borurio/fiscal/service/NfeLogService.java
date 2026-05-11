@@ -1,5 +1,6 @@
 package br.com.borurio.fiscal.service;
 
+import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.fiscal.entity.NfeLog;
 import java.util.List;
 
@@ -57,4 +58,6 @@ public interface NfeLogService {
      * @return total de registros encontrados.
      */
     int contarEventos(String chaveNfe, String tipoEvento);
+
+    PageResponse<NfeLog> listarPaginado(Long empresaId, int page, int size);
 }

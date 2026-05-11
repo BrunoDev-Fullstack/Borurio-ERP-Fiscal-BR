@@ -37,6 +37,18 @@ public interface ProdutoMapper {
     @Select(SELECT_COLUMNS + "WHERE empresa_id = #{empresaId} AND estado = 1 ORDER BY descricao")
     List<Produto> listarAtivosPorEmpresa(@Param("empresaId") Long empresaId);
 
+    @Select(SELECT_COLUMNS + "ORDER BY descricao LIMIT #{limit} OFFSET #{offset}")
+    List<Produto> listarTodosPaginado(@Param("limit") int limit, @Param("offset") int offset);
+
+    @Select("SELECT COUNT(*) FROM produto")
+    long countTodos();
+
+    @Select(SELECT_COLUMNS + "WHERE empresa_id = #{empresaId} ORDER BY descricao LIMIT #{limit} OFFSET #{offset}")
+    List<Produto> listarPorEmpresaPaginado(@Param("empresaId") Long empresaId, @Param("limit") int limit, @Param("offset") int offset);
+
+    @Select("SELECT COUNT(*) FROM produto WHERE empresa_id = #{empresaId}")
+    long countPorEmpresa(@Param("empresaId") Long empresaId);
+
     @Select(SELECT_COLUMNS + "WHERE id = #{id}")
     Produto buscarPorId(Long id);
 

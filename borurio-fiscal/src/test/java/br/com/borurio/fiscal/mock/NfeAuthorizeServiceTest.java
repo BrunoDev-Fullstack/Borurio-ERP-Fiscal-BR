@@ -91,6 +91,11 @@ public class NfeAuthorizeServiceTest {
                 public int contarEventos(String chaveNfe, String tipoEvento) {
                     return 0;
                 }
+
+                @Override
+                public br.com.borurio.core.mvc.api.PageResponse<NfeLog> listarPaginado(Long empresaId, int page, int size) {
+                    return br.com.borurio.core.mvc.api.PageResponse.of(Collections.emptyList(), page, size, 0L);
+                }
             };
         }
 

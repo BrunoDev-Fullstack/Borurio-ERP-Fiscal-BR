@@ -3,10 +3,12 @@ package br.com.borurio.app.service.impl;
 import br.com.borurio.app.entity.Produto;
 import br.com.borurio.app.mapper.ProdutoMapper;
 import br.com.borurio.app.service.ProdutoService;
+import br.com.borurio.core.mvc.api.PageResponse;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 @Service
 public class ProdutoServiceImpl implements ProdutoService {
@@ -41,7 +43,7 @@ public class ProdutoServiceImpl implements ProdutoService {
     public Produto buscarPorId(Long id) {
         Produto produto = produtoMapper.buscarPorId(id);
         if (produto == null) {
-            throw new IllegalArgumentException("Produto não encontrado: id=" + id);
+            throw new NoSuchElementException("Produto não encontrado: id=" + id);
         }
         return produto;
     }
@@ -50,7 +52,7 @@ public class ProdutoServiceImpl implements ProdutoService {
     public Produto buscarPorIdEEmpresa(Long id, Long empresaId) {
         Produto produto = produtoMapper.buscarPorIdEEmpresa(id, empresaId);
         if (produto == null) {
-            throw new IllegalArgumentException("Produto não encontrado: id=" + id);
+            throw new NoSuchElementException("Produto não encontrado: id=" + id);
         }
         return produto;
     }
@@ -59,7 +61,7 @@ public class ProdutoServiceImpl implements ProdutoService {
     public Produto buscarPorCodigo(String codigo) {
         Produto produto = produtoMapper.buscarPorCodigo(codigo);
         if (produto == null) {
-            throw new IllegalArgumentException("Produto não encontrado: codigo=" + codigo);
+            throw new NoSuchElementException("Produto não encontrado: codigo=" + codigo);
         }
         return produto;
     }
@@ -97,6 +99,21 @@ public class ProdutoServiceImpl implements ProdutoService {
         aplicarDefaultsFiscais(produto);
         produtoMapper.atualizar(produto);
         return produtoMapper.buscarPorId(id);
+    }
+
+    @Override
+    public PageResponse<Produto> listarPaginado(Long empresaId, int page, int size) {
+        int offset = page * size;
+        List<Produto> content;
+        long total;
+        if (empresaId != null) {
+            content = produtoMapper.listarPorEmpresaPaginado(empresaId, size, offset);
+            total   = produtoMapper.countPorEmpresa(empresaId);
+        } else {
+            content = produtoMapper.listarTodosPaginado(size, offset);
+            total   = produtoMapper.countTodos();
+        }
+        return PageResponse.of(content, page, size, total);
     }
 
     @Override

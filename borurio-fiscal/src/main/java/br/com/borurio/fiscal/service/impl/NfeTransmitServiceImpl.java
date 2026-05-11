@@ -4,6 +4,7 @@ import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.mapper.NfeLogMapper;
 import br.com.borurio.fiscal.service.CertificadoService;
 import br.com.borurio.fiscal.service.NfeTransmitService;
+import io.github.resilience4j.retry.Retry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
@@ -41,6 +42,7 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
 
     private final NfeLogMapper nfeLogMapper;
     private final CertificadoService certificadoService;
+    private final Retry sefazRetry;
 
     @Value("${sefaz.urls.autorizacao}")
     private String urlAutorizacao;
@@ -56,9 +58,11 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
 
     public NfeTransmitServiceImpl(
             NfeLogMapper nfeLogMapper,
-            CertificadoService certificadoService) {
+            CertificadoService certificadoService,
+            Retry sefazRetry) {
         this.nfeLogMapper = nfeLogMapper;
         this.certificadoService = certificadoService;
+        this.sefazRetry = sefazRetry;
     }
 
     // =========================
@@ -249,6 +253,16 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     }
 
     private String enviarSoap(String urlWs, String envelope, SSLContext ssl) throws Exception {
+        try {
+            return sefazRetry.executeCheckedSupplier(() -> executarSoap(urlWs, envelope, ssl));
+        } catch (Exception e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    private String executarSoap(String urlWs, String envelope, SSLContext ssl) throws Exception {
 
         URL url = new URL(urlWs);
         HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();

@@ -68,10 +68,24 @@ logging:
 
 app:
 
-  name: Jcho ERP
+  name: Borurio ERP
   version: ${project.version:1.0.0}
   description: "ERP fiscal e logístico com emissão NF-e integrado à SEFAZ."
   owner: "Bruno Ribeiro – DevSecOps"
+
+###############################################################################################
+# CORS — sobrescreva CORS_ALLOWED_ORIGINS no ambiente para restringir origens em PRD
+###############################################################################################
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+
+###############################################################################################
+# SEFAZ RETRY — padrão conservador; sobrescreva por ambiente se necessário
+###############################################################################################
+sefaz:
+  retry:
+    max-attempts: ${SEFAZ_RETRY_MAX_ATTEMPTS:3}
+    wait-seconds: ${SEFAZ_RETRY_WAIT_SECONDS:2}
 
 ###############################################################################################
 # NOTAS TÉCNICAS

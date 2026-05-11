@@ -47,12 +47,40 @@ public interface NfeLogMapper {
      * @return lista de objetos {@link NfeLog} representando todos os logs armazenados.
      */
     @Select("""
-        SELECT id, chave_nfe, tipo_evento, descricao, status,
-               xml_envio, xml_retorno, data_evento, cnpj_emitente, usuario
+        SELECT id, chave_nfe AS chaveNfe, tipo_evento AS tipoEvento, descricao, status,
+               xml_envio AS xmlEnvio, xml_retorno AS xmlRetorno,
+               data_evento AS dataEvento, cnpj_emitente AS cnpjEmitente, usuario, empresa_id AS empresaId
         FROM nfe_log
         ORDER BY data_evento DESC
         """)
     List<NfeLog> findAll();
+
+    @Select("""
+        SELECT id, chave_nfe AS chaveNfe, tipo_evento AS tipoEvento, descricao, status,
+               xml_envio AS xmlEnvio, xml_retorno AS xmlRetorno,
+               data_evento AS dataEvento, cnpj_emitente AS cnpjEmitente, usuario, empresa_id AS empresaId
+        FROM nfe_log
+        ORDER BY data_evento DESC
+        LIMIT #{limit} OFFSET #{offset}
+        """)
+    List<NfeLog> findAllPaginado(@Param("limit") int limit, @Param("offset") int offset);
+
+    @Select("SELECT COUNT(*) FROM nfe_log")
+    long countAll();
+
+    @Select("""
+        SELECT id, chave_nfe AS chaveNfe, tipo_evento AS tipoEvento, descricao, status,
+               xml_envio AS xmlEnvio, xml_retorno AS xmlRetorno,
+               data_evento AS dataEvento, cnpj_emitente AS cnpjEmitente, usuario, empresa_id AS empresaId
+        FROM nfe_log
+        WHERE empresa_id = #{empresaId}
+        ORDER BY data_evento DESC
+        LIMIT #{limit} OFFSET #{offset}
+        """)
+    List<NfeLog> findByEmpresaPaginado(@Param("empresaId") Long empresaId, @Param("limit") int limit, @Param("offset") int offset);
+
+    @Select("SELECT COUNT(*) FROM nfe_log WHERE empresa_id = #{empresaId}")
+    long countByEmpresa(@Param("empresaId") Long empresaId);
 
     /**
      * Busca todos os eventos fiscais associados a uma NF-e específica.
@@ -61,8 +89,9 @@ public interface NfeLogMapper {
      * @return lista de registros de log vinculados à chave informada.
      */
     @Select("""
-        SELECT id, chave_nfe, tipo_evento, descricao, status,
-               xml_envio, xml_retorno, data_evento, cnpj_emitente, usuario
+        SELECT id, chave_nfe AS chaveNfe, tipo_evento AS tipoEvento, descricao, status,
+               xml_envio AS xmlEnvio, xml_retorno AS xmlRetorno,
+               data_evento AS dataEvento, cnpj_emitente AS cnpjEmitente, usuario, empresa_id AS empresaId
         FROM nfe_log
         WHERE chave_nfe = #{chaveNfe}
         ORDER BY data_evento DESC
@@ -76,8 +105,9 @@ public interface NfeLogMapper {
      * @return objeto {@link NfeLog} correspondente ao ID informado.
      */
     @Select("""
-        SELECT id, chave_nfe, tipo_evento, descricao, status,
-               xml_envio, xml_retorno, data_evento, cnpj_emitente, usuario
+        SELECT id, chave_nfe AS chaveNfe, tipo_evento AS tipoEvento, descricao, status,
+               xml_envio AS xmlEnvio, xml_retorno AS xmlRetorno,
+               data_evento AS dataEvento, cnpj_emitente AS cnpjEmitente, usuario, empresa_id AS empresaId
         FROM nfe_log
         WHERE id = #{id}
         """)

@@ -1,5 +1,6 @@
 package br.com.borurio.fiscal.service.impl;
 
+import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.mapper.NfeLogMapper;
 import br.com.borurio.fiscal.service.NfeLogService;
@@ -97,5 +98,20 @@ public class NfeLogServiceImpl implements NfeLogService {
     @Override
     public int contarEventos(String chaveNfe, String tipoEvento) {
         return nfeLogMapper.contarEventosPorChaveTipo(chaveNfe, tipoEvento);
+    }
+
+    @Override
+    public PageResponse<NfeLog> listarPaginado(Long empresaId, int page, int size) {
+        int offset = page * size;
+        List<NfeLog> content;
+        long total;
+        if (empresaId != null) {
+            content = nfeLogMapper.findByEmpresaPaginado(empresaId, size, offset);
+            total   = nfeLogMapper.countByEmpresa(empresaId);
+        } else {
+            content = nfeLogMapper.findAllPaginado(size, offset);
+            total   = nfeLogMapper.countAll();
+        }
+        return PageResponse.of(content, page, size, total);
     }
 }

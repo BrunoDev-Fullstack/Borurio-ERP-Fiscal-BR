@@ -48,6 +48,18 @@ public interface PedidoMapper {
     @Select(SELECT_COLUMNS + "ORDER BY data_pedido DESC")
     List<Pedido> listarTodos();
 
+    @Select(SELECT_COLUMNS + "ORDER BY data_pedido DESC LIMIT #{limit} OFFSET #{offset}")
+    List<Pedido> listarTodosPaginado(@Param("limit") int limit, @Param("offset") int offset);
+
+    @Select("SELECT COUNT(*) FROM pedido")
+    long countTodos();
+
+    @Select(SELECT_COLUMNS + "WHERE empresa_id = #{empresaId} ORDER BY data_pedido DESC LIMIT #{limit} OFFSET #{offset}")
+    List<Pedido> listarPorEmpresaPaginado(@Param("empresaId") Long empresaId, @Param("limit") int limit, @Param("offset") int offset);
+
+    @Select("SELECT COUNT(*) FROM pedido WHERE empresa_id = #{empresaId}")
+    long countPorEmpresa(@Param("empresaId") Long empresaId);
+
     @Insert("""
             INSERT INTO pedido (
                 empresa_id,

@@ -137,6 +137,13 @@ ________________________________________________________________________________
             <scope>test</scope>
         </dependency>
 
+        <!-- Resilience4j — Retry para chamadas SOAP SEFAZ -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-retry</artifactId>
+            <version>2.2.0</version>
+        </dependency>
+
         <!-- H2 -->
         <dependency>
             <groupId>com.h2database</groupId>

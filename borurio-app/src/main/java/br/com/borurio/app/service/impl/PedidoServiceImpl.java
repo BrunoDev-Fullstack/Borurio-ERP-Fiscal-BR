@@ -7,11 +7,13 @@ import br.com.borurio.app.mapper.PedidoItemMapper;
 import br.com.borurio.app.mapper.PedidoMapper;
 import br.com.borurio.app.mapper.ProdutoMapper;
 import br.com.borurio.app.service.PedidoService;
+import br.com.borurio.core.mvc.api.PageResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 @Service
 public class PedidoServiceImpl implements PedidoService {
@@ -75,7 +77,7 @@ public class PedidoServiceImpl implements PedidoService {
     @Override
     public Pedido buscarComItensEEmpresa(Long id, Long empresaId) {
         Pedido pedido = pedidoMapper.buscarPorIdEEmpresa(id, empresaId);
-        if (pedido == null) throw new IllegalArgumentException("Pedido não encontrado: id=" + id);
+        if (pedido == null) throw new NoSuchElementException("Pedido não encontrado: id=" + id);
         pedido.setItens(pedidoItemMapper.listarPorPedido(id));
         return pedido;
     }
@@ -83,7 +85,7 @@ public class PedidoServiceImpl implements PedidoService {
     @Override
     public Pedido buscarPorId(Long id) {
         Pedido pedido = pedidoMapper.buscarPorId(id);
-        if (pedido == null) throw new IllegalArgumentException("Pedido não encontrado: id=" + id);
+        if (pedido == null) throw new NoSuchElementException("Pedido não encontrado: id=" + id);
         return pedido;
     }
 
@@ -95,6 +97,21 @@ public class PedidoServiceImpl implements PedidoService {
     @Override
     public List<Pedido> listarPorEmpresa(Long empresaId) {
         return pedidoMapper.listarPorEmpresa(empresaId);
+    }
+
+    @Override
+    public PageResponse<Pedido> listarPaginado(Long empresaId, int page, int size) {
+        int offset = page * size;
+        List<Pedido> content;
+        long total;
+        if (empresaId != null) {
+            content = pedidoMapper.listarPorEmpresaPaginado(empresaId, size, offset);
+            total   = pedidoMapper.countPorEmpresa(empresaId);
+        } else {
+            content = pedidoMapper.listarTodosPaginado(size, offset);
+            total   = pedidoMapper.countTodos();
+        }
+        return PageResponse.of(content, page, size, total);
     }
 
     @Override
