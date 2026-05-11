@@ -8,6 +8,8 @@ public interface ClienteService {
 
     List<Cliente> listarTodos();
 
+    List<Cliente> listarPorEmpresa(Long empresaId);
+
     Cliente buscarPorId(Long id);
 
     Cliente buscarPorCnpj(String cnpj);

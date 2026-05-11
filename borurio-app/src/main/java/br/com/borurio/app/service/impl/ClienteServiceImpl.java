@@ -22,6 +22,11 @@ public class ClienteServiceImpl implements ClienteService {
     }
 
     @Override
+    public List<Cliente> listarPorEmpresa(Long empresaId) {
+        return clienteMapper.listarPorEmpresa(empresaId);
+    }
+
+    @Override
     public Cliente buscarPorId(Long id) {
         return clienteMapper.buscarPorId(id);
     }

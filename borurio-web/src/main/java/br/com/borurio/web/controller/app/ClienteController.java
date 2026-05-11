@@ -1,20 +1,18 @@
 package br.com.borurio.web.controller.app;
 
+import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Cliente;
 import br.com.borurio.app.service.ClienteService;
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 
-/**
- * =============================================================================
- * CONTROLLER REST — CLIENTE (MÓDULO APP)
- * =============================================================================
- */
 @RestController
 @RequestMapping("/api/app/clientes")
 @Tag(name = "Clientes", description = "Operações do módulo de Clientes")
@@ -26,68 +24,55 @@ public class ClienteController {
         this.clienteService = clienteService;
     }
 
-    // =========================================================================
-    // LISTAR CLIENTES
-    // =========================================================================
     @GetMapping
-    @Operation(summary = "Listar clientes")
+    @Operation(summary = "Lista clientes da empresa autenticada")
     public Result<List<Cliente>> listar() {
-        List<Cliente> clientes = clienteService.listarTodos();
-        return ResultUtil.success(clientes);
+        Long empresaId = EmpresaContextHolder.get();
+        return ResultUtil.success(empresaId != null
+                ? clienteService.listarPorEmpresa(empresaId)
+                : clienteService.listarTodos());
     }
 
-    // =========================================================================
-    // BUSCAR CLIENTE POR ID
-    // =========================================================================
     @GetMapping("/{id}")
-    @Operation(summary = "Buscar cliente por ID")
+    @Operation(summary = "Busca cliente por ID — valida pertencimento à empresa")
     public Result<Cliente> buscar(@PathVariable Long id) {
         Cliente cliente = clienteService.buscarPorId(id);
-
-        if (cliente == null) {
-            return ResultUtil.error("Cliente não encontrado.");
-        }
-
+        if (cliente == null) throw new NoSuchElementException("Cliente não encontrado.");
+        Long empresaId = EmpresaContextHolder.get();
+        if (empresaId != null && !empresaId.equals(cliente.getEmpresaId()))
+            throw new NoSuchElementException("Cliente não encontrado.");
         return ResultUtil.success(cliente);
     }
 
-    // =========================================================================
-    // CRIAR CLIENTE
-    // =========================================================================
     @PostMapping
-    @Operation(summary = "Criar novo cliente")
-    public Result<?> salvar(@RequestBody Cliente cliente) {
-        Cliente criado = clienteService.salvar(cliente);
-        return ResultUtil.success(criado);
+    @Operation(summary = "Cria novo cliente vinculado à empresa autenticada")
+    public Result<Cliente> salvar(@Valid @RequestBody Cliente cliente) {
+        cliente.setEmpresaId(EmpresaContextHolder.get());
+        return ResultUtil.success(clienteService.salvar(cliente));
     }
 
-    // =========================================================================
-    // ATUALIZAR CLIENTE
-    // =========================================================================
     @PutMapping("/{id}")
-    @Operation(summary = "Atualizar cliente")
-    public Result<?> atualizar(@PathVariable Long id, @RequestBody Cliente cliente) {
-        Cliente atualizado = clienteService.atualizar(id, cliente);
-
-        if (atualizado == null) {
-            return ResultUtil.error("Falha ao atualizar cliente.");
+    @Operation(summary = "Atualiza cliente — valida pertencimento à empresa")
+    public Result<Cliente> atualizar(@PathVariable Long id, @Valid @RequestBody Cliente cliente) {
+        Long empresaId = EmpresaContextHolder.get();
+        if (empresaId != null) {
+            Cliente existente = clienteService.buscarPorId(id);
+            if (existente == null || !empresaId.equals(existente.getEmpresaId()))
+                throw new NoSuchElementException("Cliente não encontrado.");
         }
-
-        return ResultUtil.success(atualizado);
+        return ResultUtil.success(clienteService.atualizar(id, cliente));
     }
 
-    // =========================================================================
-    // DESATIVAR CLIENTE
-    // =========================================================================
     @DeleteMapping("/{id}")
-    @Operation(summary = "Desativar cliente")
-    public Result<?> desativar(@PathVariable Long id) {
-        boolean ok = clienteService.desativar(id);
-
-        if (!ok) {
-            return ResultUtil.error("Não foi possível desativar o cliente.");
+    @Operation(summary = "Desativa cliente — valida pertencimento à empresa")
+    public Result<String> desativar(@PathVariable Long id) {
+        Long empresaId = EmpresaContextHolder.get();
+        if (empresaId != null) {
+            Cliente existente = clienteService.buscarPorId(id);
+            if (existente == null || !empresaId.equals(existente.getEmpresaId()))
+                throw new NoSuchElementException("Cliente não encontrado.");
         }
-
+        clienteService.desativar(id);
         return ResultUtil.success("Cliente desativado com sucesso.");
     }
 }

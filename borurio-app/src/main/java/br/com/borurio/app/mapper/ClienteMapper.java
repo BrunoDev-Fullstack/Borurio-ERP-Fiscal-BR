@@ -13,6 +13,7 @@ public interface ClienteMapper {
 
     String SELECT_COLUMNS = """
             SELECT id,
+                   empresa_id         AS empresaId,
                    tipo_pessoa        AS tipoPessoa,
                    cnpj,
                    cpf,
@@ -43,6 +44,9 @@ public interface ClienteMapper {
     @Select(SELECT_COLUMNS)
     List<Cliente> listarTodos();
 
+    @Select(SELECT_COLUMNS + "WHERE empresa_id = #{empresaId}")
+    List<Cliente> listarPorEmpresa(@Param("empresaId") Long empresaId);
+
     @Select(SELECT_COLUMNS + "WHERE id = #{id}")
     Cliente buscarPorId(Long id);
 
@@ -55,12 +59,14 @@ public interface ClienteMapper {
 
     @Insert("""
             INSERT INTO cliente (
+                empresa_id,
                 tipo_pessoa, cnpj, cpf, razao_social, nome_fantasia,
                 inscricao_estadual, nome, email, telefone,
                 logradouro, numero, complemento, bairro,
                 codigo_municipio, municipio, uf, cep,
                 estado, criado_em, atualizado_em
             ) VALUES (
+                #{empresaId, jdbcType=BIGINT},
                 #{tipoPessoa}, #{cnpj}, #{cpf}, #{razaoSocial}, #{nomeFantasia},
                 #{inscricaoEstadual}, #{nome}, #{email}, #{telefone},
                 #{logradouro}, #{numero}, #{complemento}, #{bairro},
