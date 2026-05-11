@@ -3,6 +3,8 @@ package br.com.borurio.web;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
+import org.springframework.boot.context.TypeExcludeFilter;
 import org.springframework.core.env.Environment;
 
 import java.time.LocalDateTime;
@@ -34,12 +36,15 @@ import java.time.format.DateTimeFormatter;
  * =============================================================================
  */
 @SpringBootApplication
-@ComponentScan(basePackages = {
-        "br.com.borurio.core",
-        "br.com.borurio.app",
-        "br.com.borurio.fiscal",
-        "br.com.borurio.web"
-})
+@ComponentScan(
+        basePackages = {
+                "br.com.borurio.core",
+                "br.com.borurio.app",
+                "br.com.borurio.fiscal",
+                "br.com.borurio.web"
+        },
+        excludeFilters = @ComponentScan.Filter(type = FilterType.CUSTOM, classes = TypeExcludeFilter.class)
+)
 public class Application {
 
     /**
