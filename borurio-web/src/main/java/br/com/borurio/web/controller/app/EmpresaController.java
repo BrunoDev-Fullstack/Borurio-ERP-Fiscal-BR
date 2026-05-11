@@ -4,6 +4,7 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.service.EmpresaService;
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
+import br.com.borurio.web.service.CertSenhaEncryptor;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
@@ -16,9 +17,11 @@ import java.util.List;
 public class EmpresaController {
 
     private final EmpresaService empresaService;
+    private final CertSenhaEncryptor encryptor;
 
-    public EmpresaController(EmpresaService empresaService) {
+    public EmpresaController(EmpresaService empresaService, CertSenhaEncryptor encryptor) {
         this.empresaService = empresaService;
+        this.encryptor = encryptor;
     }
 
     @GetMapping
@@ -51,6 +54,9 @@ public class EmpresaController {
     @Operation(summary = "Cadastra nova empresa emitente")
     public Result<?> salvar(@RequestBody Empresa empresa) {
         try {
+            if (empresa.getCertSenha() != null && !empresa.getCertSenha().isBlank()) {
+                empresa.setCertSenha(encryptor.encrypt(empresa.getCertSenha()));
+            }
             return ResultUtil.success(empresaService.salvar(empresa));
         } catch (IllegalArgumentException e) {
             return ResultUtil.error(e.getMessage());
@@ -61,6 +67,9 @@ public class EmpresaController {
     @Operation(summary = "Atualiza dados da empresa")
     public Result<?> atualizar(@PathVariable Long id, @RequestBody Empresa empresa) {
         try {
+            if (empresa.getCertSenha() != null && !empresa.getCertSenha().isBlank()) {
+                empresa.setCertSenha(encryptor.encrypt(empresa.getCertSenha()));
+            }
             return ResultUtil.success(empresaService.atualizar(id, empresa));
         } catch (IllegalArgumentException e) {
             return ResultUtil.error(e.getMessage());

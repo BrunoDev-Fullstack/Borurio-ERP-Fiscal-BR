@@ -23,6 +23,7 @@ public class DbUser {
     private String nome;
     private String email;
     private String senha;
+    private String role;
     private Boolean ativo;
     private LocalDateTime dataCriacao;
     private LocalDateTime dataAtualizacao;

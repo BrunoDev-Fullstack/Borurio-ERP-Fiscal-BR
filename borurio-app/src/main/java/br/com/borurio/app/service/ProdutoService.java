@@ -10,7 +10,13 @@ public interface ProdutoService {
 
     List<Produto> listarAtivos();
 
+    List<Produto> listarPorEmpresa(Long empresaId);
+
+    List<Produto> listarAtivosPorEmpresa(Long empresaId);
+
     Produto buscarPorId(Long id);
+
+    Produto buscarPorIdEEmpresa(Long id, Long empresaId);
 
     Produto buscarPorCodigo(String codigo);
 

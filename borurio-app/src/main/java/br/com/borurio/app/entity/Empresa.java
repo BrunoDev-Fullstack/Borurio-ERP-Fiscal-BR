@@ -23,4 +23,9 @@ public class Empresa {
     private Boolean ativo;
     private LocalDateTime criadoEm;
     private LocalDateTime atualizadoEm;
+
+    // Fase 8B: certificado A1 por empresa (opcional — fallback para cert global)
+    private String certPath;
+    private String certSenha;
+    private String certTipo;
 }

@@ -23,22 +23,31 @@ public class ProdutoController {
     }
 
     @GetMapping
-    @Operation(summary = "Lista todos os produtos")
+    @Operation(summary = "Lista produtos da empresa autenticada")
     public Result<List<Produto>> listar() {
-        return ResultUtil.success(produtoService.listarTodos());
+        Long empresaId = EmpresaContextHolder.get();
+        return ResultUtil.success(empresaId != null
+                ? produtoService.listarPorEmpresa(empresaId)
+                : produtoService.listarTodos());
     }
 
     @GetMapping("/ativos")
-    @Operation(summary = "Lista apenas produtos ativos")
+    @Operation(summary = "Lista produtos ativos da empresa autenticada")
     public Result<List<Produto>> listarAtivos() {
-        return ResultUtil.success(produtoService.listarAtivos());
+        Long empresaId = EmpresaContextHolder.get();
+        return ResultUtil.success(empresaId != null
+                ? produtoService.listarAtivosPorEmpresa(empresaId)
+                : produtoService.listarAtivos());
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Busca produto por ID")
+    @Operation(summary = "Busca produto por ID — valida pertencimento à empresa")
     public Result<Produto> buscarPorId(@PathVariable Long id) {
         try {
-            return ResultUtil.success(produtoService.buscarPorId(id));
+            Long empresaId = EmpresaContextHolder.get();
+            return ResultUtil.success(empresaId != null
+                    ? produtoService.buscarPorIdEEmpresa(id, empresaId)
+                    : produtoService.buscarPorId(id));
         } catch (IllegalArgumentException e) {
             return ResultUtil.error(e.getMessage());
         }

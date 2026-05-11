@@ -28,8 +28,27 @@ public class ProdutoServiceImpl implements ProdutoService {
     }
 
     @Override
+    public List<Produto> listarPorEmpresa(Long empresaId) {
+        return produtoMapper.listarPorEmpresa(empresaId);
+    }
+
+    @Override
+    public List<Produto> listarAtivosPorEmpresa(Long empresaId) {
+        return produtoMapper.listarAtivosPorEmpresa(empresaId);
+    }
+
+    @Override
     public Produto buscarPorId(Long id) {
         Produto produto = produtoMapper.buscarPorId(id);
+        if (produto == null) {
+            throw new IllegalArgumentException("Produto não encontrado: id=" + id);
+        }
+        return produto;
+    }
+
+    @Override
+    public Produto buscarPorIdEEmpresa(Long id, Long empresaId) {
+        Produto produto = produtoMapper.buscarPorIdEEmpresa(id, empresaId);
         if (produto == null) {
             throw new IllegalArgumentException("Produto não encontrado: id=" + id);
         }
@@ -48,7 +67,10 @@ public class ProdutoServiceImpl implements ProdutoService {
     @Override
     public Produto salvar(Produto produto) {
         validar(produto);
-        if (produtoMapper.buscarPorCodigo(produto.getCodigo()) != null) {
+        Produto existenteCodigo = produto.getEmpresaId() != null
+                ? produtoMapper.buscarPorCodigoEEmpresa(produto.getCodigo(), produto.getEmpresaId())
+                : produtoMapper.buscarPorCodigo(produto.getCodigo());
+        if (existenteCodigo != null) {
             throw new IllegalArgumentException("Já existe um produto com o código: " + produto.getCodigo());
         }
         produto.setEstado(1);
@@ -61,13 +83,16 @@ public class ProdutoServiceImpl implements ProdutoService {
     public Produto atualizar(Long id, Produto produto) {
         Produto existente = buscarPorId(id);
         if (!existente.getCodigo().equals(produto.getCodigo())) {
-            Produto comMesmoCodigo = produtoMapper.buscarPorCodigo(produto.getCodigo());
+            Produto comMesmoCodigo = existente.getEmpresaId() != null
+                    ? produtoMapper.buscarPorCodigoEEmpresa(produto.getCodigo(), existente.getEmpresaId())
+                    : produtoMapper.buscarPorCodigo(produto.getCodigo());
             if (comMesmoCodigo != null && !comMesmoCodigo.getId().equals(id)) {
                 throw new IllegalArgumentException("Já existe outro produto com o código: " + produto.getCodigo());
             }
         }
         validar(produto);
         produto.setId(id);
+        produto.setEmpresaId(existente.getEmpresaId());
         produto.setEstado(existente.getEstado());
         aplicarDefaultsFiscais(produto);
         produtoMapper.atualizar(produto);

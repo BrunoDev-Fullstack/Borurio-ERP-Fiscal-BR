@@ -12,9 +12,14 @@ public interface PedidoService {
     /** Retorna o pedido com a lista de itens preenchida. */
     Pedido buscarComItens(Long id);
 
+    /** Retorna o pedido validando que pertence à empresa. */
+    Pedido buscarComItensEEmpresa(Long id, Long empresaId);
+
     Pedido buscarPorId(Long id);
 
     List<Pedido> listarTodos();
+
+    List<Pedido> listarPorEmpresa(Long empresaId);
 
     void atualizarStatus(Long id, String status, String chaveNfe);
 }

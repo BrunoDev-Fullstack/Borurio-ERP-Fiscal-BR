@@ -105,6 +105,7 @@ public class StartupListener {
             admin.setNome("Administrador");
             admin.setEmail("admin");
             admin.setSenha(passwordEncoder.encode("admin123"));
+            admin.setRole("ADMIN");
             admin.setAtivo(true);
             dbUserMapper.insert(admin);
             log.info("[Startup] Usuário admin criado | id={} | empresaId={}", admin.getId(), empresaId);

@@ -46,6 +46,9 @@ public interface ProdutoMapper {
     @Select(SELECT_COLUMNS + "WHERE codigo = #{codigo}")
     Produto buscarPorCodigo(@Param("codigo") String codigo);
 
+    @Select(SELECT_COLUMNS + "WHERE codigo = #{codigo} AND empresa_id = #{empresaId}")
+    Produto buscarPorCodigoEEmpresa(@Param("codigo") String codigo, @Param("empresaId") Long empresaId);
+
     @Insert("""
             INSERT INTO produto (empresa_id, codigo, descricao, ncm, cfop, unidade, preco, estado,
                                  origem, csosn, estoque, criado_em, atualizado_em)

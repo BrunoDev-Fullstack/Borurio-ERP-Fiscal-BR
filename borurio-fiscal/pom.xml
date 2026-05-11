@@ -58,6 +58,12 @@ ________________________________________________________________________________
             <artifactId>slf4j-api</artifactId>
         </dependency>
 
+        <!-- Spring Security Core — para leitura do SecurityContextHolder nos logs de auditoria -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
+        </dependency>
+
         <!-- MyBatis -->
         <dependency>
             <groupId>org.mybatis.spring.boot</groupId>

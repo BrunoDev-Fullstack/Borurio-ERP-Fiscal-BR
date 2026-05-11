@@ -45,7 +45,14 @@ public class AssinaturaXmlService {
     public String assinar(String xmlNfe) throws Exception {
         Document doc = parseXml(xmlNfe);
         Element infNFe = localizarElementoPorTag(doc, "infNFe");
-        return assinarElemento(doc, infNFe, doc.getDocumentElement());
+        return assinarElemento(doc, infNFe, doc.getDocumentElement(), null);
+    }
+
+    /** Assina NF-e usando o certificado de uma empresa específica. */
+    public String assinar(String xmlNfe, CertificadoContexto ctx) throws Exception {
+        Document doc = parseXml(xmlNfe);
+        Element infNFe = localizarElementoPorTag(doc, "infNFe");
+        return assinarElemento(doc, infNFe, doc.getDocumentElement(), ctx);
     }
 
     /**
@@ -56,7 +63,7 @@ public class AssinaturaXmlService {
         Document doc = parseXml(xmlEvento);
         Element infEvento = localizarElementoPorTag(doc, "infEvento");
         Element eventoContainer = (Element) infEvento.getParentNode();
-        return assinarElemento(doc, infEvento, eventoContainer);
+        return assinarElemento(doc, infEvento, eventoContainer, null);
     }
 
     /**
@@ -66,11 +73,12 @@ public class AssinaturaXmlService {
         Document doc = parseXml(xmlInut);
         Element infInut = localizarElementoPorTag(doc, "infInut");
         Element inutContainer = (Element) infInut.getParentNode();
-        return assinarElemento(doc, infInut, inutContainer);
+        return assinarElemento(doc, infInut, inutContainer, null);
     }
 
     private String assinarElemento(Document doc, Element elementoParaAssinar,
-                                   Element containerAssinatura) throws Exception {
+                                   Element containerAssinatura,
+                                   CertificadoContexto ctx) throws Exception {
         String id = elementoParaAssinar.getAttribute("Id");
         if (id == null || id.isBlank()) {
             throw new IllegalArgumentException(
@@ -78,8 +86,8 @@ public class AssinaturaXmlService {
         }
         elementoParaAssinar.setIdAttribute("Id", true);
 
-        PrivateKey privateKey = certificadoService.getPrivateKey();
-        X509Certificate cert = certificadoService.getCertificate();
+        PrivateKey privateKey = ctx != null ? ctx.privateKey() : certificadoService.getPrivateKey();
+        X509Certificate cert  = ctx != null ? ctx.certificate() : certificadoService.getCertificate();
 
         XMLSignatureFactory sigFactory = XMLSignatureFactory.getInstance("DOM");
 

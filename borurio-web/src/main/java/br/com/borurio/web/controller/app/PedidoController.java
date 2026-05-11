@@ -1,8 +1,10 @@
 package br.com.borurio.web.controller.app;
 
 import br.com.borurio.app.context.EmpresaContextHolder;
+import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
+import br.com.borurio.app.service.EmpresaService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
@@ -26,15 +28,18 @@ public class PedidoController {
     private final PedidoEmissaoService pedidoEmissaoService;
     private final PedidoOperacaoService pedidoOperacaoService;
     private final EmitenteProperties emitente;
+    private final EmpresaService empresaService;
 
     public PedidoController(PedidoService pedidoService,
                             PedidoEmissaoService pedidoEmissaoService,
                             PedidoOperacaoService pedidoOperacaoService,
-                            EmitenteProperties emitente) {
+                            EmitenteProperties emitente,
+                            EmpresaService empresaService) {
         this.pedidoService         = pedidoService;
         this.pedidoEmissaoService  = pedidoEmissaoService;
         this.pedidoOperacaoService = pedidoOperacaoService;
         this.emitente              = emitente;
+        this.empresaService        = empresaService;
     }
 
     // =========================================================================
@@ -42,24 +47,30 @@ public class PedidoController {
     // =========================================================================
 
     @GetMapping
-    @Operation(summary = "Lista todos os pedidos")
+    @Operation(summary = "Lista pedidos da empresa autenticada")
     public Result<List<Pedido>> listar() {
-        return ResultUtil.success(pedidoService.listarTodos());
+        Long empresaId = EmpresaContextHolder.get();
+        return ResultUtil.success(empresaId != null
+                ? pedidoService.listarPorEmpresa(empresaId)
+                : pedidoService.listarTodos());
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Busca pedido por ID com itens e snapshot fiscal")
+    @Operation(summary = "Busca pedido por ID — valida pertencimento à empresa")
     public Result<Pedido> buscarPorId(@PathVariable Long id) {
         try {
-            return ResultUtil.success(pedidoService.buscarComItens(id));
+            Long empresaId = EmpresaContextHolder.get();
+            return ResultUtil.success(empresaId != null
+                    ? pedidoService.buscarComItensEEmpresa(id, empresaId)
+                    : pedidoService.buscarComItens(id));
         } catch (IllegalArgumentException e) {
             return ResultUtil.error(e.getMessage());
         }
     }
 
     /**
-     * Cria pedido em RASCUNHO. O CNPJ do emitente é injetado automaticamente
-     * a partir das propriedades da aplicação — não precisa ser enviado no body.
+     * Cria pedido em RASCUNHO. O CNPJ do emitente é resolvido da empresa autenticada via JWT.
+     * Fallback para EmitenteProperties quando não há empresa no contexto (dev sem auth).
      *
      * Body mínimo:
      * <pre>
@@ -75,8 +86,16 @@ public class PedidoController {
     @Operation(summary = "Cria pedido em RASCUNHO com snapshot fiscal congelado nos itens")
     public Result<?> criar(@RequestBody Pedido pedido) {
         try {
-            pedido.setCnpjEmitente(emitente.getCnpj().replaceAll("\\D", ""));
-            pedido.setEmpresaId(EmpresaContextHolder.get());
+            Long empresaId = EmpresaContextHolder.get();
+            pedido.setEmpresaId(empresaId);
+
+            if (empresaId != null) {
+                Empresa empresa = empresaService.buscarPorId(empresaId);
+                pedido.setCnpjEmitente(empresa.getCnpj().replaceAll("\\D", ""));
+            } else {
+                pedido.setCnpjEmitente(emitente.getCnpj().replaceAll("\\D", ""));
+            }
+
             List<PedidoItem> itens = pedido.getItens();
             pedido.setItens(null);
             return ResultUtil.success(pedidoService.criar(pedido, itens != null ? itens : List.of()));

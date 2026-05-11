@@ -6,6 +6,8 @@ import br.com.borurio.fiscal.service.CertificadoService;
 import br.com.borurio.fiscal.service.NfeTransmitService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -62,11 +64,26 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     // =========================
     // ENVIO NF-e
     // =========================
+
+    /** Transmite usando o certificado de empresa específica (Fase 8B). */
+    public String transmitirXml(String xmlAssinado, String cnpjEmitente,
+                                String uf, int ambiente, SSLContext sslContextEmpresa) {
+        return transmitirXmlInterno(xmlAssinado, cnpjEmitente, uf, ambiente, sslContextEmpresa);
+    }
+
     @Override
     public String transmitirXml(String xmlAssinado,
                                 String cnpjEmitente,
                                 String uf,
                                 int ambiente) {
+        return transmitirXmlInterno(xmlAssinado, cnpjEmitente, uf, ambiente, null);
+    }
+
+    private String transmitirXmlInterno(String xmlAssinado,
+                                        String cnpjEmitente,
+                                        String uf,
+                                        int ambiente,
+                                        SSLContext sslOverride) {
 
         String chaveNfe = extrairChaveNFe(xmlAssinado);
 
@@ -78,14 +95,15 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
                 .dataEvento(LocalDateTime.now())
                 .cnpjEmitente(cnpjEmitente)
                 .xmlEnvio(xmlAssinado)
-                .usuario("system")
+                .usuario(resolverUsuario())
                 .build();
 
         try {
             String idLote  = gerarIdLote();
             String envelope = criarEnvelopeEnviNFe(xmlAssinado, idLote, ambiente);
 
-            String resposta = enviarSoap(urlAutorizacao, envelope);
+            SSLContext sslUsado = sslOverride != null ? sslOverride : certificadoService.getSslContext();
+            String resposta = enviarSoap(urlAutorizacao, envelope, sslUsado);
 
             logFiscal.setStatus("SUCCESS");
             logFiscal.setDescricao("NF-e transmitida — lote=" + idLote);
@@ -155,7 +173,7 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
                 .descricao("Consulta situação NF-e | UF=" + uf + " | Amb=" + ambiente)
                 .status("PENDING")
                 .dataEvento(LocalDateTime.now())
-                .usuario("system")
+                .usuario(resolverUsuario())
                 .build();
 
         String envelope =
@@ -227,8 +245,10 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     // SOAP CORE
     // =========================
     private String enviarSoap(String urlWs, String envelope) throws Exception {
+        return enviarSoap(urlWs, envelope, certificadoService.getSslContext());
+    }
 
-        SSLContext ssl = certificadoService.getSslContext();
+    private String enviarSoap(String urlWs, String envelope, SSLContext ssl) throws Exception {
 
         URL url = new URL(urlWs);
         HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
@@ -329,5 +349,11 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
         } catch (Exception e) {
             log.error("[NF-e] Falha ao salvar log fiscal", e);
         }
+    }
+
+    private String resolverUsuario() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated()) return auth.getName();
+        return "system";
     }
 }

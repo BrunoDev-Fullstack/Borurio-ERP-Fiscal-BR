@@ -24,7 +24,10 @@ public interface EmpresaMapper {
                    serie_nfe_padrao  AS serieNfePadrao,
                    ativo,
                    criado_em         AS criadoEm,
-                   atualizado_em     AS atualizadoEm
+                   atualizado_em     AS atualizadoEm,
+                   cert_path         AS certPath,
+                   cert_senha        AS certSenha,
+                   cert_tipo         AS certTipo
             FROM empresa
             """;
 
@@ -41,14 +44,17 @@ public interface EmpresaMapper {
             INSERT INTO empresa (
                 cnpj, razao_social, nome_fantasia, ie, crt, uf,
                 logradouro, numero, bairro, municipio, codigo_municipio, cep,
-                serie_nfe_padrao, ativo
+                serie_nfe_padrao, ativo,
+                cert_path, cert_senha, cert_tipo
             ) VALUES (
                 #{cnpj}, #{razaoSocial}, #{nomeFantasia, jdbcType=VARCHAR},
                 #{ie, jdbcType=VARCHAR}, #{crt}, #{uf},
                 #{logradouro, jdbcType=VARCHAR}, #{numero, jdbcType=VARCHAR},
                 #{bairro, jdbcType=VARCHAR}, #{municipio, jdbcType=VARCHAR},
                 #{codigoMunicipio, jdbcType=VARCHAR}, #{cep, jdbcType=VARCHAR},
-                #{serieNfePadrao}, #{ativo}
+                #{serieNfePadrao}, #{ativo},
+                #{certPath, jdbcType=VARCHAR}, #{certSenha, jdbcType=VARCHAR},
+                #{certTipo, jdbcType=VARCHAR}
             )
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
@@ -69,6 +75,9 @@ public interface EmpresaMapper {
                 cep               = #{cep, jdbcType=VARCHAR},
                 serie_nfe_padrao  = #{serieNfePadrao},
                 ativo             = #{ativo},
+                cert_path         = #{certPath, jdbcType=VARCHAR},
+                cert_senha        = #{certSenha, jdbcType=VARCHAR},
+                cert_tipo         = #{certTipo, jdbcType=VARCHAR},
                 atualizado_em     = NOW()
             WHERE id = #{id}
             """)

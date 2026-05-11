@@ -47,7 +47,7 @@ public class PedidoServiceImpl implements PedidoService {
         BigDecimal total  = BigDecimal.ZERO;
 
         for (PedidoItem item : itens) {
-            Produto produto = resolverProduto(item);
+            Produto produto = resolverProduto(item, pedido.getEmpresaId());
             preencherSnapshot(item, produto);
 
             item.setPedidoId(pedido.getId());
@@ -73,6 +73,14 @@ public class PedidoServiceImpl implements PedidoService {
     }
 
     @Override
+    public Pedido buscarComItensEEmpresa(Long id, Long empresaId) {
+        Pedido pedido = pedidoMapper.buscarPorIdEEmpresa(id, empresaId);
+        if (pedido == null) throw new IllegalArgumentException("Pedido não encontrado: id=" + id);
+        pedido.setItens(pedidoItemMapper.listarPorPedido(id));
+        return pedido;
+    }
+
+    @Override
     public Pedido buscarPorId(Long id) {
         Pedido pedido = pedidoMapper.buscarPorId(id);
         if (pedido == null) throw new IllegalArgumentException("Pedido não encontrado: id=" + id);
@@ -85,6 +93,11 @@ public class PedidoServiceImpl implements PedidoService {
     }
 
     @Override
+    public List<Pedido> listarPorEmpresa(Long empresaId) {
+        return pedidoMapper.listarPorEmpresa(empresaId);
+    }
+
+    @Override
     public void atualizarStatus(Long id, String status, String chaveNfe) {
         buscarPorId(id);
         pedidoMapper.atualizarStatus(id, status, chaveNfe);
@@ -94,11 +107,13 @@ public class PedidoServiceImpl implements PedidoService {
     // Privado
     // -------------------------------------------------------------------------
 
-    private Produto resolverProduto(PedidoItem item) {
+    private Produto resolverProduto(PedidoItem item, Long empresaId) {
         if (item.getProdutoId() == null) {
             throw new IllegalArgumentException("produtoId é obrigatório em todos os itens.");
         }
-        Produto produto = produtoMapper.buscarPorId(item.getProdutoId());
+        Produto produto = empresaId != null
+                ? produtoMapper.buscarPorIdEEmpresa(item.getProdutoId(), empresaId)
+                : produtoMapper.buscarPorId(item.getProdutoId());
         if (produto == null) {
             throw new IllegalArgumentException("Produto não encontrado: id=" + item.getProdutoId());
         }

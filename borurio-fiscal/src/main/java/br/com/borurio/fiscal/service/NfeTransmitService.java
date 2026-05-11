@@ -1,5 +1,7 @@
 package br.com.borurio.fiscal.service;
 
+import javax.net.ssl.SSLContext;
+
 /**
  * Comunicação com a SEFAZ: envio de NF-e, consulta de status e recibo.
  * SOAP 1.2 / TLS 1.2+ / XML assinado (XMLDSig).
@@ -20,6 +22,13 @@ public interface NfeTransmitService {
                          String cnpjEmitente,
                          String uf,
                          int ambiente);
+
+    /** Transmite usando SSLContext de empresa específica (Fase 8B). Fallback para cert global se sslContextEmpresa=null. */
+    String transmitirXml(String xmlAssinado,
+                         String cnpjEmitente,
+                         String uf,
+                         int ambiente,
+                         SSLContext sslContextEmpresa);
 
     /**
      * Consulta status do serviço SEFAZ para a UF informada.

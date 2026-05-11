@@ -3,6 +3,7 @@ package br.com.borurio.web.service;
 import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.fiscal.builder.NfeXmlBuilder;
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.service.CertificadoContexto;
 import br.com.borurio.fiscal.domain.nfe.*;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
@@ -59,6 +60,7 @@ public class NfeGeracaoService {
     private final NfeSequenciaService sequenciaService;
     private final NfeSefazRetornoParser retornoParser;
     private final NfeDocumentoService documentoService;
+    private final EmpresaCertificadoService empresaCertificadoService;
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
@@ -70,7 +72,8 @@ public class NfeGeracaoService {
                              NcmService ncmService,
                              NfeSequenciaService sequenciaService,
                              NfeSefazRetornoParser retornoParser,
-                             NfeDocumentoService documentoService) {
+                             NfeDocumentoService documentoService,
+                             EmpresaCertificadoService empresaCertificadoService) {
         this.emitente = emitente;
         this.nfeXmlBuilder = nfeXmlBuilder;
         this.nfeOrquestradorService = nfeOrquestradorService;
@@ -79,6 +82,7 @@ public class NfeGeracaoService {
         this.sequenciaService = sequenciaService;
         this.retornoParser = retornoParser;
         this.documentoService = documentoService;
+        this.empresaCertificadoService = empresaCertificadoService;
     }
 
     public NfeGeracaoResult gerar(NfeEmissaoRequest req) throws Exception {
@@ -135,9 +139,14 @@ public class NfeGeracaoService {
 
         log.info("[NfeGeracao] Iniciando transmissão | chave={} | cnpj={}", chave, cnpj);
 
+        CertificadoContexto certCtx = empresaCertificadoService.resolverPorEmpresa(empresa)
+                .orElse(null);
+
+        Long empresaId = empresa != null ? empresa.getId() : null;
+
         try {
-            String resposta = nfeOrquestradorService.processar(xml, cnpj);
-            registrarLog(chave, cnpj, "TRANSMISSAO_SEFAZ", "SUCCESS",
+            String resposta = nfeOrquestradorService.processar(xml, cnpj, certCtx);
+            registrarLog(chave, cnpj, empresaId, "TRANSMISSAO_SEFAZ", "SUCCESS",
                     "NF-e gerada e transmitida via /api/fiscal/nfe/gerar", xml, resposta);
 
             // Fase 4: parsear retorno SEFAZ e persistir estado do documento
@@ -155,13 +164,14 @@ public class NfeGeracaoService {
 
             return new NfeGeracaoResult(chave, resposta);
         } catch (Exception e) {
-            registrarLog(chave, cnpj, "ERRO_TRANSMISSAO", "ERROR",
+            registrarLog(chave, cnpj, empresaId, "ERRO_TRANSMISSAO", "ERROR",
                     e.getMessage(), xml, null);
             throw e;
         }
     }
 
-    private void registrarLog(String chave, String cnpj, String tipoEvento, String status,
+    private void registrarLog(String chave, String cnpj, Long empresaId,
+                              String tipoEvento, String status,
                               String descricao, String xmlEnvio, String xmlRetorno) {
         try {
             nfeLogService.salvar(NfeLog.builder()
@@ -170,6 +180,7 @@ public class NfeGeracaoService {
                     .status(status)
                     .descricao(descricao)
                     .cnpjEmitente(cnpj)
+                    .empresaId(empresaId)
                     .xmlEnvio(xmlEnvio)
                     .xmlRetorno(xmlRetorno)
                     .dataEvento(LocalDateTime.now())

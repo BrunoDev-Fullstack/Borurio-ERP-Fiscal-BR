@@ -34,10 +34,10 @@ public interface NfeLogMapper {
     @Insert("""
         INSERT INTO nfe_log
             (chave_nfe, tipo_evento, descricao, status, xml_envio, xml_retorno,
-             data_evento, cnpj_emitente, usuario)
+             data_evento, cnpj_emitente, usuario, empresa_id)
         VALUES
             (#{chaveNfe}, #{tipoEvento}, #{descricao}, #{status}, #{xmlEnvio}, #{xmlRetorno},
-             #{dataEvento}, #{cnpjEmitente}, #{usuario})
+             #{dataEvento}, #{cnpjEmitente}, #{usuario}, #{empresaId, jdbcType=BIGINT})
         """)
     int insertLog(NfeLog log);
 

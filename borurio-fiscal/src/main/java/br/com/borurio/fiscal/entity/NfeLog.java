@@ -66,4 +66,7 @@ public class NfeLog {
 
     /** Usuário ou serviço responsável pela operação (usuário autenticado ou integração). */
     private String usuario;
+
+    /** ID da empresa emitente (multiempresa). */
+    private Long empresaId;
 }

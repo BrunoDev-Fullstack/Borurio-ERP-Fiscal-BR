@@ -61,6 +61,10 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/v3/api-docs/**"),
                                 new AntPathRequestMatcher("/v3/api-docs.yaml")
                         ).permitAll()
+                        .requestMatchers(
+                                new AntPathRequestMatcher("/api/app/empresas", "POST"),
+                                new AntPathRequestMatcher("/api/app/empresas/**", "PUT")
+                        ).hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
