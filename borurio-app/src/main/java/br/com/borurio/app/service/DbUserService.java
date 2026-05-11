@@ -67,7 +67,7 @@ public class DbUserService {
      */
     @Transactional
     public void atualizar(DbUser user) {
-        dbUserMapper.update(user);
+        dbUserMapper.updatePerfil(user);
     }
 
     /**

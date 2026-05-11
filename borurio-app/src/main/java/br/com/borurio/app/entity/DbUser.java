@@ -1,27 +1,24 @@
 package br.com.borurio.app.entity;
 
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
+
 import java.time.LocalDateTime;
 
-/**
- * Entidade que representa um usuário do sistema ERP Borurio Brasil.
- *
- * Boas práticas aplicadas:
- * - Padrão JavaBean (atributos privados + getters/setters via Lombok)
- * - Compatível com MyBatis e JPA (estrutura simples, sem anotações ORM por enquanto)
- * - UTF-8 sem BOM
- *
- * Autor: Bruno Ribeiro – Desenvolvedor Java Fullstack
- * Graduação: Cyber Security
- * Desde: Sprint Fiscal 2.2 (Nacionalização e integração SEFAZ-SP)
- */
 @Data
 public class DbUser {
 
     private Long id;
     private Long empresaId;
+
+    @NotBlank(message = "Nome é obrigatório")
     private String nome;
+
+    @NotBlank(message = "E-mail é obrigatório")
+    @Email(message = "E-mail inválido")
     private String email;
+
     private String senha;
     private String role;
     private Boolean ativo;

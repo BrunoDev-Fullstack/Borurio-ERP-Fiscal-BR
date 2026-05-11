@@ -24,28 +24,34 @@ import java.util.List;
  */
 public interface DbUserMapper {
 
-    /**
-     * Retorna todos os usuários cadastrados.
-     *
-     * @return lista de usuários.
-     */
-    @Select("SELECT id, empresa_id AS empresaId, nome, email, senha, role, ativo, data_criacao AS dataCriacao, data_atualizacao AS dataAtualizacao FROM db_user")
+    String SELECT_COLS = """
+            SELECT id,
+                   empresa_id        AS empresaId,
+                   nome,
+                   email,
+                   senha,
+                   role,
+                   ativo,
+                   data_criacao      AS dataCriacao,
+                   data_atualizacao  AS dataAtualizacao
+            FROM db_user
+            """;
+
+    @Select(SELECT_COLS)
     List<DbUser> findAll();
 
-    /**
-     * Busca um usuário por e-mail.
-     *
-     * @param email e-mail do usuário.
-     * @return objeto DbUser correspondente ou null se não encontrado.
-     */
-    @Select("SELECT id, empresa_id AS empresaId, nome, email, senha, role, ativo, data_criacao AS dataCriacao, data_atualizacao AS dataAtualizacao FROM db_user WHERE email = #{email}")
+    @Select(SELECT_COLS + "WHERE empresa_id = #{empresaId}")
+    List<DbUser> findByEmpresaId(@Param("empresaId") Long empresaId);
+
+    @Select(SELECT_COLS + "WHERE id = #{id}")
+    DbUser findById(@Param("id") Long id);
+
+    @Select(SELECT_COLS + "WHERE email = #{email}")
     DbUser findByEmail(@Param("email") String email);
 
-    /**
-     * Insere um novo usuário no banco.
-     *
-     * @param user entidade DbUser a ser persistida.
-     */
+    @Select("SELECT COUNT(*) FROM db_user")
+    int count();
+
     @Insert("""
             INSERT INTO db_user (empresa_id, nome, email, senha, role, ativo, data_criacao, data_atualizacao)
             VALUES (#{empresaId, jdbcType=BIGINT}, #{nome}, #{email}, #{senha}, #{role}, #{ativo}, NOW(), NOW())
@@ -53,29 +59,23 @@ public interface DbUserMapper {
     @Options(useGeneratedKeys = true, keyProperty = "id")
     void insert(DbUser user);
 
-    @Select("SELECT COUNT(*) FROM db_user")
-    int count();
-
-    /**
-     * Atualiza os dados de um usuário existente.
-     *
-     * @param user entidade DbUser atualizada.
-     */
     @Update("""
             UPDATE db_user
-               SET nome = #{nome},
-                   senha = #{senha},
-                   ativo = #{ativo},
+               SET nome             = #{nome},
+                   role             = #{role},
+                   ativo            = #{ativo},
+                   empresa_id       = #{empresaId, jdbcType=BIGINT},
                    data_atualizacao = NOW()
              WHERE id = #{id}
             """)
-    void update(DbUser user);
+    int updatePerfil(DbUser user);
 
-    /**
-     * Remove um usuário pelo ID.
-     *
-     * @param id identificador único do usuário.
-     */
+    @Update("UPDATE db_user SET senha = #{senha}, data_atualizacao = NOW() WHERE id = #{id}")
+    int updateSenha(@Param("id") Long id, @Param("senha") String senha);
+
+    @Update("UPDATE db_user SET ativo = false, data_atualizacao = NOW() WHERE id = #{id}")
+    int deactivate(@Param("id") Long id);
+
     @Delete("DELETE FROM db_user WHERE id = #{id}")
     void deleteById(@Param("id") Long id);
 }
