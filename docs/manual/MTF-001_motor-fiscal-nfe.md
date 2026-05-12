@@ -4,11 +4,16 @@
 ---
 
 **Documento:** MTF-001  
-**Versão:** 1.0  
+**Versão:** 2.0  
 **Data de emissão:** 11-05-2026  
+**Última atualização:** 12-05-2026  
 **Autor:** Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps  
 **Status:** VALIDADO EM HOMOLOGAÇÃO  
-**Branch de referência:** `fix/sefaz-xml-structure` (commit `bc37998`)  
+**Branch de referência:** `fix/sefaz-xml-structure`  
+
+> **Histórico de versões:**
+> - v1.0 (11-05-2026): documento inicial, fases 1–9 + fase 10 em elaboração
+> - v2.0 (12-05-2026): sprint 3 concluído; RBAC atualizado; `/situacao` corrigido; Fase 10 encerrada; endpoints de integração e smoke test adicionados
 
 ---
 
@@ -40,10 +45,10 @@ Este manual descreve a arquitetura técnica, os fluxos de processamento e os pro
 
 O documento destina-se a:
 
-- **Equipe técnica interna** — manutenção, evolução e debugging do motor;
-- **Time de integração parceiro** — integração do motor fiscal com o ERP logístico externo;
-- **Operações / DevOps** — deploy, monitoramento e procedimentos de homologação;
-- **Auditores técnicos** — rastreabilidade das decisões de design e conformidade.
+- **Equipe técnica interna** — manutenção, evolução e debugging do motor
+- **Time de integração parceiro** — integração do motor fiscal com o ERP logístico externo (ver também `INTEGRATION_CONTRACT_PT-BR.md`)
+- **Operações / DevOps** — deploy, monitoramento e procedimentos de homologação
+- **Auditores técnicos** — rastreabilidade das decisões de design e conformidade
 
 ### 1.1 O que está FECHADO (validado em HOM)
 
@@ -53,23 +58,31 @@ O documento destina-se a:
 | Assinatura XMLDSIG RSA-SHA256 + C14N | ✓ HOM/SP — 11-05-2026 |
 | Ciclo pedido → NF-e | ✓ HOM/SP — 08-05-2026 |
 | Snapshot fiscal imutável no item | ✓ HOM/SP — 08-05-2026 |
-| Status semântico (AUTORIZADO / REJEITADO / AGUARDANDO) | ✓ HOM/SP — 08-05-2026 |
+| Status semântico (AUTORIZADO / REJEITADO / AGUARDANDO / ERRO) | ✓ HOM/SP — 08-05-2026 |
 | Cancelamento NF-e (evento 110111) | ✓ HOM/SP — 08-05-2026 |
 | Carta de Correção Eletrônica (evento 110110) | ✓ HOM/SP — 08-05-2026 |
-| Consulta situação NF-e (consSitNFe) | ✓ HOM/SP — 08-05-2026 |
+| Consulta situação NF-e (consSitNFe) — resposta estruturada | ✓ HOM/SP — 08-05-2026 |
 | Multiempresa — isolamento de dados por empresa_id | ✓ HOM/SP — 08-05-2026 |
 | Certificado A1 por empresa com cache | ✓ HOM/SP — 11-05-2026 |
-| RBAC (roles ADMIN / OPERADOR do banco) | ✓ HOM/SP — 11-05-2026 |
+| RBAC (roles ADMIN / OPERADOR) com restrição correta para `/api/app/usuarios` | ✓ HOM/SP — 12-05-2026 |
 | Criptografia cert_senha AES-256-GCM | ✓ Código validado; passthrough em HOM (chave não configurada) |
 | Audit log com empresa_id e usuário autenticado | ✓ HOM/SP — 11-05-2026 |
+| Swagger alinhado com todos os endpoints reais (10 tags) | ✓ HOM/SP — 12-05-2026 |
+| Postman collection end-to-end (9 pastas, 46 requests) | ✓ Gerada e alinhada — 12-05-2026 |
+| `NfeEnvioController` deprecado — endpoints legados marcados e redirecionados | ✓ Código — 12-05-2026 |
+| Contratos de integração PT-BR e EN gerados e validados | ✓ Código — 12-05-2026 |
+| `MyBatisConfig`: `@ConditionalOnProperty` garante boot correto em HOM | ✓ HOM/SP — 12-05-2026 |
+| 30/30 testes de controller passando | ✓ Código — 12-05-2026 |
 
 ### 1.2 O que está PENDENTE
 
 | Funcionalidade | Fase | Observação |
 |---|---|---|
-| CERT_ENCRYPTION_KEY configurada em produção | Fase 11 | Passthrough ativo em HOM por design |
+| `CERT_ENCRYPTION_KEY` configurada em produção | Fase 11 | Passthrough ativo em HOM por design |
+| Invalidação automática de cache de certificado no `EmpresaController` | Fase 11 | Gap identificado — seção 10.4 |
 | CI/CD automatizado | Fase 11 | Deploy manual via docker cp |
-| Manual PT/EN para integração (este documento) | Fase 10 | Em elaboração |
+| Certificados A1 de produção com CNPJ real | Fase 11 | Fase 11 crítica |
+| Rate limiting no `/emitir` | Fase 11 | Proteger contra abuso |
 
 ---
 
@@ -96,7 +109,7 @@ borurio-core
 
 | Módulo | Pacote raiz | Responsabilidade |
 |---|---|---|
-| `borurio-core` | `br.com.borurio.core` | DTOs compartilhados, `ResultUtil`, utilitários base |
+| `borurio-core` | `br.com.borurio.core` | DTOs compartilhados, `ResultUtil`, `PageResponse`, utilitários base |
 | `borurio-app` | `br.com.borurio.app` | Entidades de negócio, MyBatis mappers, services: Empresa, Produto, Pedido, DbUser |
 | `borurio-fiscal` | `br.com.borurio.fiscal` | Geração XML NF-e, assinatura XMLDSIG, transmissão SOAP, sequenciador, persistência fiscal, auditoria |
 | `borurio-web` | `br.com.borurio.web` | Spring Boot, controllers REST, JWT, bridges (`PedidoEmissaoService`, `NfeGeracaoService`), certificado por empresa |
@@ -112,22 +125,23 @@ A bridge entre os dois domínios é exclusivamente o módulo `borurio-web`. Quan
 | Componente | Versão / Tecnologia |
 |---|---|
 | Linguagem | Java 17 |
-| Framework | Spring Boot 3.x |
+| Framework | Spring Boot 3.3.2 |
 | Persistência | MyBatis (annotations) |
 | Banco de dados | MySQL 8.4 |
-| Migrations | Flyway (V001–V019) |
+| Migrations | Flyway (V001–V022) |
 | Auth | JWT stateless (HMAC-SHA256) |
 | Segurança | Spring Security 6.x |
 | XML Signing | Java XML Crypto API (`javax.xml.crypto.dsig`) |
 | SOAP | HTTPS direto (sem CXF, sem wsimport) |
 | Cache de certificados | `ConcurrentHashMap` em memória |
 | Container | Docker (imagem interna); porta 8081 em HOM |
+| API docs | springdoc-openapi 2.6.0 — Swagger UI em `/swagger-ui/index.html` |
 
 ---
 
 ## 3. MODELO DE DADOS FISCAL
 
-### 3.1 Migrations aplicadas (V001–V019)
+### 3.1 Migrations aplicadas (V001–V022)
 
 | Migration | Descrição |
 |---|---|
@@ -145,11 +159,14 @@ A bridge entre os dois domínios é exclusivamente o módulo `borurio-web`. Quan
 | V017 | `empresa_id` em `db_user`, `produto`, `pedido` |
 | V018 | `empresa` — certificado A1 por empresa (cert_path, cert_senha, cert_tipo) |
 | V019 | `db_user.role` (ADMIN / OPERADOR) + `nfe_log.empresa_id` |
+| V020 | `cliente.empresa_id` — isolamento multiempresa de clientes |
+| V021 | `cliente.nome` e `cliente.email` nullable |
+| V022 | Foreign key constraints ausentes em `pedido_item`, `nfe_documento`, `nfe_log` |
 
 ### 3.2 Tabelas fiscais principais
 
 #### `nfe_documento`
-Armazena o estado persistido de cada NF-e emitida.
+Armazena o estado persistido de cada NF-e emitida. Fonte de verdade para consultas offline e reemissão de DANFE.
 
 | Coluna | Tipo | Descrição |
 |---|---|---|
@@ -158,12 +175,15 @@ Armazena o estado persistido de cada NF-e emitida.
 | `serie` | VARCHAR(3) | Série |
 | `cnpj_emitente` | VARCHAR(14) | CNPJ sem máscara |
 | `cnpj_cpf_dest` | VARCHAR(14) | Destinatário |
-| `c_stat` | INT | Código de status SEFAZ |
+| `c_stat` | VARCHAR(10) | Código de status SEFAZ (`"100"` = autorizada, `"101"` = cancelada) |
 | `x_motivo` | VARCHAR(255) | Motivo retornado pela SEFAZ |
-| `n_prot` | VARCHAR(20) | Número do protocolo de autorização |
+| `n_prot` | VARCHAR(20) | Número do protocolo de autorização (15 dígitos) |
 | `valor_total` | DECIMAL(13,2) | Valor total da NF-e |
-| `xml_autorizado` | LONGTEXT | XML assinado que foi transmitido |
-| `data_emissao` | DATETIME | Data/hora da emissão |
+| `xml_nfe` | LONGTEXT | XML assinado sem protocolo |
+| `xml_protocolo` | LONGTEXT | nfeProc completo (arquivamento fiscal — 5 anos) |
+| `tp_amb` | INT | 1=produção / 2=homologação |
+| `dh_recbto` | DATETIME | Data/hora de recebimento pela SEFAZ |
+| `data_emissao` | DATETIME | Data/hora da emissão (`dhEmi` do XML) |
 
 #### `nfe_log`
 Registro de auditoria de cada operação fiscal.
@@ -171,9 +191,9 @@ Registro de auditoria de cada operação fiscal.
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | `chave_nfe` | VARCHAR(44) | Chave associada ao evento |
-| `tipo_evento` | VARCHAR(100) | ENVIO_NFE / TRANSMISSAO_SEFAZ / CONSULTA / CANCELAMENTO / CCE |
-| `status` | VARCHAR(20) | SUCCESS / ERROR / PENDING |
-| `usuario` | VARCHAR(100) | Usuário autenticado (SecurityContextHolder) |
+| `tipo_evento` | VARCHAR(100) | `ENVIO_NFE` / `TRANSMISSAO_SEFAZ` / `CONSULTA` / `CANCELAMENTO` / `CCE` |
+| `status` | VARCHAR(20) | `SUCCESS` / `ERROR` / `PENDING` |
+| `usuario` | VARCHAR(100) | Usuário autenticado (`SecurityContextHolder`) |
 | `empresa_id` | BIGINT | ID da empresa emitente (V019) |
 | `xml_envio` | LONGTEXT | XML transmitido |
 | `xml_retorno` | LONGTEXT | Resposta SOAP da SEFAZ |
@@ -246,15 +266,17 @@ PedidoEmissaoService (pós-emissão)
     │  └─ baixarEstoque()                          → somente se AUTORIZADO (cStat=100)
 ```
 
+Se uma exceção for lançada durante `nfeGeracaoService.gerar()`, o serviço executa `atualizarStatus(id, "ERRO", null)` antes de relançar — o pedido fica em `ERRO` e o endpoint retorna HTTP 500.
+
 ### 4.2 Status semântico do pedido
 
 | Status | Condição | Estoque baixado? |
 |---|---|---|
 | `RASCUNHO` | Pedido criado, ainda não emitido | Não |
 | `AUTORIZADO` | `cStat = 100` da SEFAZ | Sim |
-| `AGUARDANDO` | Lote aceito (`cStat = 104`) sem infProt; processamento assíncrono SEFAZ | Não |
+| `AGUARDANDO` | Lote aceito (`cStat = 104`) sem infProt; ou falha ao parsear retorno | Não |
 | `REJEITADO` | `cStat >= 200` | Não |
-| `ERRO` | Exceção durante a transmissão | Não |
+| `ERRO` | Exceção durante a transmissão — HTTP 500 retornado ao cliente | Não |
 | `CANCELADO` | Evento de cancelamento autorizado | N/A |
 
 ### 4.3 Snapshot fiscal imutável
@@ -267,8 +289,8 @@ PedidoItem.descricao     ← Produto.descricao
 PedidoItem.ncm           ← Produto.ncm
 PedidoItem.cfop          ← Produto.cfop
 PedidoItem.unidade       ← Produto.unidade
-PedidoItem.origem        ← Produto.origem (default: 0)
-PedidoItem.csosn         ← Produto.csosn  (default: "400")
+PedidoItem.origem        ← Produto.origem  (default: 0)
+PedidoItem.csosn         ← Produto.csosn   (default: "400")
 ```
 
 **Invariante:** após a criação do pedido, qualquer alteração posterior no cadastro do produto não afeta os dados fiscais do pedido. A emissão sempre usa o snapshot congelado no `pedido_item`.
@@ -462,13 +484,13 @@ nfe_documento {
     chave_nfe, numero, serie, cnpj_emitente,
     cnpj_cpf_dest, razao_dest, valor_total,
     c_stat, x_motivo, n_prot,
-    xml_autorizado,   ← XML assinado transmitido
+    xml_nfe,          ← XML assinado sem protocolo
+    xml_protocolo,    ← nfeProc completo (arquivamento 5 anos)
     tp_amb,           ← 1=produção / 2=homologação
+    dh_recbto,        ← data/hora recebimento SEFAZ
     data_emissao
 }
 ```
-
-Esta tabela é a fonte de verdade para consultas fiscais offline e para reemissão de DANFE.
 
 ### 8.2 nfe_log (dupla camada de auditoria)
 
@@ -476,10 +498,10 @@ Dois eventos distintos são gravados por emissão:
 
 | Tipo evento | Gerado por | empresa_id | usuario |
 |---|---|---|---|
-| `ENVIO_NFE` | `NfeTransmitServiceImpl` | NULL | Usuário autenticado (SecurityContextHolder) |
+| `ENVIO_NFE` | `NfeTransmitServiceImpl` | NULL | Usuário autenticado (`SecurityContextHolder`) |
 | `TRANSMISSAO_SEFAZ` | `NfeGeracaoService` | ID da empresa | NULL |
 
-> **Nota de design:** a dupla camada é intencional. O `NfeTransmitServiceImpl` pertence ao módulo `borurio-fiscal` (sem dependência de `Empresa`), por isso não grava `empresa_id`. O `NfeGeracaoService` pertence ao módulo `borurio-web` (com acesso a `Empresa`), por isso não tem acesso ao `SecurityContextHolder` no mesmo instante da transmissão.
+> **Nota de design:** a dupla camada é intencional e é consequência de DA-01 (seção 15). O `NfeTransmitServiceImpl` pertence ao módulo `borurio-fiscal` (sem dependência de `Empresa`), por isso não grava `empresa_id`. O `NfeGeracaoService` pertence ao módulo `borurio-web` (com acesso a `Empresa`), por isso não tem acesso ao `SecurityContextHolder` no mesmo instante da transmissão.
 
 ### 8.3 Garantias de falha de log
 
@@ -516,16 +538,17 @@ nfe_log.empresa_id  → auditoria segmentada por empresa
 Login (POST /auth/login)
     │
     │  AuthService.authenticate()
-    │      └─ dbUserMapper.findByEmail(username) → DbUser.empresaId
+    │      └─ dbUserMapper.findByEmail(username)  ← username é o email do usuário
+    │      └─ DbUser.empresaId → embutido no token como claim "eid"
     │      └─ jwtUtil.generateToken(email, empresaId)
-    │               JWT payload: { "sub": "admin", "eid": 1, "exp": ... }
+    │               JWT payload: { "sub": "email@empresa.com", "eid": 1, "exp": ... }
     ▼
 Toda requisição autenticada
     │
     │  JwtFilter.doFilterInternal()
-    │      └─ jwtUtil.extractEmpresaId(token) → Long
+    │      └─ jwtUtil.extractEmpresaId(token) → Long (claim "eid")
     │      └─ EmpresaContextHolder.set(empresaId)  ← ThreadLocal
-    │      finally: EmpresaContextHolder.clear()
+    │      finally: EmpresaContextHolder.clear()   ← sem vazamento entre requests
     ▼
 Controllers
     │
@@ -607,7 +630,7 @@ O cache `ConcurrentHashMap<Long, CertificadoContexto>` persiste durante a vida d
 EmpresaCertificadoService.invalidar(empresaId)
 ```
 
-> **Atenção:** o cache não é invalidado automaticamente quando a empresa atualiza seu certificado via PUT /api/app/empresas. O `EmpresaController` **não chama** `invalidar()` atualmente. Isso deve ser corrigido antes de produção.
+> **Gap identificado (Fase 11):** o cache não é invalidado automaticamente quando a empresa atualiza seu certificado via `PUT /api/app/empresas`. O `EmpresaController` **não chama** `invalidar()` atualmente. Deve ser corrigido antes de produção.
 
 ### 10.5 Resolução de arquivo do certificado
 
@@ -626,26 +649,61 @@ Caso nenhum dos dois encontre o arquivo, lança `IllegalStateException`.
 
 - Algoritmo: HMAC-SHA256
 - Payload: `{ "sub": email, "eid": empresaId, "iat": ..., "exp": ... }`
-- Validade configurável via `jwt.expiration` (ms)
-- Chave secreta via `jwt.secret` (Base64, ≥ 32 bytes)
-- Filter: `JwtFilter` — extrai token do header `Authorization: Bearer <token>`
+- Validade configurável via `security.jwt.expiration-ms` (padrão: 3600000ms = 1 hora)
+- Chave secreta via `security.jwt.secret` (Base64 ou string raw, ≥ 32 bytes)
+- Filter: `JwtFilter extends OncePerRequestFilter` — extrai token do header `Authorization: Bearer <token>`, popula `EmpresaContextHolder`, limpa no `finally`
+
+> **Nota:** o campo `username` no body do login (`POST /auth/login`) é semanticamente um e-mail — o `AuthService` chama `dbUserMapper.findByEmail(username)` internamente.
 
 ### 11.2 Controle de acesso (RBAC)
 
 | Role | Valor em `db_user.role` | Permissões |
 |---|---|---|
-| Administrador | `ADMIN` | Todas as operações, incluindo criar/atualizar empresas |
-| Operador | `OPERADOR` | Operações de negócio (produtos, pedidos, emissão) |
+| Administrador | `ADMIN` | Todas as operações, incluindo criar/atualizar empresas e gerenciar usuários |
+| Operador | `OPERADOR` | Operações de negócio (produtos, pedidos, emissão fiscal) |
 
-Restrições na `SecurityConfig`:
+Restrições aplicadas em `SecurityConfig` (Sprint 3 — validado em HOM 12-05-2026):
 
 ```java
-.requestMatchers(POST "/api/app/empresas").hasRole("ADMIN")
-.requestMatchers(PUT  "/api/app/empresas/**").hasRole("ADMIN")
+// Rotas ADMIN-only
+.requestMatchers(new AntPathRequestMatcher("/api/app/empresas", "POST")).hasRole("ADMIN")
+.requestMatchers(new AntPathRequestMatcher("/api/app/empresas/**", "PUT")).hasRole("ADMIN")
+.requestMatchers(new AntPathRequestMatcher("/api/app/usuarios")).hasRole("ADMIN")
+.requestMatchers(new AntPathRequestMatcher("/api/app/usuarios/**")).hasRole("ADMIN")
+
+// Tudo mais exige autenticação
 .anyRequest().authenticated()
 ```
 
-### 11.3 Criptografia de cert_senha (AES-256-GCM)
+> **Atenção:** `/api/app/usuarios` (sem trailing slash) e `/api/app/usuarios/**` são matchers distintos e ambos necessários — `AntPathRequestMatcher("/api/app/usuarios/**")` não cobre o path raiz sem segmento adicional.
+
+### 11.3 Endpoints públicos (sem autenticação)
+
+Os seguintes paths são liberados pelo `SecurityConfig` e pulados pelo `JwtFilter`:
+
+| Path | Observação |
+|---|---|
+| `/auth/**` | Login e operações de autenticação |
+| `/api/test/**` | Health check — `GET /api/test/ping` |
+| `/api/fiscal/nfe/test/**` | Testes internos do motor fiscal |
+| `/swagger-ui/**`, `/swagger-ui.html` | Documentação Swagger |
+| `/v3/api-docs/**`, `/v3/api-docs.yaml` | Especificação OpenAPI |
+| `/ping` | Path sem controller mapeado — não usar |
+
+> **Nota operacional:** `/ping` está listado no `permitAll` e no `JwtFilter.PUBLIC_EXACT`, mas nenhum controller mapeia este path. O endpoint correto de health check é `GET /api/test/ping`.
+
+### 11.4 Respostas de erro de segurança
+
+Erros de autenticação e autorização são tratados diretamente pelo Spring Security (antes do `GlobalExceptionHandler`) e têm estrutura própria:
+
+```json
+{ "code": 401, "message": "Autenticação necessária", "success": false }
+{ "code": 403, "message": "Acesso negado",           "success": false }
+```
+
+Todos os outros erros da aplicação retornam o envelope padrão `Result<>` com `"data": null`. Ver `GlobalExceptionHandler` para o mapeamento completo.
+
+### 11.5 Criptografia de cert_senha (AES-256-GCM)
 
 **Formato armazenado no banco:**
 
@@ -670,7 +728,7 @@ cert.encryption.key=${CERT_ENCRYPTION_KEY:}
 
 **Migração graceful:** valores sem prefixo `ENC(` são tratados como texto claro pelo `decrypt()`, permitindo migração incremental.
 
-### 11.4 Proteções XML (anti-XXE)
+### 11.6 Proteções XML (anti-XXE)
 
 Todos os parsers XML do sistema são configurados com:
 
@@ -690,10 +748,33 @@ factory.setFeature("http://xml.org/sax/features/external-parameter-entities", fa
 GET /api/app/pedidos/{id}/situacao
     │
     └─ PedidoOperacaoService.consultarSituacao(id)
-           └─ estado local (nfe_documento) + consulta live SEFAZ
 ```
 
-Requer: pedido com `chaveNfe` preenchida (status ≠ RASCUNHO).
+Requer: pedido com `chaveNfe` preenchida (estado diferente de `RASCUNHO`). Retorna HTTP 422 caso contrário.
+
+**Estrutura da resposta** (`data` do envelope `Result<Object>`):
+
+```json
+{
+  "pedidoId":      42,
+  "numero":        "PED-00000042",
+  "status":        "AUTORIZADO",
+  "chaveNfe":      "35260512000000000000550010000000421000000424",
+
+  "cStat":         "100",
+  "xMotivo":       "Autorizado o uso da NF-e",
+  "nProt":         "135260512345678",
+  "dhRecbto":      "2026-05-12T10:10:00",
+
+  "consultaSefaz": "<retConsSitNFe>...</retConsSitNFe>"
+}
+```
+
+| Campo | Presença | Origem |
+|---|---|---|
+| `pedidoId`, `numero`, `status`, `chaveNfe` | Sempre | Banco de dados local (`pedidos`) |
+| `cStat`, `xMotivo`, `nProt`, `dhRecbto` | Condicional | Tabela `nfe_documento` (se existir para a chave) |
+| `consultaSefaz` | Sempre | Chamada live `consSitNFe` à SEFAZ em tempo real |
 
 ### 12.2 Cancelamento (evento 110111)
 
@@ -702,9 +783,13 @@ POST /api/app/pedidos/{id}/cancelar
 Body: { "justificativa": "mínimo 15 caracteres" }
 ```
 
-Condições: pedido em `AUTORIZADO` com `nProt` gravado.
+Condições verificadas por `PedidoOperacaoService.cancelar()`:
+1. `status == "AUTORIZADO"` — lança `IllegalStateException` (HTTP 422) para qualquer outro status
+2. `nfe_documento` existe para a chave e tem `nProt` preenchido — lança `IllegalStateException` (HTTP 422) se ausente
 
-O `PedidoOperacaoService` monta o XML do evento de cancelamento, assina com `AssinaturaXmlService.assinarEvento()` e transmite para o endpoint de recepção de eventos SEFAZ.
+O serviço monta o XML do evento de cancelamento, assina com `AssinaturaXmlService.assinarEvento()`, transmite para o endpoint SEFAZ e atualiza o status do pedido para `"CANCELADO"`.
+
+Resposta: XML bruto da SEFAZ em `data` do envelope `Result<String>`.
 
 ### 12.3 Carta de Correção Eletrônica (CC-e, evento 110110)
 
@@ -713,7 +798,9 @@ POST /api/app/pedidos/{id}/cce
 Body: { "correcao": "mínimo 15 caracteres" }
 ```
 
-Condições: pedido em `AUTORIZADO`. Limite: 20 CC-e por chave NF-e (verificado via `nfe_log`).
+Condição: `status == "AUTORIZADO"` — lança `IllegalStateException` (HTTP 422) caso contrário. A CC-e não altera o status do pedido. Limite SEFAZ: 20 CC-e por chave NF-e.
+
+Resposta: XML bruto da SEFAZ em `data` do envelope `Result<String>`.
 
 ---
 
@@ -739,13 +826,13 @@ A SEFAZ SP usa dois processadores distintos: o `PL009` valida o lote, e o `PL_00
 
 **Status de investigação:** ENCERRADA. Trata-se de limitação do ambiente HOM da SEFAZ SP. Não há ação corretiva possível no código sem violar a NT 2019.001.
 
-**Impacto:** somente o ambiente HOM da SEFAZ SP com o processador `PL_008i2`. Não afeta produção e não afeta outros estados.
+**Impacto em HOM:** todas as NF-e transmitidas em HOM-SP retornam cStat=225. O pedido fica com status `"REJEITADO"` ou `"AGUARDANDO"`. Para validar o fluxo técnico, inspecionar `data.soapRetorno` (retorno da SEFAZ) e verificar que a chave de acesso foi gerada (44 dígitos).
 
-**Evidência:** todas as NF-e transmitidas em HOM retornam cStat=225. O XML é aceito pelo lote (cStat=104) e o XSD local valida com sucesso. A rejeição ocorre no processamento individual pelo `PL_008i2`.
+**Impacto em PRD:** nenhum. Não afeta produção e não afeta outros estados da federação.
 
 ### 13.2 Invalidação de cache de certificado
 
-Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é invalidado automaticamente quando o certificado é atualizado via API. Isso é um **gap de implementação** (não uma limitação externa) a ser corrigido antes de produção.
+Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é invalidado automaticamente quando o certificado é atualizado via API. Este é um **gap de implementação** (não uma limitação externa) a ser corrigido antes de produção (Fase 11).
 
 ---
 
@@ -775,12 +862,16 @@ Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é i
 
 □ 6. Smoke test login:
        POST http://localhost:8081/auth/login
-       {"username":"admin","password":"admin123"}
+       {"username":"admin@empresa.com","password":"admin123"}
        └─ Verificar: HTTP 200, token presente
 
 □ 7. Smoke test actuator:
        GET http://localhost:8081/actuator/health
        └─ Verificar: {"status":"UP"}
+
+□ 8. Smoke test API:
+       GET http://localhost:8081/api/test/ping
+       └─ Verificar: HTTP 200, status="UP"
 ```
 
 ### 14.2 Checklist de homologação NF-e
@@ -792,9 +883,11 @@ Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é i
 □ 4. sefaz.tpAmb=2 no application.properties (homologação)
 □ 5. Produto cadastrado com NCM (8 dígitos), CFOP, origem, csosn
 □ 6. Pedido criado com destCnpjCpf/destRazaoSocial válidos
-□ 7. POST /{id}/emitir → verificar chaveNfe no retorno
-□ 8. Verificar nfe_documento no banco: c_stat, x_motivo, n_prot
-□ 9. Verificar nfe_log: empresa_id, usuario preenchidos
+□ 7. POST /{id}/emitir → HTTP 200, data.soapRetorno não vazio
+□ 8. Verificar chaveNfe: 44 dígitos (confirma que SEFAZ aceitou o lote)
+□ 9. Em HOM-SP: cStat=225 no soapRetorno é esperado — não é erro do sistema
+□ 10. Verificar nfe_documento no banco: c_stat, x_motivo, n_prot
+□ 11. Verificar nfe_log: empresa_id, usuario preenchidos
 ```
 
 ### 14.3 Checklist de validação de nova empresa
@@ -805,10 +898,30 @@ Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é i
 □ 2. Verificar empresa criada: GET /api/app/empresas/{id}
 □ 3. Configurar certificado: PUT /api/app/empresas/{id}
        Body: { certPath: "/app/certificados/pfx/empresa-X.pfx",
-               certSenha: "senha_plaintext",   ← será criptografada pelo EmpresaController
+               certSenha: "senha_plaintext",
                certTipo: "PKCS12" }
 □ 4. Testar emissão com usuário cuja empresa_id == id da nova empresa
 □ 5. Verificar log: [EmpresaCert] Certificado OK | empresaId=X | alias=...
+```
+
+### 14.4 Smoke test de integração end-to-end
+
+Executar com Postman collection (`docs/postman/borurio-erp-collection.json`) ou sequência curl em HOM (`http://localhost:8081`). Ver `INTEGRATION_CONTRACT_PT-BR.md` para payloads completos.
+
+```
+□ 1. GET  /api/test/ping                     → HTTP 200, status="UP"
+□ 2. POST /auth/login                        → HTTP 200, token não nulo
+□ 3. POST /api/app/produtos                  → HTTP 200, data.id retornado
+□ 4. GET  /api/app/produtos?page=0&size=5    → HTTP 200, totalElements ≥ 1
+□ 5. POST /api/app/pedidos                   → HTTP 200, data.status="RASCUNHO"
+□ 6. POST /api/app/pedidos/{id}/emitir       → HTTP 200, soapRetorno não vazio
+□ 7. GET  /api/app/pedidos/{id}/situacao     → HTTP 200, chaveNfe preenchida
+□ 8. GET  /api/app/pedidos/{id}              → HTTP 200, itens com snapshot
+
+Verificações de segurança:
+□ 9.  GET  /api/app/pedidos sem token        → HTTP 401, success=false
+□ 10. GET  /api/app/usuarios com token USER  → HTTP 403, success=false
+□ 11. GET  /api/app/pedidos token empresa B  → HTTP 200, content=[] (isolamento)
 ```
 
 ---
@@ -849,7 +962,7 @@ Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é i
 
 **Motivação:** certificados A1 têm validade de 1 a 3 anos. Recarregar o KeyStore a cada emissão tem custo criptográfico desnecessário.
 
-**Gap:** a invalidação não é chamada automaticamente no PUT do EmpresaController. Deve ser corrigida antes de produção.
+**Gap:** a invalidação não é chamada automaticamente no PUT do `EmpresaController`. Deve ser corrigida antes de produção.
 
 ---
 
@@ -863,7 +976,7 @@ Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é i
 
 ---
 
-### DA-06: passthrough do CertSenhaEncryptor sem chave configurada
+### DA-06: Passthrough do CertSenhaEncryptor sem chave configurada
 
 **Decisão:** sem `CERT_ENCRYPTION_KEY`, o encryptor opera em modo transparente (sem criptografia) com `WARN` no log.
 
@@ -871,27 +984,38 @@ Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é i
 
 ---
 
+### DA-07: @ConditionalOnProperty em MyBatisConfig
+
+**Decisão:** `MyBatisConfig` usa `@ConditionalOnProperty("spring.datasource.url")` em vez de `@ConditionalOnBean(DataSource.class)`.
+
+**Motivação:** `@ConditionalOnBean` em uma classe `@Configuration` regular é avaliado antes das auto-configurações do Spring Boot (incluindo `DataSourceAutoConfiguration`), resultando em condição sempre falsa em produção — `@MapperScan` nunca é executado e os mappers MyBatis não são registrados. `@ConditionalOnProperty` avalia a propriedade, que está presente nos YAMLs de dev/hom e ausente nos contextos de teste `@WebMvcTest`.
+
+---
+
 ## 16. ROADMAP ATÉ PRODUÇÃO
 
-### Fase 10 — Documentação e Swagger (pendente)
+### Fase 10 — Documentação e Swagger ✓ CONCLUÍDA (12-05-2026)
 
-| Item | Descrição |
+| Item | Status |
 |---|---|
-| Manual técnico PT/EN | Este documento + versão em inglês |
-| Swagger anotado | `@Operation` em todos os endpoints com exemplos de request/response |
-| Postman collection | Coleção com todos os fluxos end-to-end |
+| Manual técnico PT | ✓ Este documento (v2.0) |
+| Manual técnico EN | ✓ `MTF-001_motor-fiscal-nfe_EN.md` |
+| Contrato de integração PT-BR | ✓ `INTEGRATION_CONTRACT_PT-BR.md` |
+| Contrato de integração EN | ✓ `INTEGRATION_CONTRACT_EN.md` |
+| Swagger anotado (10 tags, deprecated marcado) | ✓ `SwaggerConfig.java` — Sprint 3 |
+| Postman collection end-to-end (46 requests) | ✓ `docs/postman/borurio-erp-collection.json` — Sprint 3 |
 
 ### Fase 11 — Deploy PRD + CI/CD (pendente)
 
 | Item | Prioridade | Descrição |
 |---|---|---|
 | `CERT_ENCRYPTION_KEY` em PRD | **CRÍTICO** | Gerar via `openssl rand -base64 32`; injetar via secrets manager |
-| Invalidação de cache certificado | **ALTO** | `EmpresaController.atualizar()` deve chamar `invalidar(empresaId)` |
-| Rate limiting | **MÉDIO** | Bucket4j ou equivalente; protege endpoint `/emitir` de abuso |
+| Certificados A1 PRD com CNPJ real | **CRÍTICO** | `tpAmb=1`; registrar empresa com `cert_path` apontando para cert PRD |
+| Invalidação automática de cache certificado | **ALTO** | `EmpresaController.atualizar()` deve chamar `invalidar(empresaId)` |
+| Rate limiting no `/emitir` | **MÉDIO** | Bucket4j ou equivalente; protege contra abuso |
 | CI/CD pipeline | **MÉDIO** | GitHub Actions: test → build → push image → deploy HOM → smoke test |
-| Política de retenção nfe_log | **BAIXO** | `NfeLogMapper.deleteAntigos(dias)` já implementado; falta agendamento |
-| Monitoramento | **BAIXO** | Prometheus + Loki (mencionado em V002 migration, não implementado) |
-| Certificados PRD | **CRÍTICO** | Certificados A1 de produção com CNPJ real; `tpAmb=1` |
+| Política de retenção `nfe_log` | **BAIXO** | `NfeLogMapper.deleteAntigos(dias)` já implementado; falta agendamento |
+| Monitoramento | **BAIXO** | Prometheus + Loki |
 
 ---
 
@@ -908,6 +1032,7 @@ Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é i
 
 ---
 
-*Documento MTF-001 — versão 1.0 — Borurio ERP Fiscal BR*  
+*Documento MTF-001 — versão 2.0 — Borurio ERP Fiscal BR*  
 *Gerado com base no estado validado em HOM em 11-05-2026*  
+*Atualizado com Sprint 3 em 12-05-2026*  
 *Próxima revisão prevista: após deploy PRD (Fase 11)*

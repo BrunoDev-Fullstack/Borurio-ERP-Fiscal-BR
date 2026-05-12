@@ -1,267 +1,266 @@
-# Borurio ERP Logístico + Fiscal BR
+# Borurio ERP Fiscal BR
 
-ERP modular em Java 17 com motor fiscal NF-e 4.00, integração com SEFAZ, autenticação JWT e organização técnica orientada a ambientes DEV, HOM e PRD.
+Plataforma de integração logística cross-border com motor fiscal NF-e 4.00 nativo, autenticação JWT multiempresa e API REST completa. Atua como camada de integração entre a OMS logística chinesa e o ecossistema fiscal brasileiro (SEFAZ-SP). Validado em ambiente de homologação.
 
-## Visão geral
+---
 
-O Borurio ERP Logístico + Fiscal BR foi concebido como uma plataforma integrada para gestão operacional e fiscal, unindo domínio ERP com um motor fiscal especializado em emissão de NF-e.
+## Posicionamento do produto
 
-A arquitetura do projeto busca combinar:
+```
+OMS Logística (China)
+        │
+        │  REST API — JSON · JWT · Bearer
+        ▼
+Borurio ERP Fiscal BR
+├── Autenticação & RBAC
+├── Multitenancy (empresa_id)
+├── Gestão: Produto, Pedido, Cliente
+├── Motor Fiscal NF-e 4.00
+│   ├── Geração XML, validação XSD
+│   ├── Assinatura XMLDSIG RSA-SHA256
+│   └── Transmissão SOAP + consulta de status
+        │
+        │  mTLS · Certificado A1 PKCS12
+        ▼
+SEFAZ-SP (Secretaria da Fazenda do Estado de São Paulo)
+```
 
-- cadastro e regras de negócio
-- processamento fiscal
-- comunicação com SEFAZ
-- rastreabilidade técnica e operacional
-- evolução gradual para fluxo completo de ERP logístico
+A OMS consome a API REST do Borurio para criar produtos, abrir pedidos e acionar o ciclo completo de emissão de NF-e. Todo o protocolo fiscal brasileiro (XML, XSD, assinatura digital, SOAP, mTLS) é encapsulado pelo Borurio e invisível para a OMS.
 
-## Objetivo do sistema
+---
 
-O sistema tem como objetivo oferecer uma base robusta para:
+## Status atual
 
-- gerenciar clientes, emitentes e entidades de negócio
-- gerenciar produtos com classificação fiscal
-- suportar futuras operações logísticas, pedidos e movimentações
-- gerar, validar, assinar e transmitir NF-e
-- persistir e rastrear o ciclo fiscal completo
-- sustentar evolução controlada entre desenvolvimento, homologação e produção
+| Camada | Estado |
+|---|---|
+| Motor fiscal NF-e 4.00 | Operacional em HOM (validado 08-05-2026) |
+| API REST — 10 módulos | Operacional em HOM (validado 12-05-2026) |
+| Autenticação JWT + RBAC | Operacional em HOM (validado 12-05-2026) |
+| Multiempresa (isolamento por empresa_id) | Operacional em HOM (validado 08-05-2026) |
+| Certificado A1 por empresa | Operacional em HOM (validado 11-05-2026) |
+| 30/30 testes de controller | Passando (Sprint 3 — 12-05-2026) |
+| Swagger UI | Disponível em `/swagger-ui/index.html` |
+| Postman collection | Disponível em `docs/postman/` |
+| Contrato de integração PT-BR / EN | Disponível em `docs/manual/` |
+| Onboarding OMS chinesa | Pronto para execução em HOM |
+| Deploy PRD | Pendente (Fase 11) |
 
-## Arquitetura modular
+---
 
-O projeto está organizado em módulos Maven com separação clara de responsabilidades:
+## Arquitetura de módulos
 
-```text
+```
 borurio-erp-br
-├── borurio-core    → núcleo compartilhado, enums, utilitários e resposta padrão
-├── borurio-app     → camada de domínio e regras de negócio ERP
-├── borurio-fiscal  → motor fiscal NF-e, XML, assinatura, SEFAZ, NCM e auditoria
-└── borurio-web     → API REST, autenticação JWT, controllers e integração app ↔ fiscal
-borurio-core
+├── borurio-core     → envelope de resposta (Result<T>, PageResponse), utilitários base
+├── borurio-app      → entidades ERP, MyBatis mappers, services: Empresa, Produto, Pedido, DbUser
+├── borurio-fiscal   → motor NF-e: XML, XSD, XMLDSIG, SOAP, sequenciador, auditoria, NCM
+└── borurio-web      → Spring Boot, API REST, JWT, bridges pedido ↔ NF-e, Swagger
+```
 
-Núcleo compartilhado da aplicação:
+**Regra de fronteira:** `borurio-fiscal` não importa `borurio-app`. A integração entre os dois domínios ocorre exclusivamente no `borurio-web` via `CertificadoContexto` (tipos JDK puros).
 
-enums
-utilitários
-padrão de resposta
-componentes comuns
-borurio-app
+---
 
-Camada de domínio e regras de negócio:
+## Stack tecnológica
 
-entidades ERP
-serviços de aplicação
-base evolutiva para clientes, produtos e operações
-borurio-fiscal
+| Componente | Versão |
+|---|---|
+| Java | 17 |
+| Spring Boot | 3.3.2 |
+| Spring Security | 6.x — stateless JWT |
+| MyBatis | annotations |
+| MySQL | 8.4 |
+| Flyway | V001–V022 aplicadas em HOM |
+| springdoc-openapi | 2.6.0 |
+| Docker | porta 8080 (DEV), 8081 (HOM) |
 
-Motor fiscal NF-e:
+---
 
-geração de XML
-validação XSD
-assinatura XMLDSIG
-comunicação SOAP 1.2
-certificado A1
-NCM
-auditoria fiscal
-borurio-web
+## O que está implementado e validado em HOM
 
-Camada de exposição da aplicação:
+### Autenticação e controle de acesso
 
-API REST
-autenticação JWT
-controllers
-Swagger / OpenAPI
-integração entre domínio e motor fiscal
-Stack tecnológica
-Java 17
-Spring Boot 3.3.x
-Maven multi-module
-MyBatis
-MySQL 8.4
-Redis 7.2
-MinIO
-Flyway
-Docker / Docker Compose
-JWT
-Swagger / OpenAPI
-SOAP 1.2
-XMLDSIG
-GitHub Actions
-Escopo funcional
-Núcleo já estruturado
-autenticação JWT
-API REST principal
-domínio inicial de clientes
-base de produtos e classificação fiscal
-módulo NCM
-geração de XML NF-e
-validação XSD
-assinatura digital com certificado A1
-transmissão fiscal via SOAP
-logs e rastreabilidade fiscal
-Evolução prevista do ERP
-pedidos / ordens
-estoque / logística
-vínculo entre operação e documento fiscal
-relatórios operacionais
-multiempresa
-expansão fiscal avançada
-Fluxo operacional do sistema
+- `POST /auth/login` → retorna token JWT (HMAC-SHA256, validade 1h)
+- Campo `username` é o e-mail do usuário cadastrado
+- JWT embute `empresa_id` como claim `"eid"` — propagado automaticamente por ThreadLocal
+- Roles: `ADMIN` (gerencia empresas e usuários) / `OPERADOR` (produtos, pedidos, emissão)
+- Endpoints ADMIN-only: `POST /api/app/empresas`, `PUT /api/app/empresas/**`, `GET /api/app/usuarios`, `GET /api/app/usuarios/**`
 
-A visão arquitetural do projeto segue a lógica:
+### Módulos REST disponíveis
 
-Cliente → Operação → Itens → Processamento Fiscal → NF-e → SEFAZ
+| Módulo | Endpoint base | Auth |
+|---|---|---|
+| Ping / health check | `GET /api/test/ping` | Público |
+| Autenticação | `POST /auth/login` | Público |
+| Empresas | `/api/app/empresas` | Autenticado (GET) · ADMIN (POST, PUT) |
+| Produtos | `/api/app/produtos` | Autenticado |
+| Clientes | `/api/app/clientes` | Autenticado |
+| Pedidos + ciclo fiscal | `/api/app/pedidos` | Autenticado |
+| Usuários | `/api/app/usuarios` | ADMIN |
+| Logs fiscais | `/api/fiscal/nfe/logs` | Autenticado |
+| NCM | `/api/fiscal/ncm` | Autenticado |
+| NF-e (legado, deprecated) | `/api/fiscal/nfe` | Autenticado |
 
-Na trilha fiscal, o fluxo técnico central é:
+### Fluxo fiscal validado
 
-recepção da requisição
-montagem do XML NF-e
-validação contra XSD
-assinatura digital XMLDSIG
-montagem do lote fiscal
-transmissão via SOAP 1.2 / TLS
-recebimento e rastreamento do retorno
-persistência de eventos, status e evidências
-Motor fiscal NF-e
+```
+POST /auth/login                           → token JWT
+POST /api/app/produtos                     → cadastro com snapshot fiscal
+POST /api/app/pedidos                      → pedido em RASCUNHO; snapshot congelado nos itens
+POST /api/app/pedidos/{id}/emitir          → XML NF-e 4.00 gerado, assinado e transmitido à SEFAZ
+GET  /api/app/pedidos/{id}/situacao        → estado local + consulta live consSitNFe
+POST /api/app/pedidos/{id}/cancelar        → cancelamento (evento 110111), somente AUTORIZADO
+POST /api/app/pedidos/{id}/cce             → Carta de Correção (evento 110110), somente AUTORIZADO
+```
 
-O módulo fiscal concentra os componentes de emissão eletrônica e comunicação com SEFAZ.
+### Estados do pedido
 
-Capacidades do motor fiscal
-montagem de XML NF-e 4.00
-validação estrutural por XSD
-assinatura digital com certificado A1
-integração SOAP 1.2 / TLS
-suporte a auditoria fiscal
-base para eventos fiscais e evolução regulatória
-Integrações fiscais
-SEFAZ homologação
-SEFAZ produção
-truststore / ICP-Brasil
-certificado digital A1
-tabela NCM oficial
-Ambientes
+| Status | Condição |
+|---|---|
+| `RASCUNHO` | Criado, não transmitido |
+| `AUTORIZADO` | cStat=100 — NF-e aprovada, estoque baixado |
+| `AGUARDANDO` | cStat=104 ou retorno não parseável |
+| `REJEITADO` | cStat ≥ 200 — SEFAZ recusou |
+| `ERRO` | Exceção durante transmissão (HTTP 500) |
+| `CANCELADO` | Evento de cancelamento autorizado — imutável |
 
-O projeto foi modelado para operar com separação de ambientes.
+### Motor fiscal NF-e 4.00
 
-DEV
+- Geração de XML completa: `<ide>`, `<emit>`, `<dest>`, `<det>`, `<total>`, `<transp>`, `<pag>`
+- Validação XSD contra `nfe_v4.00_consolidado.xsd` (pré-assinatura)
+- Assinatura XMLDSIG RSA-SHA256 + C14N (NT 2019.001 obrigatório)
+- Envelope SOAP 1.2 com `indSinc=1` (processamento síncrono)
+- Autenticação mTLS com certificado A1 PKCS12
+- Sequenciador atômico de número NF-e por CNPJ + série
+- Chave de acesso 44 dígitos com dígito verificador módulo 11
 
-Ambiente de validação técnica e desenvolvimento local:
+### Multiempresa
 
-execução controlada
-Swagger / API Client
-debug e observabilidade
-validação técnica do pipeline
-HOM
+- Isolamento de dados em `produto`, `pedido`, `nfe_log` por `empresa_id`
+- `empresa_id` extraído do JWT a cada request — não enviado no body
+- Certificado A1 por empresa com cache `ConcurrentHashMap` em memória
+- Criptografia AES-256-GCM para senha do certificado (passthrough em HOM)
 
-Ambiente destinado à homologação funcional e fiscal:
+### Auditoria fiscal
 
-validações integradas
-testes controlados
-preparação de operação
-PRD
+- Tabela `nfe_documento`: estado persistido de cada NF-e (chave, cStat, xMotivo, nProt, xmlProtocolo)
+- Tabela `nfe_log`: dois eventos por emissão — `ENVIO_NFE` (com usuário) e `TRANSMISSAO_SEFAZ` (com empresa_id)
+- Falhas de log nunca interrompem o fluxo fiscal
 
-Ambiente destinado à operação real, com promoção controlada após homologação.
+---
 
-Segurança
+## Limitações conhecidas do ambiente HOM/SP
 
-O projeto segue uma linha de endurecimento técnico com foco em segurança aplicada ao ciclo fiscal.
+O ambiente de homologação da SEFAZ-SP retorna `cStat=225` ("Rejeição: Falha no Schema XML") para todas as NF-e transmitidas. Isso é uma limitação do processador `SP_NFE_PL_008i2` em HOM, que usa SHA-1 internamente. O código está em conformidade com NT 2019.001 (RSA-SHA256). **Esta limitação não afeta PRD.**
 
-Medidas incorporadas na arquitetura:
+Para validar o fluxo técnico em HOM: verificar que `data.chaveNfe` tem 44 dígitos (lote aceito pela SEFAZ) e inspecionar `data.soapRetorno` diretamente.
 
-autenticação JWT
-proteção de endpoints fiscais
-leitura de credenciais por variável de ambiente
-certificado A1 fora do código-fonte
-proteção contra XXE
-padrão stateless
-separação por ambiente
-governança de branch principal com pull request obrigatório
-CI/CD
+---
 
-O repositório possui automação de pipeline organizada em GitHub Actions.
+## Documentação disponível
 
-CI - Build e Segurança
+| Documento | Caminho | Descrição |
+|---|---|---|
+| Manual técnico motor fiscal (PT-BR) | `docs/manual/MTF-001_motor-fiscal-nfe.md` | Arquitetura interna, fluxos, decisões de design, checklists operacionais |
+| Manual técnico motor fiscal (EN) | `docs/manual/MTF-001_motor-fiscal-nfe_EN.md` | Versão em inglês do manual técnico |
+| Contrato de integração (PT-BR) | `docs/manual/INTEGRATION_CONTRACT_PT-BR.md` | Contrato validado — integração ERP logístico externo |
+| Contrato de integração (EN) | `docs/manual/INTEGRATION_CONTRACT_EN.md` | Versão em inglês — entrega principal para time chinês |
+| Checklist onboarding OMS chinesa | `docs/manual/CHECKLIST_OMS_ONBOARDING.md` | Passo a passo para integração da OMS com o Borurio |
+| Checklist de entrega do ERP | `docs/manual/CHECKLIST_ERP_DELIVERY.md` | Estado completo de entrega e pendências |
+| Postman collection | `docs/postman/borurio-erp-collection.json` | 9 pastas, 46 requests, variáveis `{{baseUrl}}` e `{{token}}` |
+| Swagger UI | `http://localhost:8080/swagger-ui/index.html` (DEV) | Documentação interativa — 10 tags, deprecated marcados |
+| Diagramas arquiteturais | `docs/architecture/` | Topologias gerais, fluxo fiscal, ambientes, segurança e CI/CD |
 
-Fluxo de integração contínua voltado para:
+---
 
-build
-testes
-validação técnica do pipeline
-verificação de segurança em escopo controlado
-CD - Homologação Manual
+## Estrutura do repositório
 
-Fluxo de deploy manual orientado ao ambiente de homologação:
+```
+borurio-erp-br/
+├── .github/                  → GitHub Actions (build, segurança)
+├── borurio-core/             → módulo núcleo
+├── borurio-app/              → módulo de negócio ERP
+├── borurio-fiscal/           → motor fiscal NF-e
+├── borurio-web/              → API REST + Spring Boot
+├── docker/                   → configuração Docker Compose
+├── docs/
+│   ├── architecture/         → diagramas drawio e exports
+│   ├── data/                 → referências de dados
+│   ├── manual/               → manuais técnicos, contratos e checklists
+│   ├── postman/              → Postman collection end-to-end
+│   ├── report/               → relatórios e evidências
+│   └── xml/                  → XMLs de referência fiscal
+├── scripts/                  → scripts operacionais
+└── sql/                      → referências SQL
+```
 
-sem promoção automática para produção
-execução controlada
-alinhado à estratégia de homologação técnica
-Topologias arquiteturais
+---
 
-O projeto possui um pacote arquitetural com diagramas que documentam a visão atual da solução, o fluxo fiscal e a organização dos ambientes.
+## Ambientes
 
-1. Topologia geral do sistema
+| Ambiente | URL | Estado |
+|---|---|---|
+| DEV | `http://localhost:8080` | Operacional |
+| HOM | `http://localhost:8081` | Operacional — validado em 12-05-2026 |
+| PRD | Definido por operações | Pendente (Fase 11) |
 
-2. Topologia alvo funcional com motor fiscal NF-e
+**Deploy HOM (manual):**
+```bash
+mvn -pl borurio-web -am clean package -DskipTests -q
+docker cp borurio-web/target/borurio-web-1.0.0.jar borurio-web-hom:/app/app.jar
+docker restart borurio-web-hom
+```
 
-3. Fluxo técnico de emissão NF-e / SEFAZ
+---
 
-4. Topologia de ambientes DEV / HOM / PRD
+## Segurança
 
-5. Topologia de segurança, certificado e comunicação fiscal
+- JWT stateless HMAC-SHA256, sem sessão servidor
+- RBAC com dois níveis: `ADMIN` e `OPERADOR`
+- Endpoints 401/403 retornam JSON estruturado (não redirect HTML)
+- Proteção anti-XXE em todos os parsers XML
+- `CERT_ENCRYPTION_KEY` (AES-256-GCM) para senha de certificado — passthrough em HOM, obrigatório em PRD
+- `SecurityConfig` com dois `SecurityFilterChain` separados (actuator e aplicação)
 
-6. Topologia de CI/CD, versionamento e evidências de deploy
+---
 
-Documentação técnica
+## Pendências — Fase 11 (PRD)
 
-O projeto possui documentação técnica complementar para apoiar entendimento arquitetural, onboarding e rastreabilidade de evolução.
+| Item | Prioridade |
+|---|---|
+| `CERT_ENCRYPTION_KEY` configurada em PRD via secrets manager | Crítico |
+| Certificados A1 de produção com CNPJ real (`tpAmb=1`) | Crítico |
+| Invalidação automática do cache de certificado no `EmpresaController` | Alto |
+| Rate limiting no `POST /api/app/pedidos/{id}/emitir` | Médio |
+| CI/CD automatizado (GitHub Actions → deploy HOM → smoke test) | Médio |
+| Política de retenção de `nfe_log` (agendamento do `deleteAntigos`) | Baixo |
 
-Estrutura documental
-docs/
-├── architecture/
-│   ├── drawio/
-│   └── exports/
-├── data/
-├── report/
-└── xml/
-Estrutura do repositório
-.github/
-borurio-app/
-borurio-core/
-borurio-fiscal/
-borurio-web/
-docker/
-docs/
-scripts/
-sql/
-Roadmap de evolução
+---
 
-A evolução do sistema foi desenhada para ocorrer de forma incremental e controlada.
+## Integração com a OMS logística chinesa
 
-Curto prazo
-consolidação do motor fiscal atual
-estabilização técnica dos fluxos centrais
-amadurecimento da documentação operacional
-refinamento do pipeline de homologação
-Médio prazo
-expansão do domínio ERP
-pedidos
-estoque / logística
-integração mais forte entre operação e emissão fiscal
-Longo prazo
-fiscal avançado
-multiempresa
-DANFE
-relatórios operacionais e gerenciais
-expansão funcional do ERP
-Observações
+O Borurio está pronto para integração em HOM. Não há bloqueadores técnicos para início dos testes de integração com a OMS.
 
-Este repositório representa uma base arquitetural e funcional em evolução contínua, com foco em solidez técnica, separação de responsabilidades e crescimento incremental do ERP Logístico + Fiscal BR.
+**Documentos para o time chinês:**
 
-A estratégia do projeto prioriza:
+| Documento | Caminho |
+|---|---|
+| Contrato de integração (EN) | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
+| Checklist de onboarding | `docs/manual/CHECKLIST_OMS_ONBOARDING.md` |
+| Manual técnico (EN) | `docs/manual/MTF-001_motor-fiscal-nfe_EN.md` |
+| Postman collection | `docs/postman/borurio-erp-collection.json` |
 
-consistência arquitetural
-rastreabilidade técnica
-segurança
-homologação controlada
-evolução gradual do domínio de negócio
-Autor
+**Sequência de integração:**
 
-Bruno Ribeiro
+1. Criar credencial OPERADOR via ADMIN para o time chinês
+2. Compartilhar `INTEGRATION_CONTRACT_EN.md` e `CHECKLIST_OMS_ONBOARDING.md`
+3. Time chinês executa smoke test em HOM (8 chamadas documentadas no contrato)
+4. OMS adapta sequência interna: produto → pedido → emitir → situação
+5. Integração PRD aguarda certificados A1 de produção (Fase 11)
+
+---
+
+## Autor
+
+Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps  
+Contato: contato@borurio.com.br
