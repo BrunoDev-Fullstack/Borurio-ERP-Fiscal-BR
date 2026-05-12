@@ -36,6 +36,8 @@ import java.util.List;
                         - /api/fiscal/nfe/logs               → Auditoria de eventos fiscais
                         - /api/fiscal/nfe/cancelar           → Cancelamento por chave (fiscal direto)
                         - /api/fiscal/nfe/inutilizar         → Inutilização de faixa de numeração
+                        - /api/fiscal/ncm                    → Tabela NCM (listar, buscar, sincronizar)
+                        - /api/test/ping                     → Verificação de disponibilidade da API
 
                         Autenticação: clique em "Authorize" e informe o Bearer token retornado pelo /auth/login.
                         """,

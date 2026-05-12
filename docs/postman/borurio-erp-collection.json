@@ -2,7 +2,7 @@
   "info": {
     "name": "Borurio ERP Fiscal BR — API v3.3.0",
     "_postman_id": "borurio-erp-fiscal-br-v3",
-    "description": "Coleção completa da API REST do Borurio ERP Fiscal BR.\n\nComo usar:\n1. Configure a variável `baseUrl` para http://localhost:8080 (DEV) ou http://localhost:8081 (HOM)\n2. Execute 'Auth / Login' e o token JWT será salvo automaticamente em `{{token}}`\n3. Todas as demais requisições já usam Bearer {{token}}\n\nOperações marcadas como [ADMIN] exigem usuário com role ADMIN.",
+    "description": "Coleção completa da API REST do Borurio ERP Fiscal BR.\n\nComo usar:\n1. Configure a variável `baseUrl` para http://localhost:8080 (DEV) ou http://localhost:8081 (HOM)\n2. Execute 'Auth / Login' e o token JWT será salvo automaticamente em `{{token}}`\n3. Todas as demais requisições já usam Bearer {{token}}\n\nOperações marcadas como [ADMIN] exigem usuário com role ADMIN.\nOperações sem marcação exigem apenas autenticação (qualquer role).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -44,7 +44,8 @@
     },
 
     {
-      "name": "Empresas [ADMIN]",
+      "name": "Empresas",
+      "description": "GET /empresas — autenticado (qualquer role). POST e PUT — somente ADMIN.",
       "item": [
         {
           "name": "Listar empresas",
@@ -129,7 +130,7 @@
           }
         },
         {
-          "name": "Desativar produto",
+          "name": "Desativar produto (soft-delete)",
           "request": { "method": "DELETE", "url": "{{baseUrl}}/api/app/produtos/1" }
         }
       ]
@@ -183,7 +184,7 @@
           }
         },
         {
-          "name": "Desativar cliente",
+          "name": "Desativar cliente (soft-delete)",
           "request": { "method": "DELETE", "url": "{{baseUrl}}/api/app/clientes/1" }
         }
       ]
@@ -236,7 +237,7 @@
           }
         },
         {
-          "name": "Emitir CC-e (Carta de Correção)",
+          "name": "Emitir CC-e (Carta de Correção Eletrônica)",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
@@ -298,7 +299,7 @@
           }
         },
         {
-          "name": "Desativar usuário — soft delete [ADMIN]",
+          "name": "Desativar usuário — soft-delete [ADMIN]",
           "request": { "method": "DELETE", "url": "{{baseUrl}}/api/app/usuarios/2" }
         }
       ]
@@ -355,7 +356,27 @@
     },
 
     {
+      "name": "NCM",
+      "description": "Tabela NCM usada como referência para cadastro de produtos. Requer autenticação.",
+      "item": [
+        {
+          "name": "Listar todos os NCMs",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/fiscal/ncm/listar" }
+        },
+        {
+          "name": "Buscar NCM por código",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/fiscal/ncm/84715000" }
+        },
+        {
+          "name": "Sincronizar tabela NCM",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/fiscal/ncm/sincronizar" }
+        }
+      ]
+    },
+
+    {
       "name": "NF-e LEGADO (deprecado)",
+      "description": "Endpoints mantidos para compatibilidade retroativa. Use /api/app/pedidos para novas integrações.",
       "item": [
         {
           "name": "[DEPRECADO] Status SEFAZ",
@@ -397,7 +418,7 @@
       "item": [
         {
           "name": "Ping API",
-          "request": { "method": "GET", "url": "{{baseUrl}}/ping" }
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/test/ping" }
         },
         {
           "name": "Health Actuator",
