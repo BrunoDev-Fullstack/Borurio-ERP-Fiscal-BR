@@ -15,9 +15,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
+@Deprecated
 @RestController
 @RequestMapping("/api/fiscal/nfe")
-@Tag(name = "NF-e", description = "Transmissão e consulta de NF-e junto à SEFAZ")
+@Tag(name = "NF-e (LEGADO)", description = "DEPRECADO — use /api/app/pedidos para emissão, situação e operações fiscais. Mantido para compatibilidade retroativa.")
 public class NfeEnvioController {
 
     private final NfeOrquestradorService nfeOrquestradorService;
@@ -43,7 +44,8 @@ public class NfeEnvioController {
     // =========================================================================
 
     @PostMapping("/enviar")
-    @Operation(summary = "Transmitir NF-e para a SEFAZ")
+    @Operation(summary = "Transmitir NF-e para a SEFAZ", deprecated = true,
+            description = "DEPRECADO — use POST /api/app/pedidos/{id}/emitir")
     public Result<String> enviarNfe(
             @RequestBody String xmlNfe,
             @RequestHeader(value = "CNPJ-Emitente", required = true) String cnpjEmitente) {
@@ -68,7 +70,8 @@ public class NfeEnvioController {
     // =========================================================================
 
     @PostMapping("/gerar")
-    @Operation(summary = "Gerar e transmitir NF-e a partir de dados estruturados de negócio")
+    @Operation(summary = "Gerar e transmitir NF-e a partir de dados estruturados de negócio", deprecated = true,
+            description = "DEPRECADO — crie o pedido via POST /api/app/pedidos e emita via POST /api/app/pedidos/{id}/emitir")
     public Result<String> gerarNfe(@RequestBody NfeEmissaoRequest request) {
         log.info("[NF-e] Geração solicitada | dest={} | itens={}",
                 request.getDestCnpjCpf(), request.getItens() != null ? request.getItens().size() : 0);
@@ -89,7 +92,7 @@ public class NfeEnvioController {
     // =========================================================================
 
     @GetMapping("/status")
-    @Operation(summary = "Consultar status do serviço NF-e na SEFAZ-SP")
+    @Operation(summary = "Consultar status do serviço NF-e na SEFAZ-SP", deprecated = true)
     public Result<String> status() {
         log.info("[NF-e] Consulta status SEFAZ | tpAmb={}", tpAmb);
         try {
@@ -108,7 +111,8 @@ public class NfeEnvioController {
     // =========================================================================
 
     @GetMapping("/{chave}")
-    @Operation(summary = "Consultar situação de NF-e pela chave de acesso (44 dígitos)")
+    @Operation(summary = "Consultar situação de NF-e pela chave de acesso (44 dígitos)", deprecated = true,
+            description = "DEPRECADO — use GET /api/app/pedidos/{id}/situacao")
     public Result<String> consultarNfe(@PathVariable String chave) {
         String chaveNormalizada = chave != null ? chave.replaceAll("\\D", "") : "";
         if (chaveNormalizada.length() != 44) {

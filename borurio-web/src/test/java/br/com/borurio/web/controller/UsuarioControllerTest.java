@@ -2,6 +2,7 @@ package br.com.borurio.web.controller;
 
 import br.com.borurio.app.entity.DbUser;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.config.SecurityConfig;
 import br.com.borurio.web.controller.app.UsuarioController;
 import br.com.borurio.web.service.UsuarioService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -23,6 +25,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(UsuarioController.class)
+@Import(SecurityConfig.class)
 class UsuarioControllerTest {
 
     @Autowired MockMvc mockMvc;

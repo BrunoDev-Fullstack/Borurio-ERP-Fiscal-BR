@@ -93,6 +93,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 new AntPathRequestMatcher("/api/app/empresas", "POST"),
                                 new AntPathRequestMatcher("/api/app/empresas/**", "PUT"),
+                                new AntPathRequestMatcher("/api/app/usuarios"),
                                 new AntPathRequestMatcher("/api/app/usuarios/**")
                         ).hasRole("ADMIN")
                         .anyRequest().authenticated()

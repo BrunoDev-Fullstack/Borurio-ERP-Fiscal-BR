@@ -7,42 +7,37 @@ import io.swagger.v3.oas.annotations.info.Info;
 import io.swagger.v3.oas.annotations.info.License;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
-import io.swagger.v3.oas.models.ExternalDocumentation;
 import io.swagger.v3.oas.models.OpenAPI;
-import io.swagger.v3.oas.models.responses.ApiResponse;
-import io.swagger.v3.oas.models.responses.ApiResponses;
-import io.swagger.v3.oas.models.PathItem;
-import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.servers.Server;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * =============================================================================
- * CONFIGURAÇÃO SWAGGER — BORURIO ERP FISCAL BR
- * -----------------------------------------------------------------------------
- * Ambiente Unificado (DEV + HOMOLOGAÇÃO)
- * - JWT via botão "Authorize"
- * - Endpoints de NF-e 4.00 com exemplos automáticos e cabeçalhos pré-definidos
- * =============================================================================
- * Projeto: ERP Fiscal Borurio BR
- * Versão: 3.3.0
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * =============================================================================
- */
+import java.util.List;
+
 @Configuration
 @OpenAPIDefinition(
         info = @Info(
-                title = "Borurio ERP Fiscal BR — API REST (Ambiente DEV + HOMOLOGAÇÃO)",
+                title = "Borurio ERP Fiscal BR — API REST",
                 version = "v3.3.0",
                 description = """
-                        Documentação oficial da API Fiscal NF-e 4.00.
-                        Ambiente unificado para Desenvolvimento e Homologação SEFAZ-SP.
+                        API do sistema ERP Fiscal Borurio BR com suporte completo a NF-e 4.00 (SEFAZ-SP).
 
-                        Principais módulos:
-                        - /auth/login → Autenticação JWT
-                        - /api/fiscal/nfe/status → Consulta de status SEFAZ-SP
-                        - /api/fiscal/nfe/enviar → Envio da NF-e 4.00
-                        - /api/test/** → Testes de disponibilidade e integração
+                        Módulos disponíveis:
+                        - /auth/login                        → Autenticação JWT
+                        - /api/app/empresas                  → Empresas emitentes (multi-tenant) [ADMIN]
+                        - /api/app/produtos                  → Produtos com snapshot fiscal congelado
+                        - /api/app/clientes                  → Clientes por empresa (isolamento multi-tenant)
+                        - /api/app/pedidos                   → Pedidos de venda + ciclo fiscal NF-e completo
+                        - /api/app/pedidos/{id}/emitir       → Emissão NF-e 4.00 → SEFAZ
+                        - /api/app/pedidos/{id}/situacao     → Consulta situação fiscal (consSitNFe)
+                        - /api/app/pedidos/{id}/cancelar     → Cancelamento NF-e (Evento 110111)
+                        - /api/app/pedidos/{id}/cce          → Carta de Correção Eletrônica (Evento 110110)
+                        - /api/app/usuarios                  → Gestão de usuários do sistema [ADMIN]
+                        - /api/fiscal/nfe/logs               → Auditoria de eventos fiscais
+                        - /api/fiscal/nfe/cancelar           → Cancelamento por chave (fiscal direto)
+                        - /api/fiscal/nfe/inutilizar         → Inutilização de faixa de numeração
+
+                        Autenticação: clique em "Authorize" e informe o Bearer token retornado pelo /auth/login.
                         """,
                 contact = @Contact(
                         name = "Bruno Ribeiro — DevSecOps / Fullstack Java",
@@ -66,29 +61,10 @@ public class SwaggerConfig {
 
     @Bean
     public OpenAPI customOpenAPI() {
-
-        // Respostas padrão
-        ApiResponses okResponse = new ApiResponses()
-                .addApiResponse("200", new ApiResponse().description("Operação bem-sucedida"));
-
-        // /auth/login
-        Operation authOp = new Operation()
-                .summary("Autenticação do usuário")
-                .description("Realiza o login e retorna um token JWT válido (expiração: 1h)")
-                .responses(okResponse);
-
-        // /api/test/ping
-        Operation pingOp = new Operation()
-                .summary("Ping de disponibilidade da API")
-                .description("Verifica se a API Borurio ERP Fiscal BR está online e funcional.")
-                .responses(okResponse);
-
-        // Construção do OpenAPI
         return new OpenAPI()
-                .externalDocs(new ExternalDocumentation()
-                        .description("Portal do Projeto — ERP Fiscal Borurio BR")
-                        .url("https://github.com/BrunoDev-Fullstack/Borurio-ERP-Fiscal-BR"))
-                .path("/auth/login", new PathItem().post(authOp))
-                .path("/api/test/ping", new PathItem().get(pingOp));
+                .servers(List.of(
+                        new Server().url("http://localhost:8080").description("Desenvolvimento (DEV)"),
+                        new Server().url("http://localhost:8081").description("Homologação SEFAZ-SP (HOM)")
+                ));
     }
 }
