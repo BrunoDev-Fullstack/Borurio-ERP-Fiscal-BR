@@ -32,7 +32,7 @@ public class SecurityConfig {
     private final JwtFilter jwtFilter;
     private final ObjectMapper objectMapper;
 
-    @Value("${cors.allowed-origins:*}")
+    @Value("${cors.allowed-origins:http://localhost:8080}")
     private String allowedOrigins;
 
     public SecurityConfig(JwtFilter jwtFilter, ObjectMapper objectMapper) {
