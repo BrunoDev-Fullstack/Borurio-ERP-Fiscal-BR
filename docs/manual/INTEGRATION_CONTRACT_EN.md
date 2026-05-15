@@ -2,14 +2,14 @@
 ## Borurio BR Fiscal Engine — REST API
 ### ERP Logistics × NF-e 4.00 SEFAZ-SP
 
-| Attribute | Value |
-|---|---|
-| Version | 1.1 |
-| Status | **Approved for integration** |
-| Validation date | 2026-05-12 |
-| Reference environment | HOM — `http://localhost:8081` |
-| Platform | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
-| Validated against | Source code + HOM tests |
+| Attribute             | Value                                   |
+|-----------------------|-----------------------------------------|
+| Version               | 1.1                                     |
+| Status                | **Approved for integration**            |
+| Validation date       | 2026-05-12                              |
+| Reference environment | HOM — `http://localhost:8081`           |
+| Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
+| Validated against     | Source code + HOM tests                 |
 
 ---
 
@@ -37,13 +37,15 @@ This document describes the integration contract between the external logistics 
 
 ## 2. Environments
 
-| Environment | Base URL | Purpose |
-|---|---|---|
-| DEV | `http://localhost:8080` | Local development |
-| HOM | `http://localhost:8081` | SEFAZ-SP staging |
-| PRD | Defined by operations | Production — not covered by this document |
+| Environment   | Base URL                | Purpose                                   |
+|---------------|-------------------------|-------------------------------------------|
+| DEV           | `http://localhost:8080` | Local development                         |
+| HOM           | `http://localhost:8081` | SEFAZ-SP staging                          |
+| PRD           | Defined by operations   | Production — not covered by this document |
 
 > `[CONTRACT]` All integration tests must be executed in HOM before any operation in PRD.
+
+> `[OPERATIONAL]` The URLs above are local addresses valid only on the host machine running Docker. The HOM environment **is not publicly accessible by default**. The integration team must confirm with the responsible party for the HOM environment that remote access has been set up (VPN access to the host network, controlled SSH tunnel, or a dedicated externally-accessible HOM URL) before starting the smoke test sequence. Without this, no test can be executed.
 
 ---
 
@@ -211,16 +213,16 @@ Content-Type: application/json
 
 **Fields and rules:**
 
-| Field | Type | Rule |
-|---|---|---|
-| `codigo` | String | Required · Max 60 chars · Unique per company |
-| `descricao` | String | Required · Max 120 chars |
-| `ncm` | String | Required · Exactly 8 numeric digits |
-| `cfop` | String | Required · Exactly 4 numeric digits |
-| `unidade` | String | Required · E.g.: `UN`, `KG`, `PC`, `CX` |
-| `preco` | Decimal | Required · Value > 0.01 |
-| `origem` | Integer | Required · `0`=Domestic · `1` to `8`=Imported |
-| `csosn` | String | Optional · If omitted, item snapshot defaults to `"400"` |
+| Field       | Type    | Rule                                                     |
+|-------------|---------|----------------------------------------------------------|
+| `codigo`    | String  | Required · Max 60 chars · Unique per company             |
+| `descricao` | String  | Required · Max 120 chars                                 |
+| `ncm`       | String  | Required · Exactly 8 numeric digits                      |
+| `cfop`      | String  | Required · Exactly 4 numeric digits                      |
+| `unidade`   | String  | Required · E.g.: `UN`, `KG`, `PC`, `CX`                  |
+| `preco`     | Decimal | Required · Value > 0.01                                  |
+| `origem`    | Integer | Required · `0`=Domestic · `1` to `8`=Imported            |
+| `csosn`     | String  | Optional · If omitted, item snapshot defaults to `"400"` |
 
 > `[CONTRACT]` CFOP reference: intra-state operation: `5102` · interstate operation: `6102`.
 
@@ -282,26 +284,26 @@ Content-Type: application/json
 
 **Order header fields:**
 
-| Field | Type | Rule |
-|---|---|---|
-| `destCnpjCpf` | String | Required · CNPJ (14 digits) or CPF (11 digits) · digits only |
-| `destRazaoSocial` | String | Required |
-| `destUf` | String | Recommended · State abbreviation: `SP`, `RJ`, `MG`... |
-| `destLogradouro` | String | Recommended · Improves SEFAZ approval |
-| `destNumero` | String | Recommended |
-| `destBairro` | String | Recommended |
-| `destCodigoMunicipio` | String | Recommended · 7-digit IBGE code |
-| `destMunicipio` | String | Recommended |
-| `destCep` | String | Recommended |
-| `naturezaOperacao` | String | Optional · Server-side default: `"VENDA DE MERCADORIA"` |
+| Field                 | Type   | Rule                                                         |
+|-----------------------|--------|--------------------------------------------------------------|
+| `destCnpjCpf`         | String | Required · CNPJ (14 digits) or CPF (11 digits) · digits only |
+| `destRazaoSocial`     | String | Required                                                     |
+| `destUf`              | String | Recommended · State abbreviation: `SP`, `RJ`, `MG`...        |
+| `destLogradouro`      | String | Recommended · Improves SEFAZ approval                        |
+| `destNumero`          | String | Recommended                                                  |
+| `destBairro`          | String | Recommended                                                  |
+| `destCodigoMunicipio` | String | Recommended · 7-digit IBGE code                              |
+| `destMunicipio`       | String | Recommended                                                  |
+| `destCep`             | String | Recommended                                                  |
+| `naturezaOperacao`    | String | Optional · Server-side default: `"VENDA DE MERCADORIA"`      |
 
 **Per-item fields (`itens[]`):**
 
-| Field | Type | Rule |
-|---|---|---|
-| `produtoId` | Long | Required · Product must exist and be active |
-| `quantidade` | Decimal | Required · Value > 0 |
-| `valorUnitario` | Decimal | Required · Value > 0 |
+| Field           | Type    | Rule                                        |
+|-----------------|---------|---------------------------------------------|
+| `produtoId`     | Long    | Required · Product must exist and be active |
+| `quantidade`    | Decimal | Required · Value > 0                        |
+| `valorUnitario` | Decimal | Required · Value > 0                        |
 
 > `[CONTRACT]` Each item's `valorTotal` is calculated automatically as `quantidade × valorUnitario`. The order total is the sum of all items. Do not send these fields.
 
@@ -441,11 +443,11 @@ Authorization: Bearer {token}
 
 > `[CONTRACT]` The `consultaSefaz` field (raw XML from the live `consSitNFe` call) is **always present**.
 
-| Field | Presence | Source |
-|---|---|---|
-| `pedidoId`, `numero`, `status`, `chaveNfe` | Always | Local database |
-| `cStat`, `xMotivo`, `nProt`, `dhRecbto` | Conditional | Table `nfe_documento` (if exists) |
-| `consultaSefaz` | Always | Live `consSitNFe` call to SEFAZ |
+| Field                                      | Presence    | Source                            |
+|--------------------------------------------|-------------|-----------------------------------|
+| `pedidoId`, `numero`, `status`, `chaveNfe` | Always      | Local database                    |
+| `cStat`, `xMotivo`, `nProt`, `dhRecbto`    | Conditional | Table `nfe_documento` (if exists) |
+| `consultaSefaz`                            | Always      | Live `consSitNFe` call to SEFAZ   |
 
 ---
 
@@ -463,8 +465,8 @@ Content-Type: application/json
 { "justificativa": "Reason with at least 15 characters" }
 ```
 
-| Field | Rule |
-|---|---|
+| Field           | Rule                  |
+|-----------------|-----------------------|
 | `justificativa` | Minimum 15 characters |
 
 > `[EXAMPLE]` Valid justification: `"Erro no pedido — cliente solicitou cancelamento"`
@@ -499,8 +501,8 @@ Content-Type: application/json
 { "correcao": "Correction text with at least 15 characters" }
 ```
 
-| Field | Rule |
-|---|---|
+| Field      | Rule                                                           |
+|------------|----------------------------------------------------------------|
 | `correcao` | Minimum 15 characters · Maximum 20 CC-e per NF-e (SEFAZ limit) |
 
 **Response — HTTP 200:**
@@ -518,14 +520,14 @@ Content-Type: application/json
 
 > `[CONTRACT]` Valid states and allowed operations per state:
 
-| State | Meaning | Allowed operations |
-|---|---|---|
-| `RASCUNHO` | Order created, not yet transmitted | `/emitir` |
-| `AUTORIZADO` | NF-e approved by SEFAZ (cStat=100) | `/situacao`, `/cancelar`, `/cce` |
-| `AGUARDANDO` | Transmitted; SEFAZ confirmation pending | `/situacao` |
-| `REJEITADO` | SEFAZ rejected (cStat ≥ 200) | None — create a new corrected order |
-| `CANCELADO` | NF-e cancelled with protocol | None — immutable |
-| `ERRO` | Technical failure during transmission | None via API — check logs |
+| State        | Meaning                                 | Allowed operations                  |
+|--------------|-----------------------------------------|-------------------------------------|
+| `RASCUNHO`   | Order created, not yet transmitted      | `/emitir`                           |
+| `AUTORIZADO` | NF-e approved by SEFAZ (cStat=100)      | `/situacao`, `/cancelar`, `/cce`    |
+| `AGUARDANDO` | Transmitted; SEFAZ confirmation pending | `/situacao`                         |
+| `REJEITADO`  | SEFAZ rejected (cStat ≥ 200)            | None — create a new corrected order |
+| `CANCELADO`  | NF-e cancelled with protocol            | None — immutable                    |
+| `ERRO`       | Technical failure during transmission   | None via API — check logs           |
 
 > `[CONTRACT]` State transitions are managed exclusively by the fiscal engine. The logistics ERP must not assume or force transitions.
 
@@ -575,15 +577,15 @@ Content-Type: application/json
 
 **Reference table:**
 
-| HTTP | Trigger | `data` structure |
-|---|---|---|
-| 400 | Malformed JSON or invalid business parameter | `null` |
-| 401 | Token absent or expired | `"success": false` field (no `data`) |
-| 403 | Insufficient role | `"success": false` field (no `data`) |
-| 404 | ID not found for the authenticated company | `null` |
-| 422 @Valid | Invalid entity field | `{ "field": "message" }` |
-| 422 state | Operation not allowed in current state | `null` |
-| 500 | Unhandled failure (including SEFAZ transmission error) | `null` |
+| HTTP       | Trigger                                                | `data` structure                     |
+|------------|--------------------------------------------------------|--------------------------------------|
+| 400        | Malformed JSON or invalid business parameter           | `null`                               |
+| 401        | Token absent or expired                                | `"success": false` field (no `data`) |
+| 403        | Insufficient role                                      | `"success": false` field (no `data`) |
+| 404        | ID not found for the authenticated company             | `null`                               |
+| 422 @Valid | Invalid entity field                                   | `{ "field": "message" }`             |
+| 422 state  | Operation not allowed in current state                 | `null`                               |
+| 500        | Unhandled failure (including SEFAZ transmission error) | `null`                               |
 
 ### 8.3 Pagination
 
@@ -621,26 +623,26 @@ GET /api/app/produtos?page=0&size=20
 
 ### 9.1 Validation Sequence
 
-| # | Request | PASS criterion |
-|---|---|---|
-| 1 | `GET /api/test/ping` | HTTP 200 · `status = "UP"` |
-| 2 | `POST /auth/login` | HTTP 200 · `token` not null |
-| 3 | `POST /api/app/produtos` | HTTP 200 · `data.id` returned |
-| 4 | `GET /api/app/produtos?page=0&size=5` | HTTP 200 · `data.totalElements ≥ 1` |
-| 5 | `POST /api/app/pedidos` (with `produtoId` from step 3) | HTTP 200 · `data.status = "RASCUNHO"` |
-| 6 | `POST /api/app/pedidos/{id}/emitir` | HTTP 200 · `data.soapRetorno` not empty |
-| 7 | `GET /api/app/pedidos/{id}/situacao` | HTTP 200 · `data.chaveNfe` populated |
-| 8 | `GET /api/app/pedidos/{id}` | HTTP 200 · `data.itens` with snapshot fields |
+| # | Request                                                | PASS criterion                               |
+|---|--------------------------------------------------------|----------------------------------------------|
+| 1 | `GET /api/test/ping`                                   | HTTP 200 · `status = "UP"`                   |
+| 2 | `POST /auth/login`                                     | HTTP 200 · `token` not null                  |
+| 3 | `POST /api/app/produtos`                               | HTTP 200 · `data.id` returned                |
+| 4 | `GET /api/app/produtos?page=0&size=5`                  | HTTP 200 · `data.totalElements ≥ 1`          |
+| 5 | `POST /api/app/pedidos` (with `produtoId` from step 3) | HTTP 200 · `data.status = "RASCUNHO"`        |
+| 6 | `POST /api/app/pedidos/{id}/emitir`                    | HTTP 200 · `data.soapRetorno` not empty      |
+| 7 | `GET /api/app/pedidos/{id}/situacao`                   | HTTP 200 · `data.chaveNfe` populated         |
+| 8 | `GET /api/app/pedidos/{id}`                            | HTTP 200 · `data.itens` with snapshot fields |
 
 ### 9.2 Security Checks
 
-| Request | Expected result |
-|---|---|
-| `GET /api/app/pedidos` without `Authorization` | HTTP 401 · `"Autenticação necessária"` · `success: false` |
-| `GET /api/app/usuarios` with `USER` role token | HTTP 403 · `"Acesso negado"` · `success: false` |
-| `GET /api/app/pedidos` with company B token | HTTP 200 · `data.content = []` (tenant isolation) |
-| `POST /api/app/pedidos/9999/emitir` | HTTP 404 · `data: null` |
-| `POST /api/app/pedidos/{id}/cancelar` with empty `justificativa` | HTTP 400 · minimum 15 characters message |
+| Request                                                          | Expected result                                           |
+|------------------------------------------------------------------|-----------------------------------------------------------|
+| `GET /api/app/pedidos` without `Authorization`                   | HTTP 401 · `"Autenticação necessária"` · `success: false` |
+| `GET /api/app/usuarios` with `OPERADOR` role token               | HTTP 403 · `"Acesso negado"` · `success: false`           |
+| `GET /api/app/pedidos` with company B token                      | HTTP 200 · `data.content = []` (tenant isolation)         |
+| `POST /api/app/pedidos/9999/emitir`                              | HTTP 404 · `data: null`                                   |
+| `POST /api/app/pedidos/{id}/cancelar` with empty `justificativa` | HTTP 400 · minimum 15 characters message                  |
 
 ### 9.3 Expected Behavior in HOM-SP
 
@@ -661,12 +663,12 @@ pedido.status:    "REJEITADO" or "AGUARDANDO" → normal in HOM; does not occur 
 
 ## 10. Staging Observations
 
-| # | Observation | Impact |
-|---|---|---|
-| 1 | `cStat=225` is normal behavior in HOM-SP | Does not block technical flow validation |
-| 2 | The `"environment": "dev"` field in `/ping` is hardcoded | Do not use it as an environment discriminator |
-| 3 | Token expires in 1 hour | Implement renewal for long-running flows |
-| 4 | Paginated order list does not include items | Always use `GET /{id}` to retrieve items |
-| 5 | CC-e and cancellation require `nProt` to be available | Call `/situacao` before cancelling after AGUARDANDO |
-| 6 | Product with `estado=0` is rejected in orders | Verify `estado` before referencing a product |
-| 7 | The `ERRO` state is terminal via API | Contact support for manual recovery |
+| # | Observation                                              | Impact                                              |
+|---|----------------------------------------------------------|-----------------------------------------------------|
+| 1 | `cStat=225` is normal behavior in HOM-SP                 | Does not block technical flow validation            |
+| 2 | The `"environment": "dev"` field in `/ping` is hardcoded | Do not use it as an environment discriminator       |
+| 3 | Token expires in 1 hour                                  | Implement renewal for long-running flows            |
+| 4 | Paginated order list does not include items              | Always use `GET /{id}` to retrieve items            |
+| 5 | CC-e and cancellation require `nProt` to be available    | Call `/situacao` before cancelling after AGUARDANDO |
+| 6 | Product with `estado=0` is rejected in orders            | Verify `estado` before referencing a product        |
+| 7 | The `ERRO` state is terminal via API                     | Contact support for manual recovery                 |

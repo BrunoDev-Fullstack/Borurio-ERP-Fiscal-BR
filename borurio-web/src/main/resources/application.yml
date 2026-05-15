@@ -1,5 +1,5 @@
 ﻿###############################################################################################
-# CONFIGURAÇÃO PRINCIPAL – JCHO ERP
+# CONFIGURAÇÃO PRINCIPAL – BORURIO ERP
 # ---------------------------------------------------------------------------------------------
 # Arquivo base de configuração do Spring Boot.
 # Contém apenas propriedades neutras e seguras compartilhadas entre ambientes.
@@ -19,7 +19,7 @@
 spring:
 
   application:
-    name: jcho-erp
+    name: borurio-erp
 
   #############################################################################################
   # PERFIL ATIVO
@@ -60,7 +60,7 @@ logging:
     root: INFO
     org.springframework: INFO
     org.hibernate: WARN
-    br.com.jcho: INFO
+    br.com.borurio: INFO
 
 ###############################################################################################
 # METADADOS DA APLICAÇÃO
@@ -74,10 +74,29 @@ app:
   owner: "Bruno Ribeiro – DevSecOps"
 
 ###############################################################################################
-# CORS — sobrescreva CORS_ALLOWED_ORIGINS no ambiente para restringir origens em PRD
+# CORS — CORS_ALLOWED_ORIGINS obrigatório em PRD; fallback localhost para dev/hom
 ###############################################################################################
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080}
+
+###############################################################################################
+# NFE LOG — retenção de auditoria; padrão 365 dias (LGPD)
+###############################################################################################
+nfe:
+  log:
+    retencao-dias: ${NFE_LOG_RETENCAO_DIAS:365}
+    retencao:
+      cron: ${NFE_LOG_RETENCAO_CRON:0 0 2 * * ?}
+
+###############################################################################################
+# RATE LIMIT — proteção login e emissão NF-e
+###############################################################################################
+rate:
+  limit:
+    login:
+      max: ${RATE_LIMIT_LOGIN_MAX:10}
+    emitir:
+      max: ${RATE_LIMIT_EMITIR_MAX:30}
 
 ###############################################################################################
 # SEFAZ RETRY — padrão conservador; sobrescreva por ambiente se necessário

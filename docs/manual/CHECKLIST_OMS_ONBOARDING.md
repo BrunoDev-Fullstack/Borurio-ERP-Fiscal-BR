@@ -1,12 +1,12 @@
 # Checklist de Onboarding — OMS Logística × Borurio ERP Fiscal BR
 
-| Atributo | Valor |
-|---|---|
-| Versão | 1.0 |
-| Data | 2026-05-12 |
-| Ambiente de referência | HOM — `http://localhost:8081` |
-| Documento de suporte | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
-| Status | Pronto para execução |
+| Atributo               | Valor                                    |
+|------------------------|------------------------------------------|
+| Versão                 | 1.0                                      |
+| Data                   | 2026-05-12                               |
+| Ambiente de referência | HOM — `http://localhost:8081`            |
+| Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
+| Status                 | Pronto para execução                     |
 
 ---
 
@@ -20,6 +20,7 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 
 - [ ] **[BLOQUEANTE]** Receber e-mail e senha de usuário com role `OPERADOR` criado pelo ADMIN
 - [ ] **[BLOQUEANTE]** Confirmar base URL do ambiente HOM: `http://localhost:8081`
+- [ ] **[BLOQUEANTE]** Confirmar que o acesso remoto ao ambiente HOM foi configurado pelo responsável pelo ambiente HOM — `http://localhost:8081` é válido apenas na máquina local onde o Docker está em execução; o time de integração deve solicitar VPN, túnel SSH controlado ou URL externa antes de iniciar qualquer teste
 - [ ] Ter cliente HTTP configurado (Postman ou equivalente)
 - [ ] Importar `docs/postman/borurio-erp-collection.json` (9 pastas, 46 requests)
 - [ ] Ler `docs/manual/INTEGRATION_CONTRACT_EN.md` completo antes de executar qualquer chamada
@@ -55,15 +56,15 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 
 - [ ] **[BLOQUEANTE]** `POST /api/app/produtos` com todos os campos obrigatórios:
 
-| Campo | Tipo | Restrição |
-|---|---|---|
-| `codigo` | string | obrigatório, não vazio |
-| `descricao` | string | obrigatório, não vazio |
-| `ncm` | string | obrigatório, exatamente 8 dígitos |
-| `cfop` | string | obrigatório, exatamente 4 dígitos |
-| `unidade` | string | obrigatório, não vazio |
-| `preco` | decimal | obrigatório, mínimo 0.01 |
-| `origem` | integer | obrigatório |
+| Campo       | Tipo    | Restrição                         |
+|-------------|---------|-----------------------------------|
+| `codigo`    | string  | obrigatório, não vazio            |
+| `descricao` | string  | obrigatório, não vazio            |
+| `ncm`       | string  | obrigatório, exatamente 8 dígitos |
+| `cfop`      | string  | obrigatório, exatamente 4 dígitos |
+| `unidade`   | string  | obrigatório, não vazio            |
+| `preco`     | decimal | obrigatório, mínimo 0.01          |
+| `origem`    | integer | obrigatório                       |
 
 - [ ] Confirmar `data.id` retornado na resposta — guardar o `id` do produto
 - [ ] Confirmar `data.estado` = `1` (produto ativo)
@@ -71,10 +72,10 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 
 **Campos fiscais opcionais — se não enviados, recebem defaults:**
 
-| Campo | Default |
-|---|---|
-| `csosn` | `"400"` |
-| `estoque` | nulo |
+| Campo     | Default   |
+|-----------|-----------|
+| `csosn`   | `"400"`   |
+| `estoque` | nulo      |
 
 **Atenção:** Produto com `estado=0` (inativo) é rejeitado na criação de pedido (`HTTP 400`).
 
@@ -84,14 +85,14 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 
 - [ ] **[BLOQUEANTE]** `POST /api/app/pedidos` com campos obrigatórios:
 
-| Campo | Tipo | Restrição |
-|---|---|---|
-| `destCnpjCpf` | string | obrigatório, não vazio |
-| `destRazaoSocial` | string | obrigatório, não vazio |
-| `itens` | array | obrigatório, mínimo 1 item |
-| `itens[].produtoId` | long | obrigatório |
-| `itens[].quantidade` | decimal | obrigatório, maior que 0 |
-| `itens[].valorUnitario` | decimal | obrigatório, maior que 0 |
+| Campo                   | Tipo    | Restrição                  |
+|-------------------------|---------|----------------------------|
+| `destCnpjCpf`           | string  | obrigatório, não vazio     |
+| `destRazaoSocial`       | string  | obrigatório, não vazio     |
+| `itens`                 | array   | obrigatório, mínimo 1 item |
+| `itens[].produtoId`     | long    | obrigatório                |
+| `itens[].quantidade`    | decimal | obrigatório, maior que 0   |
+| `itens[].valorUnitario` | decimal | obrigatório, maior que 0   |
 
 - [ ] Confirmar `data.status` = `"RASCUNHO"` na resposta
 - [ ] Confirmar `data.id` retornado — guardar o `id` do pedido
@@ -110,13 +111,13 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 
 **Comportamento esperado em HOM/SP:**
 
-| Situação | O que observar |
-|---|---|
-| Lote aceito pela SEFAZ | `chaveNfe` com 44 dígitos |
+| Situação                     | O que observar                                                                             |
+|------------------------------|--------------------------------------------------------------------------------------------|
+| Lote aceito pela SEFAZ       | `chaveNfe` com 44 dígitos                                                                  |
 | `cStat=225` no `soapRetorno` | **Normal em HOM/SP** — limitação do processador `SP_NFE_PL_008i2`. Não é falha do sistema. |
-| `cStat=100` no `soapRetorno` | AUTORIZADO — ocorre em PRD com certificado real |
-| `HTTP 422` | Pedido não está em `RASCUNHO` |
-| `HTTP 500` | Exceção durante transmissão — pedido vai para `ERRO` |
+| `cStat=100` no `soapRetorno` | AUTORIZADO — ocorre em PRD com certificado real                                            |
+| `HTTP 422`                   | Pedido não está em `RASCUNHO`                                                              |
+| `HTTP 500`                   | Exceção durante transmissão — pedido vai para `ERRO`                                       |
 
 ---
 
@@ -128,14 +129,14 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 
 **Máquina de estados do pedido:**
 
-| Status | Significado | Próxima ação permitida |
-|---|---|---|
-| `RASCUNHO` | Criado, não transmitido | Emitir |
-| `AUTORIZADO` | cStat=100 — aprovado pela SEFAZ | Cancelar / CC-e |
-| `AGUARDANDO` | cStat=104 ou resposta não parseável | Consultar novamente |
-| `REJEITADO` | cStat ≥ 200 — SEFAZ recusou | Nenhuma — fluxo encerrado |
-| `ERRO` | Exceção durante transmissão | Investigar logs |
-| `CANCELADO` | Cancelamento autorizado | Nenhuma — imutável |
+| Status       | Significado                         | Próxima ação permitida    |
+|--------------|-------------------------------------|---------------------------|
+| `RASCUNHO`   | Criado, não transmitido             | Emitir                    |
+| `AUTORIZADO` | cStat=100 — aprovado pela SEFAZ     | Cancelar / CC-e           |
+| `AGUARDANDO` | cStat=104 ou resposta não parseável | Consultar novamente       |
+| `REJEITADO`  | cStat ≥ 200 — SEFAZ recusou         | Nenhuma — fluxo encerrado |
+| `ERRO`       | Exceção durante transmissão         | Investigar logs           |
+| `CANCELADO`  | Cancelamento autorizado             | Nenhuma — imutável        |
 
 ---
 
@@ -160,19 +161,19 @@ Estes itens só são executáveis quando `status = "AUTORIZADO"`. Em HOM/SP o st
 
 Estes itens não são responsabilidade do time chinês, mas bloqueiam o go-live em PRD:
 
-| Bloqueador | Responsável | Status |
-|---|---|---|
+| Bloqueador                                         | Responsável       | Status   |
+|----------------------------------------------------|-------------------|----------|
 | Certificados A1 de produção (`tpAmb=1`, CNPJ real) | Operações / Bruno | Pendente |
-| `CERT_ENCRYPTION_KEY` configurada em PRD | Operações / Bruno | Pendente |
-| URL de PRD definida e acessível | Operações | Pendente |
+| `CERT_ENCRYPTION_KEY` configurada em PRD           | Operações / Bruno | Pendente |
+| URL de PRD definida e acessível                    | Operações         | Pendente |
 
 ---
 
 ## Referências
 
-| Documento | Caminho |
-|---|---|
-| Contrato de integração (EN) | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
-| Manual técnico motor fiscal (EN) | `docs/manual/MTF-001_motor-fiscal-nfe_EN.md` |
-| Postman collection | `docs/postman/borurio-erp-collection.json` |
-| Swagger UI (DEV) | `http://localhost:8080/swagger-ui/index.html` |
+| Documento                        | Caminho                                       |
+|----------------------------------|-----------------------------------------------|
+| Contrato de integração (EN)      | `docs/manual/INTEGRATION_CONTRACT_EN.md`      |
+| Manual técnico motor fiscal (EN) | `docs/manual/MTF-001_motor-fiscal-nfe_EN.md`  |
+| Postman collection               | `docs/postman/borurio-erp-collection.json`    |
+| Swagger UI (DEV)                 | `http://localhost:8080/swagger-ui/index.html` |

@@ -52,37 +52,38 @@ The document is intended for:
 
 ### 1.1 What is CLOSED (validated in HOM)
 
-| Feature | Validation |
-|---|---|
-| NF-e 4.00 issuance via SOAP HTTPS | ✓ HOM/SP — 2026-05-11 |
-| XMLDSIG RSA-SHA256 + C14N signature | ✓ HOM/SP — 2026-05-11 |
-| Order → NF-e cycle | ✓ HOM/SP — 2026-05-08 |
-| Immutable fiscal snapshot in order item | ✓ HOM/SP — 2026-05-08 |
-| Semantic status (AUTORIZADO / REJEITADO / AGUARDANDO / ERRO) | ✓ HOM/SP — 2026-05-08 |
-| NF-e cancellation (event 110111) | ✓ HOM/SP — 2026-05-08 |
-| Electronic Correction Letter (event 110110) | ✓ HOM/SP — 2026-05-08 |
-| NF-e status query (consSitNFe) — structured response | ✓ HOM/SP — 2026-05-08 |
-| Multi-company — data isolation by empresa_id | ✓ HOM/SP — 2026-05-08 |
-| Per-company A1 certificate with cache | ✓ HOM/SP — 2026-05-11 |
-| RBAC (ADMIN / OPERADOR roles) with correct restriction for `/api/app/usuarios` | ✓ HOM/SP — 2026-05-12 |
-| AES-256-GCM cert_senha encryption | ✓ Code validated; passthrough in HOM (key not configured) |
-| Audit log with empresa_id and authenticated user | ✓ HOM/SP — 2026-05-11 |
-| Swagger aligned with all real endpoints (10 tags) | ✓ HOM/SP — 2026-05-12 |
-| End-to-end Postman collection (9 folders, 46 requests) | ✓ Generated and aligned — 2026-05-12 |
-| `NfeEnvioController` deprecated — legacy endpoints marked and redirected | ✓ Code — 2026-05-12 |
-| PT-BR and EN integration contracts generated and validated | ✓ Code — 2026-05-12 |
-| `MyBatisConfig`: `@ConditionalOnProperty` ensures correct boot in HOM | ✓ HOM/SP — 2026-05-12 |
-| 30/30 controller tests passing | ✓ Code — 2026-05-12 |
+| Feature                                                                        | Validation                                                |
+|--------------------------------------------------------------------------------|-----------------------------------------------------------|
+| NF-e 4.00 issuance via SOAP HTTPS                                              | ✓ HOM/SP — 2026-05-11                                     |
+| XMLDSIG RSA-SHA256 + C14N signature                                            | ✓ HOM/SP — 2026-05-11                                     |
+| Order → NF-e cycle                                                             | ✓ HOM/SP — 2026-05-08                                     |
+| Immutable fiscal snapshot in order item                                        | ✓ HOM/SP — 2026-05-08                                     |
+| Semantic status (AUTORIZADO / REJEITADO / AGUARDANDO / ERRO)                   | ✓ HOM/SP — 2026-05-08                                     |
+| NF-e cancellation (event 110111)                                               | ✓ HOM/SP — 2026-05-08                                     |
+| Electronic Correction Letter (event 110110)                                    | ✓ HOM/SP — 2026-05-08                                     |
+| NF-e status query (consSitNFe) — structured response                           | ✓ HOM/SP — 2026-05-08                                     |
+| Multi-company — data isolation by empresa_id                                   | ✓ HOM/SP — 2026-05-08                                     |
+| Per-company A1 certificate with cache                                          | ✓ HOM/SP — 2026-05-11                                     |
+| RBAC (ADMIN / OPERADOR roles) with correct restriction for `/api/app/usuarios` | ✓ HOM/SP — 2026-05-12                                     |
+| AES-256-GCM cert_senha encryption                                              | ✓ Code validated; passthrough in HOM (key not configured) |
+| Audit log with empresa_id and authenticated user                               | ✓ HOM/SP — 2026-05-11                                     |
+| Swagger aligned with all real endpoints (10 tags)                              | ✓ HOM/SP — 2026-05-12                                     |
+| End-to-end Postman collection (9 folders, 46 requests)                         | ✓ Generated and aligned — 2026-05-12                      |
+| `NfeEnvioController` deprecated — legacy endpoints marked and redirected       | ✓ Code — 2026-05-12                                       |
+| PT-BR and EN integration contracts generated and validated                     | ✓ Code — 2026-05-12                                       |
+| `MyBatisConfig`: `@ConditionalOnProperty` ensures correct boot in HOM          | ✓ HOM/SP — 2026-05-12                                     |
+| 30/30 controller tests passing                                                 | ✓ Code — 2026-05-12                                       |
 
 ### 1.2 What is PENDING
 
-| Feature | Phase | Note |
-|---|---|---|
-| `CERT_ENCRYPTION_KEY` configured in production | Phase 11 | Passthrough active in HOM by design |
-| Automatic certificate cache invalidation in `EmpresaController` | Phase 11 | Identified gap — section 10.4 |
-| Automated CI/CD | Phase 11 | Manual deployment via docker cp |
-| Production A1 certificates with real CNPJ | Phase 11 | Phase 11 critical item |
-| Rate limiting on `/emitir` | Phase 11 | Protect against abuse |
+| Feature                                                         | Phase    | Note                                |
+|-----------------------------------------------------------------|----------|-------------------------------------|
+| `CERT_ENCRYPTION_KEY` configured in production                  | Phase 11 | Passthrough active in HOM by design |
+| Automatic certificate cache invalidation in `EmpresaController` | Phase 11 | Identified gap — section 10.4       |
+| Automated CI/CD                                                 | Phase 11 | Manual deployment via docker cp     |
+| Production A1 certificates with real CNPJ                       | Phase 11 | Phase 11 critical item              |
+| Rate limiting on `/emitir`                                      | Phase 11 | Protect against abuse               |
+| DANFE — NF-e PDF generation for delivery to the recipient       | Phase 12+ | No PDF library present in the project; `nfe_documento.xml_protocolo` already stores the complete nfeProc required for future generation |
 
 ---
 
@@ -107,12 +108,12 @@ borurio-core
 
 ### 2.2 Module responsibilities
 
-| Module | Root package | Responsibility |
-|---|---|---|
-| `borurio-core` | `br.com.borurio.core` | Shared DTOs, `ResultUtil`, `PageResponse`, base utilities |
-| `borurio-app` | `br.com.borurio.app` | Business entities, MyBatis mappers, services: Empresa, Produto, Pedido, DbUser |
-| `borurio-fiscal` | `br.com.borurio.fiscal` | NF-e XML generation, XMLDSIG signing, SOAP transmission, sequencer, fiscal persistence, audit |
-| `borurio-web` | `br.com.borurio.web` | Spring Boot, REST controllers, JWT, bridges (`PedidoEmissaoService`, `NfeGeracaoService`), per-company certificate |
+| Module           | Root package            | Responsibility                                                                                                     |
+|------------------|-------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `borurio-core`   | `br.com.borurio.core`   | Shared DTOs, `ResultUtil`, `PageResponse`, base utilities                                                          |
+| `borurio-app`    | `br.com.borurio.app`    | Business entities, MyBatis mappers, services: Empresa, Produto, Pedido, DbUser                                     |
+| `borurio-fiscal` | `br.com.borurio.fiscal` | NF-e XML generation, XMLDSIG signing, SOAP transmission, sequencer, fiscal persistence, audit                      |
+| `borurio-web`    | `br.com.borurio.web`    | Spring Boot, REST controllers, JWT, bridges (`PedidoEmissaoService`, `NfeGeracaoService`), per-company certificate |
 
 ### 2.3 Module boundary rule
 
@@ -122,20 +123,20 @@ The bridge between the two domains is exclusively the `borurio-web` module. When
 
 ### 2.4 Technology stack
 
-| Component | Version / Technology |
-|---|---|
-| Language | Java 17 |
-| Framework | Spring Boot 3.3.2 |
-| Persistence | MyBatis (annotations) |
-| Database | MySQL 8.4 |
-| Migrations | Flyway (V001–V022) |
-| Auth | Stateless JWT (HMAC-SHA256) |
-| Security | Spring Security 6.x |
-| XML Signing | Java XML Crypto API (`javax.xml.crypto.dsig`) |
-| SOAP | Direct HTTPS (no CXF, no wsimport) |
-| Certificate cache | In-memory `ConcurrentHashMap` |
-| Container | Docker (internal image); port 8081 in HOM |
-| API docs | springdoc-openapi 2.6.0 — Swagger UI at `/swagger-ui/index.html` |
+| Component         | Version / Technology                                             |
+|-------------------|------------------------------------------------------------------|
+| Language          | Java 17                                                          |
+| Framework         | Spring Boot 3.3.2                                                |
+| Persistence       | MyBatis (annotations)                                            |
+| Database          | MySQL 8.4                                                        |
+| Migrations        | Flyway (V001–V022)                                               |
+| Auth              | Stateless JWT (HMAC-SHA256)                                      |
+| Security          | Spring Security 6.x                                              |
+| XML Signing       | Java XML Crypto API (`javax.xml.crypto.dsig`)                    |
+| SOAP              | Direct HTTPS (no CXF, no wsimport)                               |
+| Certificate cache | In-memory `ConcurrentHashMap`                                    |
+| Container         | Docker (internal image); port 8081 in HOM                        |
+| API docs          | springdoc-openapi 2.6.0 — Swagger UI at `/swagger-ui/index.html` |
 
 ---
 
@@ -143,68 +144,68 @@ The bridge between the two domains is exclusively the `borurio-web` module. When
 
 ### 3.1 Applied migrations (V001–V022)
 
-| Migration | Description |
-|---|---|
-| V001 | `cliente` (legacy, not used in the main fiscal flow) |
-| V002 | `nfe_log` — fiscal event audit |
-| V003 | Reference mock data |
-| V008 | `db_user` — authentication and authorization |
-| V009 | `produto` |
-| V011 | `nfe_sequencia` — number control per serie/CNPJ |
-| V012 | `nfe_documento` — fiscal state of each authorized NF-e |
-| V013 | `produto` — fiscal fields: origem, csosn, estoque |
-| V014 | `pedido` + `pedido_item` |
-| V015 | `pedido_item` — fiscal snapshot (ncm, cfop, csosn, origem, unidade) |
-| V016 | `empresa` — multi-issuer registration |
-| V017 | `empresa_id` in `db_user`, `produto`, `pedido` |
-| V018 | `empresa` — per-company A1 certificate (cert_path, cert_senha, cert_tipo) |
-| V019 | `db_user.role` (ADMIN / OPERADOR) + `nfe_log.empresa_id` |
-| V020 | `cliente.empresa_id` — multi-company isolation for customers |
-| V021 | `cliente.nome` and `cliente.email` nullable |
-| V022 | Missing foreign key constraints on `pedido_item`, `nfe_documento`, `nfe_log` |
+| Migration  | Description                                                                  |
+|------------|------------------------------------------------------------------------------|
+| V001       | `cliente` (legacy, not used in the main fiscal flow)                         |
+| V002       | `nfe_log` — fiscal event audit                                               |
+| V003       | Reference mock data                                                          |
+| V008       | `db_user` — authentication and authorization                                 |
+| V009       | `produto`                                                                    |
+| V011       | `nfe_sequencia` — number control per serie/CNPJ                              |
+| V012       | `nfe_documento` — fiscal state of each authorized NF-e                       |
+| V013       | `produto` — fiscal fields: origem, csosn, estoque                            |
+| V014       | `pedido` + `pedido_item`                                                     |
+| V015       | `pedido_item` — fiscal snapshot (ncm, cfop, csosn, origem, unidade)          |
+| V016       | `empresa` — multi-issuer registration                                        |
+| V017       | `empresa_id` in `db_user`, `produto`, `pedido`                               |
+| V018       | `empresa` — per-company A1 certificate (cert_path, cert_senha, cert_tipo)    |
+| V019       | `db_user.role` (ADMIN / OPERADOR) + `nfe_log.empresa_id`                     |
+| V020       | `cliente.empresa_id` — multi-company isolation for customers                 |
+| V021       | `cliente.nome` and `cliente.email` nullable                                  |
+| V022       | Missing foreign key constraints on `pedido_item`, `nfe_documento`, `nfe_log` |
 
 ### 3.2 Main fiscal tables
 
 #### `nfe_documento`
 Stores the persisted state of each issued NF-e. Source of truth for offline fiscal queries and DANFE reissuance.
 
-| Column | Type | Description |
-|---|---|---|
-| `chave_nfe` | VARCHAR(44) | Access key (44 digits) |
-| `numero` | VARCHAR(9) | NF-e number |
-| `serie` | VARCHAR(3) | Series |
-| `cnpj_emitente` | VARCHAR(14) | Issuer CNPJ without formatting |
-| `cnpj_cpf_dest` | VARCHAR(14) | Recipient CNPJ/CPF |
-| `c_stat` | VARCHAR(10) | SEFAZ status code (`"100"` = authorized, `"101"` = cancelled) |
-| `x_motivo` | VARCHAR(255) | SEFAZ status description |
-| `n_prot` | VARCHAR(20) | Authorization protocol number (15 digits) |
-| `valor_total` | DECIMAL(13,2) | Total NF-e value |
-| `xml_nfe` | LONGTEXT | Signed XML without protocol |
-| `xml_protocolo` | LONGTEXT | Complete nfeProc (fiscal archiving — 5 years) |
-| `tp_amb` | INT | 1=production / 2=staging |
-| `dh_recbto` | DATETIME | SEFAZ receipt timestamp |
-| `data_emissao` | DATETIME | Issuance timestamp (`dhEmi` from XML) |
+| Column          | Type          | Description                                                   |
+|-----------------|---------------|---------------------------------------------------------------|
+| `chave_nfe`     | VARCHAR(44)   | Access key (44 digits)                                        |
+| `numero`        | VARCHAR(9)    | NF-e number                                                   |
+| `serie`         | VARCHAR(3)    | Series                                                        |
+| `cnpj_emitente` | VARCHAR(14)   | Issuer CNPJ without formatting                                |
+| `cnpj_cpf_dest` | VARCHAR(14)   | Recipient CNPJ/CPF                                            |
+| `c_stat`        | VARCHAR(10)   | SEFAZ status code (`"100"` = authorized, `"101"` = cancelled) |
+| `x_motivo`      | VARCHAR(255)  | SEFAZ status description                                      |
+| `n_prot`        | VARCHAR(20)   | Authorization protocol number (15 digits)                     |
+| `valor_total`   | DECIMAL(13,2) | Total NF-e value                                              |
+| `xml_nfe`       | LONGTEXT      | Signed XML without protocol                                   |
+| `xml_protocolo` | LONGTEXT      | Complete nfeProc (fiscal archiving — 5 years)                 |
+| `tp_amb`        | INT           | 1=production / 2=staging                                      |
+| `dh_recbto`     | DATETIME      | SEFAZ receipt timestamp                                       |
+| `data_emissao`  | DATETIME      | Issuance timestamp (`dhEmi` from XML)                         |
 
 #### `nfe_log`
 Audit record for each fiscal operation.
 
-| Column | Type | Description |
-|---|---|---|
-| `chave_nfe` | VARCHAR(44) | Access key linked to the event |
+| Column        | Type         | Description                                                             |
+|---------------|--------------|-------------------------------------------------------------------------|
+| `chave_nfe`   | VARCHAR(44)  | Access key linked to the event                                          |
 | `tipo_evento` | VARCHAR(100) | `ENVIO_NFE` / `TRANSMISSAO_SEFAZ` / `CONSULTA` / `CANCELAMENTO` / `CCE` |
-| `status` | VARCHAR(20) | `SUCCESS` / `ERROR` / `PENDING` |
-| `usuario` | VARCHAR(100) | Authenticated user (`SecurityContextHolder`) |
-| `empresa_id` | BIGINT | Issuing company ID (V019) |
-| `xml_envio` | LONGTEXT | Transmitted XML |
-| `xml_retorno` | LONGTEXT | SEFAZ SOAP response |
+| `status`      | VARCHAR(20)  | `SUCCESS` / `ERROR` / `PENDING`                                         |
+| `usuario`     | VARCHAR(100) | Authenticated user (`SecurityContextHolder`)                            |
+| `empresa_id`  | BIGINT       | Issuing company ID (V019)                                               |
+| `xml_envio`   | LONGTEXT     | Transmitted XML                                                         |
+| `xml_retorno` | LONGTEXT     | SEFAZ SOAP response                                                     |
 
 #### `nfe_sequencia`
 Guarantees atomic uniqueness of the NF-e number per CNPJ + serie.
 
-| Column | Description |
-|---|---|
-| `cnpj` | Issuer CNPJ |
-| `serie` | NF-e series |
+| Column          | Description        |
+|-----------------|--------------------|
+| `cnpj`          | Issuer CNPJ        |
+| `serie`         | NF-e series        |
 | `ultimo_numero` | Last issued number |
 
 ---
@@ -270,14 +271,14 @@ If an exception is thrown during `nfeGeracaoService.gerar()`, the service calls 
 
 ### 4.2 Semantic order status
 
-| Status | Condition | Stock reduced? |
-|---|---|---|
-| `RASCUNHO` | Order created, not yet transmitted | No |
-| `AUTORIZADO` | SEFAZ returned `cStat = 100` | Yes |
-| `AGUARDANDO` | Batch accepted (`cStat = 104`) without infProt, or failure to parse SEFAZ response | No |
-| `REJEITADO` | `cStat >= 200` | No |
-| `ERRO` | Exception during transmission — HTTP 500 returned to client | No |
-| `CANCELADO` | Cancellation event authorized | N/A |
+| Status       | Condition                                                                          | Stock reduced?   |
+|--------------|------------------------------------------------------------------------------------|------------------|
+| `RASCUNHO`   | Order created, not yet transmitted                                                 | No               |
+| `AUTORIZADO` | SEFAZ returned `cStat = 100`                                                       | Yes              |
+| `AGUARDANDO` | Batch accepted (`cStat = 104`) without infProt, or failure to parse SEFAZ response | No               |
+| `REJEITADO`  | `cStat >= 200`                                                                     | No               |
+| `ERRO`       | Exception during transmission — HTTP 500 returned to client                        | No               |
+| `CANCELADO`  | Cancellation event authorized                                                      | N/A              |
 
 ### 4.3 Immutable fiscal snapshot
 
@@ -301,11 +302,11 @@ PedidoItem.csosn         ← Produto.csosn   (default: "400")
 
 ### 5.1 Components involved
 
-| Class | Module | Responsibility |
-|---|---|---|
-| `NfeGeracaoService` | borurio-web | Assembles the NF-e blocks from `NfeEmissaoRequest` |
-| `NfeXmlBuilder` | borurio-fiscal | Serializes the `NFe` object to XML via JAXB |
-| `NfeOrquestradorService` | borurio-fiscal | Orchestrates validation + signing + transmission |
+| Class                    | Module         | Responsibility                                     |
+|--------------------------|----------------|----------------------------------------------------|
+| `NfeGeracaoService`      | borurio-web    | Assembles the NF-e blocks from `NfeEmissaoRequest` |
+| `NfeXmlBuilder`          | borurio-fiscal | Serializes the `NFe` object to XML via JAXB        |
+| `NfeOrquestradorService` | borurio-fiscal | Orchestrates validation + signing + transmission   |
 
 ### 5.2 Access key calculation (44 digits)
 
@@ -340,15 +341,15 @@ The NF-e number (`nNF`) is obtained atomically via `NfeSequenciaService.proximoN
 
 Each XML item (`<det>`) uses the data frozen in `PedidoItem`:
 
-| NF-e block | Field | Source |
-|---|---|---|
-| `<prod>` | `cProd` | `item.codigoProduto` |
-| `<prod>` | `NCM` | `item.ncm` (8 digits, validated against official NCM table) |
-| `<prod>` | `CFOP` | `item.cfop` |
-| `<prod>` | `uCom` | `item.unidade` |
-| `<ICMS>` | `orig` | `item.origem` |
-| `<ICMS>` | `CSOSN` | `item.csosn` (e.g.: `400` = CRT 1 without ICMS taxation) |
-| `<PIS>` / `<COFINS>` | `CST` | `07` (exempt operation) |
+| NF-e block           | Field   | Source                                                      |
+|----------------------|---------|-------------------------------------------------------------|
+| `<prod>`             | `cProd` | `item.codigoProduto`                                        |
+| `<prod>`             | `NCM`   | `item.ncm` (8 digits, validated against official NCM table) |
+| `<prod>`             | `CFOP`  | `item.cfop`                                                 |
+| `<prod>`             | `uCom`  | `item.unidade`                                              |
+| `<ICMS>`             | `orig`  | `item.origem`                                               |
+| `<ICMS>`             | `CSOSN` | `item.csosn` (e.g.: `400` = CRT 1 without ICMS taxation)    |
+| `<PIS>` / `<COFINS>` | `CST`   | `07` (exempt operation)                                     |
 
 ### 5.5 Pre-signature XSD validation
 
@@ -366,13 +367,13 @@ This schema consolidates `leiauteNFe_v4.00.xsd` + `tiposBasico_v4.00.xsd` into a
 
 ### 6.1 Algorithms (NT 2019.001 — mandatory for NF-e 4.00)
 
-| Algorithm | URI |
-|---|---|
-| Signature | `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256` (RSA-SHA256) |
-| Digest | `http://www.w3.org/2001/04/xmlenc#sha256` (SHA-256) |
+| Algorithm        | URI                                                                |
+|------------------|--------------------------------------------------------------------|
+| Signature        | `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256` (RSA-SHA256)   |
+| Digest           | `http://www.w3.org/2001/04/xmlenc#sha256` (SHA-256)                |
 | Canonicalization | `http://www.w3.org/TR/2001/REC-xml-c14n-20010315` (Inclusive C14N) |
-| Transform 1 | `ENVELOPED` (removes the Signature element itself from the digest) |
-| Transform 2 | Inclusive C14N |
+| Transform 1      | `ENVELOPED` (removes the Signature element itself from the digest) |
+| Transform 2      | Inclusive C14N                                                     |
 
 ### 6.2 Signing flow
 
@@ -423,11 +424,11 @@ factory.setFeature("http://xml.org/sax/features/external-parameter-entities", fa
 
 ### 7.1 Staging endpoint (SP)
 
-| Service | HOM URL |
-|---|---|
-| NF-e Authorization | `https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx` |
-| Service Status | `https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx` |
-| Status Query | `https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx` |
+| Service            | HOM URL                                                                   |
+|--------------------|---------------------------------------------------------------------------|
+| NF-e Authorization | `https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx`       |
+| Service Status     | `https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx`     |
+| Status Query       | `https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx` |
 
 ### 7.2 SOAP 1.2 envelope
 
@@ -464,12 +465,12 @@ When no per-company certificate is configured, falls back to the global `Certifi
 
 SEFAZ returns a SOAP envelope with `retEnviNFe`. `NfeSefazRetornoParser` extracts:
 
-| Field | Description |
-|---|---|
-| `cStat` | Status code (100 = authorized, 104 = pending, 2xx+ = rejection) |
-| `xMotivo` | Textual status description |
-| `nProt` | Authorization protocol number (present only if cStat=100) |
-| `chNFe` | Access key returned by SEFAZ |
+| Field     | Description                                                     |
+|-----------|-----------------------------------------------------------------|
+| `cStat`   | Status code (100 = authorized, 104 = pending, 2xx+ = rejection) |
+| `xMotivo` | Textual status description                                      |
+| `nProt`   | Authorization protocol number (present only if cStat=100)       |
+| `chNFe`   | Access key returned by SEFAZ                                    |
 
 ---
 
@@ -496,10 +497,10 @@ nfe_documento {
 
 Two distinct records are created per issuance:
 
-| Event type | Created by | empresa_id | usuario |
-|---|---|---|---|
-| `ENVIO_NFE` | `NfeTransmitServiceImpl` | NULL | Authenticated user (`SecurityContextHolder`) |
-| `TRANSMISSAO_SEFAZ` | `NfeGeracaoService` | Company ID | NULL |
+| Event type          | Created by               | empresa_id  | usuario                                      |
+|---------------------|--------------------------|-------------|----------------------------------------------|
+| `ENVIO_NFE`         | `NfeTransmitServiceImpl` | NULL        | Authenticated user (`SecurityContextHolder`) |
+| `TRANSMISSAO_SEFAZ` | `NfeGeracaoService`      | Company ID  | NULL                                         |
 
 > **Design note:** the dual layer is intentional and is a direct consequence of DA-01 (section 15). `NfeTransmitServiceImpl` (fiscal module) has access to `SecurityContextHolder` but not to `Empresa`. `NfeGeracaoService` (web module) has access to `Empresa` but is not in the same call stack as the transmission.
 
@@ -681,14 +682,14 @@ Restrictions applied in `SecurityConfig` (Sprint 3 — validated in HOM 2026-05-
 
 The following paths are permitted by `SecurityConfig` and skipped by `JwtFilter`:
 
-| Path | Note |
-|---|---|
-| `/auth/**` | Login and authentication operations |
-| `/api/test/**` | Health check — `GET /api/test/ping` |
-| `/api/fiscal/nfe/test/**` | Internal fiscal engine tests |
-| `/swagger-ui/**`, `/swagger-ui.html` | Swagger documentation |
-| `/v3/api-docs/**`, `/v3/api-docs.yaml` | OpenAPI specification |
-| `/ping` | No controller mapped — do not use |
+| Path                                   | Note                                |
+|----------------------------------------|-------------------------------------|
+| `/auth/**`                             | Login and authentication operations |
+| `/api/test/**`                         | Health check — `GET /api/test/ping` |
+| `/api/fiscal/nfe/test/**`              | Internal fiscal engine tests        |
+| `/swagger-ui/**`, `/swagger-ui.html`   | Swagger documentation               |
+| `/v3/api-docs/**`, `/v3/api-docs.yaml` | OpenAPI specification               |
+| `/ping`                                | No controller mapped — do not use   |
 
 > **Operational note:** `/ping` is listed in `permitAll` and in `JwtFilter.PUBLIC_EXACT`, but no controller maps this path. The correct health check endpoint is `GET /api/test/ping`.
 
@@ -770,11 +771,11 @@ Requires: order must have `chaveNfe` set (any state other than `RASCUNHO`). Retu
 }
 ```
 
-| Field | Presence | Source |
-|---|---|---|
-| `pedidoId`, `numero`, `status`, `chaveNfe` | Always | Local database (`pedidos` table) |
-| `cStat`, `xMotivo`, `nProt`, `dhRecbto` | Conditional | `nfe_documento` table (if exists for the key) |
-| `consultaSefaz` | Always | Live `consSitNFe` call to SEFAZ in real time |
+| Field                                      | Presence    | Source                                        |
+|--------------------------------------------|-------------|-----------------------------------------------|
+| `pedidoId`, `numero`, `status`, `chaveNfe` | Always      | Local database (`pedidos` table)              |
+| `cStat`, `xMotivo`, `nProt`, `dhRecbto`    | Conditional | `nfe_documento` table (if exists for the key) |
+| `consultaSefaz`                            | Always      | Live `consSitNFe` call to SEFAZ in real time  |
 
 ### 12.2 Cancellation (event 110111)
 
@@ -920,7 +921,7 @@ Run with Postman collection (`docs/postman/borurio-erp-collection.json`) or curl
 
 Security checks:
 □ 9.  GET  /api/app/pedidos without token    → HTTP 401, success=false
-□ 10. GET  /api/app/usuarios with USER token → HTTP 403, success=false
+□ 10. GET  /api/app/usuarios with OPERADOR token → HTTP 403, success=false
 □ 11. GET  /api/app/pedidos company B token  → HTTP 200, content=[] (tenant isolation)
 ```
 
@@ -996,39 +997,39 @@ Security checks:
 
 ### Phase 10 — Documentation and Swagger ✓ COMPLETED (2026-05-12)
 
-| Item | Status |
-|---|---|
-| Technical manual PT | ✓ This document (v2.0) |
-| Technical manual EN | ✓ `MTF-001_motor-fiscal-nfe_EN.md` |
-| PT-BR integration contract | ✓ `INTEGRATION_CONTRACT_PT-BR.md` |
-| EN integration contract | ✓ `INTEGRATION_CONTRACT_EN.md` |
-| Annotated Swagger (10 tags, deprecated marked) | ✓ `SwaggerConfig.java` — Sprint 3 |
-| End-to-end Postman collection (46 requests) | ✓ `docs/postman/borurio-erp-collection.json` — Sprint 3 |
+| Item                                           | Status                                                  |
+|------------------------------------------------|---------------------------------------------------------|
+| Technical manual PT                            | ✓ This document (v2.0)                                  |
+| Technical manual EN                            | ✓ `MTF-001_motor-fiscal-nfe_EN.md`                      |
+| PT-BR integration contract                     | ✓ `INTEGRATION_CONTRACT_PT-BR.md`                       |
+| EN integration contract                        | ✓ `INTEGRATION_CONTRACT_EN.md`                          |
+| Annotated Swagger (10 tags, deprecated marked) | ✓ `SwaggerConfig.java` — Sprint 3                       |
+| End-to-end Postman collection (46 requests)    | ✓ `docs/postman/borurio-erp-collection.json` — Sprint 3 |
 
 ### Phase 11 — PRD Deployment + CI/CD (pending)
 
-| Item | Priority | Description |
-|---|---|---|
-| `CERT_ENCRYPTION_KEY` in PRD | **CRITICAL** | Generate via `openssl rand -base64 32`; inject via secrets manager |
-| PRD A1 certificates with real CNPJ | **CRITICAL** | `tpAmb=1`; register company with `cert_path` pointing to PRD certificate |
-| Automatic certificate cache invalidation | **HIGH** | `EmpresaController.atualizar()` must call `invalidar(empresaId)` |
-| Rate limiting on `/emitir` | **MEDIUM** | Bucket4j or equivalent; protects against abuse |
-| CI/CD pipeline | **MEDIUM** | GitHub Actions: test → build → push image → deploy HOM → smoke test |
-| `nfe_log` retention policy | **LOW** | `NfeLogMapper.deleteAntigos(dias)` already implemented; scheduling missing |
-| Monitoring | **LOW** | Prometheus + Loki |
+| Item                                     | Priority     | Description                                                                |
+|------------------------------------------|--------------|----------------------------------------------------------------------------|
+| `CERT_ENCRYPTION_KEY` in PRD             | **CRITICAL** | Generate via `openssl rand -base64 32`; inject via secrets manager         |
+| PRD A1 certificates with real CNPJ       | **CRITICAL** | `tpAmb=1`; register company with `cert_path` pointing to PRD certificate   |
+| Automatic certificate cache invalidation | **HIGH**     | `EmpresaController.atualizar()` must call `invalidar(empresaId)`           |
+| Rate limiting on `/emitir`               | **MEDIUM**   | Bucket4j or equivalent; protects against abuse                             |
+| CI/CD pipeline                           | **MEDIUM**   | GitHub Actions: test → build → push image → deploy HOM → smoke test        |
+| `nfe_log` retention policy               | **LOW**      | `NfeLogMapper.deleteAntigos(dias)` already implemented; scheduling missing |
+| Monitoring                               | **LOW**      | Prometheus + Loki                                                          |
 
 ---
 
 ## 17. NORMATIVE REFERENCES
 
-| Document | Description |
-|---|---|
-| AJUSTE SINIEF 07/2005 and amendments | Establishes the Nota Fiscal Eletrônica |
-| Manual de Orientação do Contribuinte (MOC) | Version 7.0 — NF-e 4.00 layout |
-| Nota Técnica 2019.001 | NF-e 4.00 layout update / SHA-256 algorithms mandatory |
-| ABNT NBR ISO/IEC 27001 | Information security management |
-| XML-DSig W3C Recommendation | `https://www.w3.org/TR/xmldsig-core/` |
-| RFC 5652 | Cryptographic Message Syntax (base of PKCS#12) |
+| Document                                   | Description                                            |
+|--------------------------------------------|--------------------------------------------------------|
+| AJUSTE SINIEF 07/2005 and amendments       | Establishes the Nota Fiscal Eletrônica                 |
+| Manual de Orientação do Contribuinte (MOC) | Version 7.0 — NF-e 4.00 layout                         |
+| Nota Técnica 2019.001                      | NF-e 4.00 layout update / SHA-256 algorithms mandatory |
+| ABNT NBR ISO/IEC 27001                     | Information security management                        |
+| XML-DSig W3C Recommendation                | `https://www.w3.org/TR/xmldsig-core/`                  |
+| RFC 5652                                   | Cryptographic Message Syntax (base of PKCS#12)         |
 
 ---
 

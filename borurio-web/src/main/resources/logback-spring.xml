@@ -3,7 +3,7 @@
 
     <!-- =============================================================================
          LOGBACK ROOT CONFIGURATION
-         Projeto: Jcho ERP
+         Projeto: Borurio ERP
          Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
 
          Objetivo:
@@ -18,7 +18,7 @@
     <springProperty scope="context"
                     name="APP_NAME"
                     source="spring.application.name"
-                    defaultValue="jcho-erp"/>
+                    defaultValue="borurio-erp"/>
 
     <!-- =============================================================================
          PERFIL: DESENVOLVIMENTO

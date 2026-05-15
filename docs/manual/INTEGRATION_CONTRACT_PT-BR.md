@@ -2,14 +2,14 @@
 ## Motor Fiscal Borurio BR — API REST
 ### ERP Logístico × NF-e 4.00 SEFAZ-SP
 
-| Atributo | Valor |
-|---|---|
-| Versão | 1.1 |
-| Status | **Aprovado para integração** |
-| Data de validação | 12-05-2026 |
-| Ambiente de referência | HOM — `http://localhost:8081` |
-| Plataforma | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
-| Validado contra | Código-fonte + testes em HOM |
+| Atributo               | Valor                                   |
+|------------------------|-----------------------------------------|
+| Versão                 | 1.1                                     |
+| Status                 | **Aprovado para integração**            |
+| Data de validação      | 12-05-2026                              |
+| Ambiente de referência | HOM — `http://localhost:8081`           |
+| Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
+| Validado contra        | Código-fonte + testes em HOM            |
 
 ---
 
@@ -37,13 +37,15 @@ Este documento descreve o contrato de integração entre o ERP logístico extern
 
 ## 2. Ambientes
 
-| Ambiente | URL base | Finalidade |
-|---|---|---|
-| DEV | `http://localhost:8080` | Desenvolvimento local |
-| HOM | `http://localhost:8081` | Homologação SEFAZ-SP |
-| PRD | Definido por operações | Produção — não coberto por este documento |
+| Ambiente   | URL base                | Finalidade                                |
+|------------|-------------------------|-------------------------------------------|
+| DEV        | `http://localhost:8080` | Desenvolvimento local                     |
+| HOM        | `http://localhost:8081` | Homologação SEFAZ-SP                      |
+| PRD        | Definido por operações  | Produção — não coberto por este documento |
 
 > `[CONTRATO]` Todos os testes de integração devem ser executados em HOM antes de qualquer operação em PRD.
+
+> `[OPERACIONAL]` As URLs acima são endereços locais válidos apenas na máquina host onde o Docker está em execução. O ambiente HOM **não é acessível remotamente por padrão**. O time de integração deve confirmar com o responsável pelo ambiente HOM que o acesso foi configurado (VPN à rede do host, túnel SSH controlado ou URL externa dedicada) antes de iniciar a sequência de smoke test. Sem isso, nenhum teste pode ser executado.
 
 ---
 
@@ -282,26 +284,26 @@ Content-Type: application/json
 
 **Campos do cabeçalho:**
 
-| Campo | Tipo | Regra |
-|---|---|---|
-| `destCnpjCpf` | String | Obrigatório · CNPJ (14 dígitos) ou CPF (11 dígitos) · somente números |
-| `destRazaoSocial` | String | Obrigatório |
-| `destUf` | String | Recomendado · Sigla do estado: `SP`, `RJ`, `MG`... |
-| `destLogradouro` | String | Recomendado · Melhora aprovação SEFAZ |
-| `destNumero` | String | Recomendado |
-| `destBairro` | String | Recomendado |
-| `destCodigoMunicipio` | String | Recomendado · Código IBGE 7 dígitos |
-| `destMunicipio` | String | Recomendado |
-| `destCep` | String | Recomendado |
-| `naturezaOperacao` | String | Opcional · Default server-side: `"VENDA DE MERCADORIA"` |
+| Campo                 | Tipo                | Regra                                                                 |
+|-----------------------|---------------------|-----------------------------------------------------------------------|
+| `destCnpjCpf`         | String              | Obrigatório · CNPJ (14 dígitos) ou CPF (11 dígitos) · somente números |
+| `destRazaoSocial`     | String              | Obrigatório                                                           |
+| `destUf`              | String              | Recomendado · Sigla do estado: `SP`, `RJ`, `MG`...                    |
+| `destLogradouro`      | String              | Recomendado · Melhora aprovação SEFAZ                                 |
+| `destNumero`          | String              | Recomendado                                                           |
+| `destBairro`          | String              | Recomendado                                                           |
+| `destCodigoMunicipio` | String              | Recomendado · Código IBGE 7 dígitos                                   |
+| `destMunicipio`       | String              | Recomendado                                                           |
+| `destCep`             | String              | Recomendado                                                           |
+| `naturezaOperacao`    | String              | Opcional · Default server-side: `"VENDA DE MERCADORIA"`               |
 
 **Campos de cada item (`itens[]`):**
 
-| Campo | Tipo | Regra |
-|---|---|---|
-| `produtoId` | Long | Obrigatório · Produto deve existir e estar ativo |
-| `quantidade` | Decimal | Obrigatório · Valor > 0 |
-| `valorUnitario` | Decimal | Obrigatório · Valor > 0 |
+| Campo           | Tipo    | Regra                                            |
+|-----------------|---------|--------------------------------------------------|
+| `produtoId`     | Long    | Obrigatório · Produto deve existir e estar ativo |
+| `quantidade`    | Decimal | Obrigatório · Valor > 0                          |
+| `valorUnitario` | Decimal | Obrigatório · Valor > 0                          |
 
 > `[CONTRATO]` `valorTotal` de cada item é calculado automaticamente como `quantidade × valorUnitario`. O total do pedido é a soma dos itens. Não enviar esses campos.
 
@@ -441,11 +443,11 @@ Authorization: Bearer {token}
 
 > `[CONTRATO]` O campo `consultaSefaz` (XML bruto da chamada `consSitNFe`) está **sempre presente**.
 
-| Campo | Presença | Origem |
-|---|---|---|
-| `pedidoId`, `numero`, `status`, `chaveNfe` | Sempre | Banco de dados local |
-| `cStat`, `xMotivo`, `nProt`, `dhRecbto` | Condicional | Tabela `nfe_documento` (se existir) |
-| `consultaSefaz` | Sempre | Chamada live `consSitNFe` à SEFAZ |
+| Campo                                      | Presença    | Origem                              |
+|--------------------------------------------|-------------|-------------------------------------|
+| `pedidoId`, `numero`, `status`, `chaveNfe` | Sempre      | Banco de dados local                |
+| `cStat`, `xMotivo`, `nProt`, `dhRecbto`    | Condicional | Tabela `nfe_documento` (se existir) |
+| `consultaSefaz`                            | Sempre      | Chamada live `consSitNFe` à SEFAZ   |
 
 ---
 
@@ -463,8 +465,8 @@ Content-Type: application/json
 { "justificativa": "Motivo com no mínimo 15 caracteres" }
 ```
 
-| Campo | Regra |
-|---|---|
+| Campo           | Regra                |
+|-----------------|----------------------|
 | `justificativa` | Mínimo 15 caracteres |
 
 > `[EXEMPLO]` Justificativa válida: `"Erro no pedido — cliente solicitou cancelamento"`
@@ -499,8 +501,8 @@ Content-Type: application/json
 { "correcao": "Texto de correção com no mínimo 15 caracteres" }
 ```
 
-| Campo | Regra |
-|---|---|
+| Campo      | Regra                                                         |
+|------------|---------------------------------------------------------------|
 | `correcao` | Mínimo 15 caracteres · Máximo 20 CC-e por NF-e (limite SEFAZ) |
 
 **Resposta — HTTP 200:**
@@ -518,14 +520,14 @@ Content-Type: application/json
 
 > `[CONTRATO]` Tabela de estados válidos e operações permitidas por estado:
 
-| Estado | Significado | Operações permitidas |
-|---|---|---|
-| `RASCUNHO` | Pedido criado, não transmitido | `/emitir` |
-| `AUTORIZADO` | NF-e aprovada pela SEFAZ (cStat=100) | `/situacao`, `/cancelar`, `/cce` |
-| `AGUARDANDO` | Transmitido; confirmação SEFAZ pendente | `/situacao` |
-| `REJEITADO` | SEFAZ recusou (cStat ≥ 200) | Nenhuma — criar novo pedido corrigido |
-| `CANCELADO` | NF-e cancelada com protocolo | Nenhuma — imutável |
-| `ERRO` | Falha técnica durante transmissão | Nenhuma via API — verificar logs |
+| Estado       | Significado                             | Operações permitidas                  |
+|--------------|-----------------------------------------|---------------------------------------|
+| `RASCUNHO`   | Pedido criado, não transmitido          | `/emitir`                             |
+| `AUTORIZADO` | NF-e aprovada pela SEFAZ (cStat=100)    | `/situacao`, `/cancelar`, `/cce`      |
+| `AGUARDANDO` | Transmitido; confirmação SEFAZ pendente | `/situacao`                           |
+| `REJEITADO`  | SEFAZ recusou (cStat ≥ 200)             | Nenhuma — criar novo pedido corrigido |
+| `CANCELADO`  | NF-e cancelada com protocolo            | Nenhuma — imutável                    |
+| `ERRO`       | Falha técnica durante transmissão       | Nenhuma via API — verificar logs      |
 
 > `[CONTRATO]` As transições de estado são gerenciadas exclusivamente pelo motor fiscal. O ERP logístico não deve assumir ou forçar transições.
 
@@ -575,15 +577,15 @@ Content-Type: application/json
 
 **Tabela de referência:**
 
-| HTTP | Trigger | Estrutura de `data` |
-|---|---|---|
-| 400 | JSON malformado ou parâmetro inválido de negócio | `null` |
-| 401 | Token ausente ou expirado | Campo `"success": false` (sem `data`) |
-| 403 | Role insuficiente | Campo `"success": false` (sem `data`) |
-| 404 | ID não encontrado na empresa autenticada | `null` |
-| 422 @Valid | Campo inválido na entidade | `{ "campo": "mensagem" }` |
-| 422 estado | Operação não permitida no estado atual | `null` |
-| 500 | Falha não tratada (incluindo erro de transmissão SEFAZ) | `null` |
+| HTTP       | Trigger                                                 | Estrutura de `data`                   |
+|------------|---------------------------------------------------------|---------------------------------------|
+| 400        | JSON malformado ou parâmetro inválido de negócio        | `null`                                |
+| 401        | Token ausente ou expirado                               | Campo `"success": false` (sem `data`) |
+| 403        | Role insuficiente                                       | Campo `"success": false` (sem `data`) |
+| 404        | ID não encontrado na empresa autenticada                | `null`                                |
+| 422 @Valid | Campo inválido na entidade                              | `{ "campo": "mensagem" }`             |
+| 422 estado | Operação não permitida no estado atual                  | `null`                                |
+| 500        | Falha não tratada (incluindo erro de transmissão SEFAZ) | `null`                                |
 
 ### 8.3 Paginação
 
@@ -621,26 +623,26 @@ GET /api/app/produtos?page=0&size=20
 
 ### 9.1 Sequência de Validação
 
-| # | Request | Critério de PASS |
-|---|---|---|
-| 1 | `GET /api/test/ping` | HTTP 200 · `status = "UP"` |
-| 2 | `POST /auth/login` | HTTP 200 · `token` não nulo |
-| 3 | `POST /api/app/produtos` | HTTP 200 · `data.id` retornado |
-| 4 | `GET /api/app/produtos?page=0&size=5` | HTTP 200 · `data.totalElements ≥ 1` |
-| 5 | `POST /api/app/pedidos` (com `produtoId` do passo 3) | HTTP 200 · `data.status = "RASCUNHO"` |
-| 6 | `POST /api/app/pedidos/{id}/emitir` | HTTP 200 · `data.soapRetorno` não vazio |
-| 7 | `GET /api/app/pedidos/{id}/situacao` | HTTP 200 · `data.chaveNfe` preenchida |
-| 8 | `GET /api/app/pedidos/{id}` | HTTP 200 · `data.itens` com campos de snapshot |
+| # | Request                                              | Critério de PASS                               |
+|---|------------------------------------------------------|------------------------------------------------|
+| 1 | `GET /api/test/ping`                                 | HTTP 200 · `status = "UP"`                     |
+| 2 | `POST /auth/login`                                   | HTTP 200 · `token` não nulo                    |
+| 3 | `POST /api/app/produtos`                             | HTTP 200 · `data.id` retornado                 |
+| 4 | `GET /api/app/produtos?page=0&size=5`                | HTTP 200 · `data.totalElements ≥ 1`            |
+| 5 | `POST /api/app/pedidos` (com `produtoId` do passo 3) | HTTP 200 · `data.status = "RASCUNHO"`          |
+| 6 | `POST /api/app/pedidos/{id}/emitir`                  | HTTP 200 · `data.soapRetorno` não vazio        |
+| 7 | `GET /api/app/pedidos/{id}/situacao`                 | HTTP 200 · `data.chaveNfe` preenchida          |
+| 8 | `GET /api/app/pedidos/{id}`                          | HTTP 200 · `data.itens` com campos de snapshot |
 
 ### 9.2 Verificações de Segurança
 
-| Request | Resultado esperado |
-|---|---|
-| `GET /api/app/pedidos` sem `Authorization` | HTTP 401 · `"Autenticação necessária"` · `success: false` |
-| `GET /api/app/usuarios` com token de role `USER` | HTTP 403 · `"Acesso negado"` · `success: false` |
-| `GET /api/app/pedidos` com token da empresa B | HTTP 200 · `data.content = []` (isolamento tenant) |
-| `POST /api/app/pedidos/9999/emitir` | HTTP 404 · `data: null` |
-| `POST /api/app/pedidos/{id}/cancelar` com `justificativa` vazia | HTTP 400 · mensagem de mínimo 15 caracteres |
+| Request                                                         | Resultado esperado                                        |
+|-----------------------------------------------------------------|-----------------------------------------------------------|
+| `GET /api/app/pedidos` sem `Authorization`                      | HTTP 401 · `"Autenticação necessária"` · `success: false` |
+| `GET /api/app/usuarios` com token de role `OPERADOR`            | HTTP 403 · `"Acesso negado"` · `success: false`           |
+| `GET /api/app/pedidos` com token da empresa B                   | HTTP 200 · `data.content = []` (isolamento tenant)        |
+| `POST /api/app/pedidos/9999/emitir`                             | HTTP 404 · `data: null`                                   |
+| `POST /api/app/pedidos/{id}/cancelar` com `justificativa` vazia | HTTP 400 · mensagem de mínimo 15 caracteres               |
 
 ### 9.3 Comportamento Esperado em HOM-SP
 
@@ -661,12 +663,12 @@ pedido.status:    "REJEITADO" ou "AGUARDANDO"→ normal em HOM; não ocorre em P
 
 ## 10. Observações de Homologação
 
-| # | Observação | Impacto |
-|---|---|---|
-| 1 | `cStat=225` é comportamento normal em HOM-SP | Não bloqueia validação do fluxo técnico |
-| 2 | O campo `"environment": "dev"` no `/ping` é fixo em código | Não usar como discriminador de ambiente |
-| 3 | Token expira em 1 hora | Implementar renovação em fluxos longos |
-| 4 | Lista paginada de pedidos não inclui itens | Sempre usar `GET /{id}` para obter itens |
-| 5 | CC-e e cancelamento exigem `nProt` disponível | Consultar `/situacao` antes de cancelar após AGUARDANDO |
-| 6 | Produto com `estado=0` é rejeitado no pedido | Verificar `estado` antes de referenciar produto |
-| 7 | Estado `ERRO` é terminal via API | Acionar suporte para recuperação manual |
+| # | Observação                                                 | Impacto                                                 |
+|---|------------------------------------------------------------|---------------------------------------------------------|
+| 1 | `cStat=225` é comportamento normal em HOM-SP               | Não bloqueia validação do fluxo técnico                 |
+| 2 | O campo `"environment": "dev"` no `/ping` é fixo em código | Não usar como discriminador de ambiente                 |
+| 3 | Token expira em 1 hora                                     | Implementar renovação em fluxos longos                  |
+| 4 | Lista paginada de pedidos não inclui itens                 | Sempre usar `GET /{id}` para obter itens                |
+| 5 | CC-e e cancelamento exigem `nProt` disponível              | Consultar `/situacao` antes de cancelar após AGUARDANDO |
+| 6 | Produto com `estado=0` é rejeitado no pedido               | Verificar `estado` antes de referenciar produto         |
+| 7 | Estado `ERRO` é terminal via API                           | Acionar suporte para recuperação manual                 |
