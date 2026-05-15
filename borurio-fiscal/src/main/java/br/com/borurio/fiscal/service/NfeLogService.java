@@ -60,4 +60,12 @@ public interface NfeLogService {
     int contarEventos(String chaveNfe, String tipoEvento);
 
     PageResponse<NfeLog> listarPaginado(Long empresaId, int page, int size);
+
+    /**
+     * Remove registros de auditoria com data anterior ao limite de retenção.
+     *
+     * @param diasAntigos número de dias — registros mais antigos que esse valor são excluídos.
+     * @return total de registros removidos.
+     */
+    int deleteAntigos(int diasAntigos);
 }

@@ -6,6 +6,7 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.boot.context.TypeExcludeFilter;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -36,6 +37,7 @@ import java.time.format.DateTimeFormatter;
  * =============================================================================
  */
 @SpringBootApplication
+@EnableScheduling
 @ComponentScan(
         basePackages = {
                 "br.com.borurio.core",

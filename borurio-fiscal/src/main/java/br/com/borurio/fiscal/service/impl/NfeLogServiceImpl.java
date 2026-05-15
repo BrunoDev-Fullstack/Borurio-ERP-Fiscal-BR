@@ -101,6 +101,12 @@ public class NfeLogServiceImpl implements NfeLogService {
     }
 
     @Override
+    @Transactional
+    public int deleteAntigos(int diasAntigos) {
+        return nfeLogMapper.deleteAntigos(diasAntigos);
+    }
+
+    @Override
     public PageResponse<NfeLog> listarPaginado(Long empresaId, int page, int size) {
         int offset = page * size;
         List<NfeLog> content;
