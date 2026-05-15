@@ -81,12 +81,6 @@
             <version>${mysql.connector.version}</version>
         </dependency>
 
-        <!-- Redis (opcional, usado conforme necessidade de cache) -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-
         <!-- Flyway (migração de banco do módulo app) -->
         <dependency>
             <groupId>org.flywaydb</groupId>

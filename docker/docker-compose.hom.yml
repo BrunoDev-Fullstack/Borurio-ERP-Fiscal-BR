@@ -41,30 +41,6 @@ services:
 
 
   # ---------------------------------------------------------------------------
-  # Redis (HOM)
-  # ---------------------------------------------------------------------------
-  borurio-redis-hom:
-    image: redis:7.2
-    container_name: borurio-redis-hom
-    restart: unless-stopped
-
-    ports:
-      - "6380:6379"
-
-    volumes:
-      - redis_hom_data:/data
-
-    networks:
-      - borurio-net-hom
-
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-
-
-  # ---------------------------------------------------------------------------
   # MinIO (HOM)
   # ---------------------------------------------------------------------------
   borurio-minio-hom:
@@ -113,8 +89,6 @@ services:
     depends_on:
       borurio-mysql-hom:
         condition: service_healthy
-      borurio-redis-hom:
-        condition: service_healthy
 
     env_file:
       - ./env/.env.hom
@@ -126,10 +100,6 @@ services:
       SPRING_DATASOURCE_URL: "jdbc:mysql://borurio-mysql-hom:3306/borurio_fiscal_hom?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo&connectTimeout=30000&socketTimeout=60000"
       SPRING_DATASOURCE_USERNAME: borurio
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
-
-      # Redis — explicit Docker hostname; matches application-hom.yml property names
-      SPRING_DATA_REDIS_HOST: borurio-redis-hom
-      SPRING_DATA_REDIS_PORT: 6379
 
       # JWT — secret comes from env_file (.env.hom SECURITY_JWT_SECRET)
       SECURITY_JWT_EXPIRATION_MS: 3600000
@@ -162,7 +132,6 @@ services:
 # ---------------------------------------------------------------------------
 volumes:
   mysql_hom_data:
-  redis_hom_data:
   minio_hom_data:
   logs_hom:
 

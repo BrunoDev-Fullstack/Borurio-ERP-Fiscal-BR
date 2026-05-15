@@ -40,30 +40,6 @@ services:
 
 
   # ---------------------------------------------------------------------------
-  # Redis (DEV)
-  # ---------------------------------------------------------------------------
-  borurio-redis-dev:
-    image: redis:7.2
-    container_name: borurio-redis-dev
-    restart: unless-stopped
-
-    ports:
-      - "6379:6379"
-
-    volumes:
-      - redis_dev_data:/data
-
-    networks:
-      - borurio-net-dev
-
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-
-
-  # ---------------------------------------------------------------------------
   # MinIO (DEV)
   # ---------------------------------------------------------------------------
   borurio-minio-dev:
@@ -110,8 +86,6 @@ services:
     depends_on:
       borurio-mysql-dev:
         condition: service_healthy
-      borurio-redis-dev:
-        condition: service_healthy
 
     env_file:
       - ./env/.env.dev
@@ -124,10 +98,6 @@ services:
       SPRING_DATASOURCE_USERNAME: borurio
       SPRING_DATASOURCE_PASSWORD: H4ck3r123
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
-
-      # Redis
-      REDIS_HOST: borurio-redis-dev
-      REDIS_PORT: 6379
 
       # MinIO
       MINIO_URL: http://borurio-minio-dev:9000
@@ -177,7 +147,6 @@ services:
 # ---------------------------------------------------------------------------
 volumes:
   mysql_dev_data:
-  redis_dev_data:
   minio_dev_data:
   logs_dev:
 
