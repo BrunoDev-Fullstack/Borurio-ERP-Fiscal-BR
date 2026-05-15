@@ -1,6 +1,6 @@
 ###################################################################################################
 #                                                                                                 #
-#                                         JCHO ERP                                                #
+#                                      BORURIO ERP FISCAL BR                                      #
 #                                                                                                 #
 #                              ERP Fiscal e Logístico Brasileiro                                  #
 #                                                                                                 #
@@ -21,9 +21,9 @@
  Porta     : ${server.port}
 
  Autor     : Bruno Ribeiro — DevSecOps / Fullstack Java
- Projeto   : Jcho ERP — Sistema Fiscal com NF-e 4.00
+ Projeto   : Borurio ERP Fiscal BR — Motor NF-e 4.00
 -----------------------------------------------------------------------------------------------
 
 "Segurança, automação e rastreabilidade são pilares da confiabilidade fiscal."
 
-JCHO ERP INICIANDO...
+BORURIO ERP INICIANDO...

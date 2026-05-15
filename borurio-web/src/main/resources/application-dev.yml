@@ -117,18 +117,18 @@ fiscal:
     password: ${FISCAL_CERT_PASSWORD}
 
   emitente:
-    cnpj:              ${FISCAL_EMITENTE_CNPJ:}
-    razao-social:      ${FISCAL_EMITENTE_RAZAO_SOCIAL:}
-    nome-fantasia:     ${FISCAL_EMITENTE_NOME_FANTASIA:}
-    ie:                ${FISCAL_EMITENTE_IE:}
+    cnpj:              ${FISCAL_EMITENTE_CNPJ:54393421000159}
+    razao-social:      ${FISCAL_EMITENTE_RAZAO_SOCIAL:JCHO GLOBAL LTDA}
+    nome-fantasia:     ${FISCAL_EMITENTE_NOME_FANTASIA:JCHO GLOBAL}
+    ie:                ${FISCAL_EMITENTE_IE:ISENTO}
     crt:               ${FISCAL_EMITENTE_CRT:1}
-    logradouro:        ${FISCAL_EMITENTE_LOGRADOURO:}
-    numero:            ${FISCAL_EMITENTE_NUMERO:}
-    bairro:            ${FISCAL_EMITENTE_BAIRRO:}
-    municipio:         ${FISCAL_EMITENTE_MUNICIPIO:}
-    codigo-municipio:  ${FISCAL_EMITENTE_CODIGO_MUNICIPIO:}
-    uf:                ${FISCAL_EMITENTE_UF:}
-    cep:               ${FISCAL_EMITENTE_CEP:}
+    logradouro:        ${FISCAL_EMITENTE_LOGRADOURO:Rua Teste Homologacao}
+    numero:            ${FISCAL_EMITENTE_NUMERO:1}
+    bairro:            ${FISCAL_EMITENTE_BAIRRO:Centro}
+    municipio:         ${FISCAL_EMITENTE_MUNICIPIO:Sao Paulo}
+    codigo-municipio:  ${FISCAL_EMITENTE_CODIGO_MUNICIPIO:3550308}
+    uf:                ${FISCAL_EMITENTE_UF:SP}
+    cep:               ${FISCAL_EMITENTE_CEP:01310100}
 
 ###################################################################################################
 # ACTUATOR

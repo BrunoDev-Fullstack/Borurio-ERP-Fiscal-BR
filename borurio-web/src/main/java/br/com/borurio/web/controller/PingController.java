@@ -1,6 +1,7 @@
 package br.com.borurio.web.controller;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +35,9 @@ import java.util.Map;
 @RequestMapping("/api/test")
 public class PingController {
 
+    @Value("${spring.profiles.active:default}")
+    private String activeProfile;
+
     /**
      * Endpoint de verificação básica de disponibilidade da API.
      * Retorna status, mensagem e timestamp atual.
@@ -48,7 +52,7 @@ public class PingController {
         body.put("status", "UP");
         body.put("code", HttpStatus.OK.value());
         body.put("message", "API Borurio ERP Fiscal BR está operacional.");
-        body.put("environment", "dev");
+        body.put("environment", activeProfile);
         body.put("timestamp", OffsetDateTime.now(ZoneId.of("America/Sao_Paulo")).toString());
 
         return ResponseEntity.ok(body);

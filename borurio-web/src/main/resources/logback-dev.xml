@@ -4,7 +4,7 @@
     <!-- =============================================================================
          CONFIGURAÇÃO LOGBACK – AMBIENTE DEV
          _____________________________________________________________________________
-         Projeto: Jcho ERP
+         Projeto: Borurio ERP
          Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
 
          Objetivo:
@@ -17,7 +17,7 @@
          PROPRIEDADES
          ============================================================================= -->
     <property name="LOG_PATH" value="logs"/>
-    <property name="APP_NAME" value="jcho-erp-dev"/>
+    <property name="APP_NAME" value="borurio-erp-dev"/>
     <property name="LOG_FILE" value="${LOG_PATH}/${APP_NAME}.log"/>
 
     <!-- =============================================================================
@@ -73,7 +73,7 @@
     <!-- =============================================================================
          LOGGER PRINCIPAL DA APLICAÇÃO
          ============================================================================= -->
-    <logger name="br.com.jcho" level="DEBUG" additivity="false">
+    <logger name="br.com.borurio" level="DEBUG" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="FILE"/>
     </logger>
@@ -81,8 +81,8 @@
     <!-- =============================================================================
          LOGGER FISCAL (NF-e / SEFAZ)
          ============================================================================= -->
-    <logger name="br.com.jcho.fiscal"
-            level="${LOGGING_LEVEL_BR_COM_JCHO_FISCAL:DEBUG}"
+    <logger name="br.com.borurio.fiscal"
+            level="${LOGGING_LEVEL_BR_COM_BORURIO_FISCAL:DEBUG}"
             additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="FILE"/>
