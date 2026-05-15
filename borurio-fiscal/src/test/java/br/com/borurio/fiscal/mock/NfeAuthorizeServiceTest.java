@@ -96,6 +96,11 @@ public class NfeAuthorizeServiceTest {
                 public br.com.borurio.core.mvc.api.PageResponse<NfeLog> listarPaginado(Long empresaId, int page, int size) {
                     return br.com.borurio.core.mvc.api.PageResponse.of(Collections.emptyList(), page, size, 0L);
                 }
+
+                @Override
+                public int deleteAntigos(int diasAntigos) {
+                    return 0;
+                }
             };
         }
 
