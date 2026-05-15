@@ -29,7 +29,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
+import java.security.SecureRandom;
 
 /**
  * Bridge entre a camada de negócio e o motor fiscal.
@@ -355,8 +355,10 @@ public class NfeGeracaoService {
         return String.valueOf(resto < 2 ? 0 : 11 - resto);
     }
 
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private String gerarCNF() {
-        return String.format("%08d", new Random().nextInt(100_000_000));
+        return String.format("%08d", SECURE_RANDOM.nextInt(100_000_000));
     }
 
     private String apenasDigitos(String s) {
