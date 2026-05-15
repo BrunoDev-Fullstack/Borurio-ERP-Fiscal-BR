@@ -4,9 +4,9 @@
 ---
 
 **Document:** MTF-001  
-**Version:** 2.0  
+**Version:** 2.1  
 **Issued:** 2026-05-11  
-**Last updated:** 2026-05-12  
+**Last updated:** 2026-05-15  
 **Author:** Bruno Ribeiro — Fullstack Developer / DevSecOps  
 **Status:** VALIDATED IN STAGING (HOM)  
 **Reference branch:** `fix/sefaz-xml-structure`  
@@ -14,6 +14,7 @@
 > **Version history:**
 > - v1.0 (2026-05-11): initial document, phases 1–9 + phase 10 in progress
 > - v2.0 (2026-05-12): sprint 3 complete; RBAC updated; `/situacao` response corrected; Phase 10 closed; integration endpoints and smoke test added
+> - v2.1 (2026-05-15): technical review corrections; SecureRandom for cNF; rate limiting implemented; log retention scheduler implemented; certificate cache invalidation gap resolved; 57 tests passing; integration contract updated with message reference table
 
 ---
 
@@ -72,17 +73,19 @@ The document is intended for:
 | `NfeEnvioController` deprecated — legacy endpoints marked and redirected       | ✓ Code — 2026-05-12                                       |
 | PT-BR and EN integration contracts generated and validated                     | ✓ Code — 2026-05-12                                       |
 | `MyBatisConfig`: `@ConditionalOnProperty` ensures correct boot in HOM          | ✓ HOM/SP — 2026-05-12                                     |
-| 30/30 controller tests passing                                                 | ✓ Code — 2026-05-12                                       |
+| 57/57 tests passing (12 controllers covered + fiscal)                          | ✓ Code — 2026-05-15                                       |
+| Rate limiting: `/auth/login` (10 req/min) and `/emitir` (30 req/min)           | ✓ Code — 2026-05-15                                       |
+| `nfe_log` retention scheduling (`NfeLogRetencaoScheduler`)                     | ✓ Code — 2026-05-15                                       |
+| CORS restricted — `*` replaced by explicit origins per environment             | ✓ Code — 2026-05-15                                       |
+| `SecureRandom` for `cNF` generation (replaced `new Random()`)                  | ✓ Code — 2026-05-15                                       |
 
 ### 1.2 What is PENDING
 
 | Feature                                                         | Phase    | Note                                |
 |-----------------------------------------------------------------|----------|-------------------------------------|
 | `CERT_ENCRYPTION_KEY` configured in production                  | Phase 11 | Passthrough active in HOM by design |
-| Automatic certificate cache invalidation in `EmpresaController` | Phase 11 | Identified gap — section 10.4       |
 | Automated CI/CD                                                 | Phase 11 | Manual deployment via docker cp     |
 | Production A1 certificates with real CNPJ                       | Phase 11 | Phase 11 critical item              |
-| Rate limiting on `/emitir`                                      | Phase 11 | Protect against abuse               |
 | DANFE — NF-e PDF generation for delivery to the recipient       | Phase 12+ | No PDF library present in the project; `nfe_documento.xml_protocolo` already stores the complete nfeProc required for future generation |
 
 ---
@@ -316,7 +319,7 @@ cDV     = modulo 11 over chave43
 chave   = chave43 + cDV
 ```
 
-`cNF` (numeric code) is generated with `new Random().nextInt(100_000_000)`.
+`cNF` (numeric code) is generated with `SecureRandom.nextInt(100_000_000)` — using `java.security.SecureRandom` to ensure cryptographic unpredictability.
 
 The NF-e number (`nNF`) is obtained atomically via `NfeSequenciaService.proximoNumero(cnpj, serie)` — uses `SELECT ... FOR UPDATE` (or equivalent) to guarantee uniqueness under concurrent load.
 
@@ -631,7 +634,7 @@ The `ConcurrentHashMap<Long, CertificadoContexto>` cache persists for the contai
 EmpresaCertificadoService.invalidar(empresaId)
 ```
 
-> **Identified gap (Phase 11):** the cache is not automatically invalidated when a company updates its certificate via `PUT /api/app/empresas`. The `EmpresaController` does **not** call `invalidar()` currently. Must be fixed before production.
+> **Implemented:** `EmpresaController.atualizar()` calls `empresaCertificadoService.invalidar(id)` after persisting every update. The cache is automatically invalidated whenever company data is changed via `PUT /api/app/empresas/{id}`.
 
 ### 10.5 Certificate file resolution
 
@@ -833,7 +836,7 @@ SEFAZ SP uses two distinct processors: `PL009` validates the batch, and `PL_008i
 
 ### 13.2 Certificate cache invalidation
 
-As described in section 10.4, the `EmpresaCertificadoService` cache is not automatically invalidated when the certificate is updated via the API. This is an **implementation gap** (not an external limitation) to be fixed before production (Phase 11).
+The `EmpresaCertificadoService` cache is automatically invalidated by `EmpresaController.atualizar()` whenever company data is updated via `PUT /api/app/empresas/{id}`. See section 10.4.
 
 ---
 
@@ -1008,15 +1011,15 @@ Security checks:
 
 ### Phase 11 — PRD Deployment + CI/CD (pending)
 
-| Item                                     | Priority     | Description                                                                |
-|------------------------------------------|--------------|----------------------------------------------------------------------------|
-| `CERT_ENCRYPTION_KEY` in PRD             | **CRITICAL** | Generate via `openssl rand -base64 32`; inject via secrets manager         |
-| PRD A1 certificates with real CNPJ       | **CRITICAL** | `tpAmb=1`; register company with `cert_path` pointing to PRD certificate   |
-| Automatic certificate cache invalidation | **HIGH**     | `EmpresaController.atualizar()` must call `invalidar(empresaId)`           |
-| Rate limiting on `/emitir`               | **MEDIUM**   | Bucket4j or equivalent; protects against abuse                             |
-| CI/CD pipeline                           | **MEDIUM**   | GitHub Actions: test → build → push image → deploy HOM → smoke test        |
-| `nfe_log` retention policy               | **LOW**      | `NfeLogMapper.deleteAntigos(dias)` already implemented; scheduling missing |
-| Monitoring                               | **LOW**      | Prometheus + Loki                                                          |
+| Item                                          | Priority     | Description                                                             |
+|-----------------------------------------------|--------------|-------------------------------------------------------------------------|
+| `CERT_ENCRYPTION_KEY` in PRD                  | **CRITICAL** | Generate via `openssl rand -base64 32`; inject via secrets manager      |
+| PRD A1 certificates with real CNPJ            | **CRITICAL** | `tpAmb=1`; register company with `cert_path` pointing to PRD cert      |
+| CI/CD pipeline                                | **MEDIUM**   | GitHub Actions: test → build → push image → deploy HOM → smoke test   |
+| Monitoring                                    | **LOW**      | Prometheus + Loki                                                       |
+| ~~Automatic certificate cache invalidation~~  | ~~HIGH~~     | ✓ Implemented — `EmpresaController.atualizar()` calls `invalidar()`   |
+| ~~Rate limiting~~                             | ~~MEDIUM~~   | ✓ Implemented — `RateLimitInterceptor` (10 req/min login, 30 emitir)  |
+| ~~`nfe_log` retention policy~~                | ~~LOW~~      | ✓ Implemented — `NfeLogRetencaoScheduler` + `@EnableScheduling`       |
 
 ---
 

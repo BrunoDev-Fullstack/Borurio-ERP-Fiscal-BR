@@ -197,7 +197,7 @@ GET /api/test/ping
 
 > `[CONTRACT]` This route does not use the standard `Result<>` envelope. Its response structure is its own.
 
-> `[OPERATIONAL]` The `"environment"` field is hardcoded as `"dev"` even in HOM and PRD — do not use it as an environment discriminator.
+> `[OPERATIONAL]` The `"environment"` field reflects the active Spring profile (`spring.profiles.active`). Use it only as a diagnostic indicator, not as a routing discriminator.
 
 ---
 
@@ -587,7 +587,33 @@ Content-Type: application/json
 | 422 state  | Operation not allowed in current state                 | `null`                               |
 | 500        | Unhandled failure (including SEFAZ transmission error) | `null`                               |
 
-### 8.3 Pagination
+### 8.3 Portuguese Message Translation Reference
+
+> `[OPERATIONAL]` The `message` field in all API responses is in **Brazilian Portuguese**. The table below provides the English translation for every fixed message the integration may receive.
+
+| Portuguese message (as returned by the API) | English meaning | Typical trigger |
+|---|---|---|
+| `Autenticação bem-sucedida` | Authentication successful | Valid login |
+| `Credenciais inválidas` | Invalid credentials | Wrong email or password |
+| `Erro interno de autenticação` | Internal authentication error | Unexpected server error during login |
+| `Autenticação necessária` | Authentication required | Missing or expired Bearer token |
+| `Acesso negado` | Access denied | Role `OPERADOR` accessing an `ADMIN`-only route |
+| `Sucesso` | Success | Any successful API response |
+| `Registro não encontrado` | Record not found | `GET` by ID for a non-existent resource |
+| `Recurso não encontrado` | Resource not found | Path variable resolves to an empty result |
+| `Erro interno do servidor` | Internal server error | Unhandled exception (including SEFAZ errors) |
+| `Dados inválidos` | Invalid data | `@Valid` bean validation failure (HTTP 422) |
+| `Falha na operação` | Operation failed | Business rule violation |
+| `Requisição inválida` | Invalid request | Malformed request body |
+| `CNPJ/CPF do destinatário é obrigatório` | Recipient CNPJ/CPF is required | Missing `destCnpjCpf` field in order creation |
+| `Razão social do destinatário é obrigatória` | Recipient company name is required | Missing `destRazaoSocial` field |
+| `UF do destinatário é obrigatória` | Recipient state (UF) is required | Missing `destUf` field |
+
+> `[OPERATIONAL]` Validation error messages (HTTP 422) are returned in `data` as a field-keyed map. Each key is the JSON field name that failed, and each value is the Portuguese validation message. Use the table above to translate them.
+
+---
+
+### 8.4 Pagination
 
 > `[CONTRACT]` Listing endpoints accept `page` (0-based) and `size` (max 100):
 
@@ -666,7 +692,7 @@ pedido.status:    "REJEITADO" or "AGUARDANDO" → normal in HOM; does not occur 
 | # | Observation                                              | Impact                                              |
 |---|----------------------------------------------------------|-----------------------------------------------------|
 | 1 | `cStat=225` is normal behavior in HOM-SP                 | Does not block technical flow validation            |
-| 2 | The `"environment": "dev"` field in `/ping` is hardcoded | Do not use it as an environment discriminator       |
+| 2 | The `"environment"` field in `/ping` reflects the active Spring profile | Use only as a diagnostic indicator, not as a routing discriminator |
 | 3 | Token expires in 1 hour                                  | Implement renewal for long-running flows            |
 | 4 | Paginated order list does not include items              | Always use `GET /{id}` to retrieve items            |
 | 5 | CC-e and cancellation require `nProt` to be available    | Call `/situacao` before cancelling after AGUARDANDO |

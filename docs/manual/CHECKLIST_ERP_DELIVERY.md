@@ -91,8 +91,8 @@
 
 | Item                                | Estado                           |
 |-------------------------------------|----------------------------------|
-| 30/30 testes de controller passando | Passando (Sprint 3 — 12-05-2026) |
-| Contexto WebMvc isolado por módulo  | Entregue                         |
+| 57/57 testes passando (29 controller + 28 novos + fiscal) | Passando (15-05-2026) |
+| Contexto WebMvc isolado por módulo — 12 controllers cobertos | Entregue            |
 
 ---
 

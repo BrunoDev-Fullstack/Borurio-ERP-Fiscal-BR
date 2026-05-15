@@ -4,9 +4,9 @@
 ---
 
 **Documento:** MTF-001  
-**Versão:** 2.0  
+**Versão:** 2.1  
 **Data de emissão:** 11-05-2026  
-**Última atualização:** 12-05-2026  
+**Última atualização:** 15-05-2026  
 **Autor:** Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps  
 **Status:** VALIDADO EM HOMOLOGAÇÃO  
 **Branch de referência:** `fix/sefaz-xml-structure`  
@@ -14,6 +14,7 @@
 > **Histórico de versões:**
 > - v1.0 (11-05-2026): documento inicial, fases 1–9 + fase 10 em elaboração
 > - v2.0 (12-05-2026): sprint 3 concluído; RBAC atualizado; `/situacao` corrigido; Fase 10 encerrada; endpoints de integração e smoke test adicionados
+> - v2.1 (15-05-2026): correções de revisão técnica; SecureRandom para cNF; rate limiting implementado; scheduler de retenção de logs implementado; gap de cache certificado corrigido no código; 57 testes passando; contrato de integração atualizado com referência de mensagens
 
 ---
 
@@ -72,17 +73,19 @@ O documento destina-se a:
 | `NfeEnvioController` deprecado — endpoints legados marcados e redirecionados | ✓ Código — 12-05-2026                                         |
 | Contratos de integração PT-BR e EN gerados e validados                       | ✓ Código — 12-05-2026                                         |
 | `MyBatisConfig`: `@ConditionalOnProperty` garante boot correto em HOM        | ✓ HOM/SP — 12-05-2026                                         |
-| 30/30 testes de controller passando                                          | ✓ Código — 12-05-2026                                         |
+| 57/57 testes passando (12 controllers cobertos + fiscal)                     | ✓ Código — 15-05-2026                                         |
+| Rate limiting: `/auth/login` (10 req/min) e `/emitir` (30 req/min)          | ✓ Código — 15-05-2026                                         |
+| Agendamento de retenção de `nfe_log` (`NfeLogRetencaoScheduler`)             | ✓ Código — 15-05-2026                                         |
+| CORS restrito — `*` substituído por origins explícitas por ambiente          | ✓ Código — 15-05-2026                                         |
+| `SecureRandom` para geração de `cNF` (substituiu `new Random()`)             | ✓ Código — 15-05-2026                                         |
 
 ### 1.2 O que está PENDENTE
 
 | Funcionalidade                                                        | Fase    | Observação                          |
 |-----------------------------------------------------------------------|---------|-------------------------------------|
 | `CERT_ENCRYPTION_KEY` configurada em produção                         | Fase 11 | Passthrough ativo em HOM por design |
-| Invalidação automática de cache de certificado no `EmpresaController` | Fase 11 | Gap identificado — seção 10.4       |
 | CI/CD automatizado                                                    | Fase 11 | Deploy manual via docker cp         |
 | Certificados A1 de produção com CNPJ real                             | Fase 11 | Fase 11 crítica                     |
-| Rate limiting no `/emitir`                                            | Fase 11 | Proteger contra abuso               |
 | DANFE — geração de PDF da NF-e para entrega ao destinatário           | Fase 12+ | Nenhuma biblioteca PDF presente no projeto; `nfe_documento.xml_protocolo` já persiste o nfeProc completo necessário para geração futura |
 
 ---
@@ -316,7 +319,7 @@ cDV     = módulo 11 sobre chave43
 chave   = chave43 + cDV
 ```
 
-O `cNF` (código numérico) é gerado com `new Random().nextInt(100_000_000)`.
+O `cNF` (código numérico) é gerado com `SecureRandom.nextInt(100_000_000)` — uso de `java.security.SecureRandom` para garantir imprevisibilidade criptográfica.
 
 O número da NF-e (`nNF`) é obtido de forma atômica via `NfeSequenciaService.proximoNumero(cnpj, serie)` — usa `SELECT ... FOR UPDATE` (ou equivalente) para garantir unicidade mesmo em ambientes concorrentes.
 
@@ -631,7 +634,7 @@ O cache `ConcurrentHashMap<Long, CertificadoContexto>` persiste durante a vida d
 EmpresaCertificadoService.invalidar(empresaId)
 ```
 
-> **Gap identificado (Fase 11):** o cache não é invalidado automaticamente quando a empresa atualiza seu certificado via `PUT /api/app/empresas`. O `EmpresaController` **não chama** `invalidar()` atualmente. Deve ser corrigido antes de produção.
+> **Implementado:** o `EmpresaController.atualizar()` chama `empresaCertificadoService.invalidar(id)` após persistir a atualização. O cache é invalidado automaticamente toda vez que os dados da empresa são alterados via `PUT /api/app/empresas/{id}`.
 
 ### 10.5 Resolução de arquivo do certificado
 
@@ -833,7 +836,7 @@ A SEFAZ SP usa dois processadores distintos: o `PL009` valida o lote, e o `PL_00
 
 ### 13.2 Invalidação de cache de certificado
 
-Conforme descrito na seção 10.4, o cache `EmpresaCertificadoService` não é invalidado automaticamente quando o certificado é atualizado via API. Este é um **gap de implementação** (não uma limitação externa) a ser corrigido antes de produção (Fase 11).
+O cache `EmpresaCertificadoService` é invalidado automaticamente pelo `EmpresaController.atualizar()` quando os dados da empresa são alterados via `PUT /api/app/empresas/{id}`. Ver seção 10.4.
 
 ---
 
@@ -963,7 +966,7 @@ Verificações de segurança:
 
 **Motivação:** certificados A1 têm validade de 1 a 3 anos. Recarregar o KeyStore a cada emissão tem custo criptográfico desnecessário.
 
-**Gap:** a invalidação não é chamada automaticamente no PUT do `EmpresaController`. Deve ser corrigida antes de produção.
+**Implementado:** `EmpresaController.atualizar()` chama `empresaCertificadoService.invalidar(empresaId)` após cada `PUT /api/app/empresas/{id}`.
 
 ---
 
@@ -1012,11 +1015,11 @@ Verificações de segurança:
 |---------------------------------------------|--------------|-----------------------------------------------------------------------|
 | `CERT_ENCRYPTION_KEY` em PRD                | **CRÍTICO**  | Gerar via `openssl rand -base64 32`; injetar via secrets manager      |
 | Certificados A1 PRD com CNPJ real           | **CRÍTICO**  | `tpAmb=1`; registrar empresa com `cert_path` apontando para cert PRD  |
-| Invalidação automática de cache certificado | **ALTO**     | `EmpresaController.atualizar()` deve chamar `invalidar(empresaId)`    |
-| Rate limiting no `/emitir`                  | **MÉDIO**    | Bucket4j ou equivalente; protege contra abuso                         |
 | CI/CD pipeline                              | **MÉDIO**    | GitHub Actions: test → build → push image → deploy HOM → smoke test   |
-| Política de retenção `nfe_log`              | **BAIXO**    | `NfeLogMapper.deleteAntigos(dias)` já implementado; falta agendamento |
 | Monitoramento                               | **BAIXO**    | Prometheus + Loki                                                     |
+| ~~Invalidação automática de cache~~         | ~~ALTO~~     | ✓ Implementado — `EmpresaController.atualizar()` chama `invalidar()` |
+| ~~Rate limiting~~                           | ~~MÉDIO~~    | ✓ Implementado — `RateLimitInterceptor` (10 req/min login, 30 emitir)|
+| ~~Política de retenção `nfe_log`~~          | ~~BAIXO~~    | ✓ Implementado — `NfeLogRetencaoScheduler` + `@EnableScheduling`     |
 
 ---
 
@@ -1033,7 +1036,8 @@ Verificações de segurança:
 
 ---
 
-*Documento MTF-001 — versão 2.0 — Borurio ERP Fiscal BR*  
+*Documento MTF-001 — versão 2.1 — Borurio ERP Fiscal BR*  
 *Gerado com base no estado validado em HOM em 11-05-2026*  
 *Atualizado com Sprint 3 em 12-05-2026*  
+*Revisão técnica aplicada em 15-05-2026 (v2.1)*  
 *Próxima revisão prevista: após deploy PRD (Fase 11)*

@@ -197,7 +197,7 @@ GET /api/test/ping
 
 > `[CONTRATO]` Esta rota não usa o envelope `Result<>` padrão. A estrutura de resposta é própria.
 
-> `[OPERACIONAL]` O campo `"environment"` está fixo como `"dev"` mesmo em HOM e PRD — não usá-lo como discriminador de ambiente.
+> `[OPERACIONAL]` O campo `"environment"` reflete o perfil Spring ativo (`spring.profiles.active`). Use-o apenas como indicador de diagnóstico, não como discriminador de roteamento.
 
 ---
 
@@ -587,7 +587,33 @@ Content-Type: application/json
 | 422 estado | Operação não permitida no estado atual                  | `null`                                |
 | 500        | Falha não tratada (incluindo erro de transmissão SEFAZ) | `null`                                |
 
-### 8.3 Paginação
+### 8.3 Referência de Mensagens da API
+
+> `[OPERACIONAL]` O campo `message` em todas as respostas da API é sempre em português. A tabela abaixo documenta cada mensagem fixa do sistema, seu significado e quando ela ocorre.
+
+| Mensagem (campo `message`)                      | Significado                                   | Quando ocorre                                                         |
+|-------------------------------------------------|-----------------------------------------------|-----------------------------------------------------------------------|
+| `Autenticação bem-sucedida`                     | Login realizado com sucesso                   | Credenciais válidas no `POST /auth/login`                            |
+| `Credenciais inválidas`                         | E-mail ou senha incorretos                    | Credenciais erradas no login                                          |
+| `Erro interno de autenticação`                  | Falha interna no servidor durante login       | Exceção não tratada no fluxo de autenticação                          |
+| `Autenticação necessária`                       | Token ausente ou expirado                     | Request sem `Authorization: Bearer` válido                            |
+| `Acesso negado`                                 | Role insuficiente para o endpoint             | Role `OPERADOR` acessando rota exclusiva de `ADMIN`                   |
+| `Sucesso`                                       | Operação concluída com sucesso                | Qualquer resposta `code: 200` da API                                  |
+| `Registro não encontrado`                       | ID não existe para a empresa autenticada      | `GET /{id}` sem correspondência no banco                              |
+| `Recurso não encontrado`                        | Resultado vazio para o parâmetro solicitado   | PathVariable ou chave sem registro correspondente                     |
+| `Erro interno do servidor`                      | Exceção não tratada (incluindo erros SEFAZ)   | Falha técnica ou erro de transmissão fiscal                           |
+| `Dados inválidos`                               | Falha em validação `@Valid` de campo          | Body com campos fora das regras — retorna mapa de erros em `data`     |
+| `Falha na operação`                             | Violação de regra de negócio                  | Operação não permitida no estado atual do pedido                      |
+| `Requisição inválida`                           | Body malformado ou parâmetro inesperado       | JSON inválido ou tipo de dado incorreto                               |
+| `CNPJ/CPF do destinatário é obrigatório`        | Campo `destCnpjCpf` ausente ou vazio          | Criação de pedido sem CNPJ/CPF do destinatário (HTTP 422)             |
+| `Razão social do destinatário é obrigatória`    | Campo `destRazaoSocial` ausente               | Criação de pedido sem razão social (HTTP 422)                         |
+| `UF do destinatário é obrigatória`              | Campo `destUf` ausente                        | Criação de pedido sem UF do destinatário (HTTP 422)                   |
+
+> `[OPERACIONAL]` Mensagens de validação (HTTP 422) são retornadas em `data` como mapa chave→mensagem, onde a chave é o nome do campo JSON que falhou.
+
+---
+
+### 8.4 Paginação
 
 > `[CONTRATO]` Endpoints de listagem aceitam `page` (0-based) e `size` (máx 100):
 
@@ -666,7 +692,7 @@ pedido.status:    "REJEITADO" ou "AGUARDANDO"→ normal em HOM; não ocorre em P
 | # | Observação                                                 | Impacto                                                 |
 |---|------------------------------------------------------------|---------------------------------------------------------|
 | 1 | `cStat=225` é comportamento normal em HOM-SP               | Não bloqueia validação do fluxo técnico                 |
-| 2 | O campo `"environment": "dev"` no `/ping` é fixo em código | Não usar como discriminador de ambiente                 |
+| 2 | O campo `"environment"` no `/ping` reflete o perfil Spring ativo       | Usar apenas como indicador de diagnóstico               |
 | 3 | Token expira em 1 hora                                     | Implementar renovação em fluxos longos                  |
 | 4 | Lista paginada de pedidos não inclui itens                 | Sempre usar `GET /{id}` para obter itens                |
 | 5 | CC-e e cancelamento exigem `nProt` disponível              | Consultar `/situacao` antes de cancelar após AGUARDANDO |
