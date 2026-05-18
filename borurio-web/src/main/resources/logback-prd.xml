@@ -8,8 +8,8 @@
     <!-- =============================================================================
          PROPRIEDADES (COM FALLBACK)
          ============================================================================= -->
-    <property name="LOG_PATH" value="${LOG_PATH:-/var/log/jcho}"/>
-    <property name="APP_NAME" value="${APP_NAME:-jcho-erp-prd}"/>
+    <property name="LOG_PATH" value="${LOG_PATH:-/var/log/borurio}"/>
+    <property name="APP_NAME" value="${APP_NAME:-borurio-erp-prd}"/>
 
     <property name="LOG_PATTERN"
               value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
@@ -111,7 +111,7 @@
     <!-- =============================================================================
          APP
          ============================================================================= -->
-    <logger name="br.com.jcho" level="INFO" additivity="false">
+    <logger name="br.com.borurio" level="INFO" additivity="false">
         <appender-ref ref="ASYNC_FILE"/>
         <appender-ref ref="ERROR_FILE"/>
     </logger>
@@ -119,14 +119,14 @@
     <!-- =============================================================================
          SEFAZ
          ============================================================================= -->
-    <logger name="br.com.jcho.fiscal"
-            level="${LOGGING_LEVEL_BR_COM_JCHO_FISCAL:-INFO}"
+    <logger name="br.com.borurio.fiscal"
+            level="${LOGGING_LEVEL_BR_COM_BORURIO_FISCAL:-INFO}"
             additivity="false">
         <appender-ref ref="SEFAZ_FILE"/>
     </logger>
 
-    <logger name="br.com.jcho.fiscal.soap"
-            level="${LOGGING_LEVEL_BR_COM_JCHO_FISCAL_SOAP:-WARN}"
+    <logger name="br.com.borurio.fiscal.soap"
+            level="${LOGGING_LEVEL_BR_COM_BORURIO_FISCAL_SOAP:-WARN}"
             additivity="false">
         <appender-ref ref="SEFAZ_FILE"/>
     </logger>

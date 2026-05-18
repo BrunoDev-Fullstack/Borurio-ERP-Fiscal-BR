@@ -1,5 +1,5 @@
 ###################################################################################################
-# AMBIENTE DE PRODUÇÃO — JCHO ERP
+# AMBIENTE DE PRODUÇÃO — BORURIO ERP FISCAL BR
 ###################################################################################################
 
 server:
@@ -11,7 +11,7 @@ server:
 spring:
 
   application:
-    name: jcho-erp
+    name: borurio-erp
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -20,7 +20,7 @@ spring:
     password: ${DB_PASS}
 
     hikari:
-      pool-name: JchoWebHikariPool-PRD
+      pool-name: BorurioWebHikariPool-PRD
       maximum-pool-size: 20
       minimum-idle: 5
       connection-timeout: 30000
@@ -54,12 +54,16 @@ logging:
     root: INFO
     org.springframework: WARN
     org.hibernate: WARN
-    br.com.jcho: INFO
+    br.com.borurio: INFO
 
 security:
   jwt:
     secret: ${JWT_SECRET}
     expiration-ms: 3600000
+
+cert:
+  encryption:
+    key: ${CERT_ENCRYPTION_KEY}
 
 sefaz:
   ambiente: PRD
@@ -90,6 +94,12 @@ fiscal:
     codigo-municipio:  ${FISCAL_EMITENTE_CODIGO_MUNICIPIO}
     uf:                ${FISCAL_EMITENTE_UF}
     cep:               ${FISCAL_EMITENTE_CEP}
+
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
 
 management:
   endpoints:
