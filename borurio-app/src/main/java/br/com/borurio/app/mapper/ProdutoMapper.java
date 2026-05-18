@@ -9,7 +9,7 @@ public interface ProdutoMapper {
 
     String SELECT_COLUMNS = """
             SELECT id,
-                   empresa_id    AS empresaId,
+                   empresa_id         AS empresaId,
                    codigo,
                    descricao,
                    ncm,
@@ -20,8 +20,9 @@ public interface ProdutoMapper {
                    origem,
                    csosn,
                    estoque,
-                   criado_em     AS criadoEm,
-                   atualizado_em AS atualizadoEm
+                   estoque_reservado  AS estoqueReservado,
+                   criado_em          AS criadoEm,
+                   atualizado_em      AS atualizadoEm
             FROM produto
             """;
 
@@ -89,8 +90,46 @@ public interface ProdutoMapper {
             """)
     int atualizar(Produto produto);
 
-    @Update("UPDATE produto SET estoque = estoque - #{qtd}, atualizado_em = NOW() WHERE id = #{id} AND estoque >= #{qtd}")
-    int baixarEstoque(@Param("id") Long id, @Param("qtd") java.math.BigDecimal qtd);
+    @Update("""
+            UPDATE produto
+            SET estoque_reservado = estoque_reservado + #{qtd}, atualizado_em = NOW()
+            WHERE id = #{id} AND empresa_id = #{empresaId}
+              AND (estoque - estoque_reservado) >= #{qtd}
+            """)
+    int reservarEstoque(@Param("id") Long id,
+                        @Param("qtd") java.math.BigDecimal qtd,
+                        @Param("empresaId") Long empresaId);
+
+    @Update("""
+            UPDATE produto
+            SET estoque_reservado = estoque_reservado - #{qtd}, atualizado_em = NOW()
+            WHERE id = #{id} AND empresa_id = #{empresaId}
+              AND estoque_reservado >= #{qtd}
+            """)
+    int desfazerReserva(@Param("id") Long id,
+                        @Param("qtd") java.math.BigDecimal qtd,
+                        @Param("empresaId") Long empresaId);
+
+    @Update("""
+            UPDATE produto
+            SET estoque           = estoque - #{qtd},
+                estoque_reservado = estoque_reservado - #{qtd},
+                atualizado_em     = NOW()
+            WHERE id = #{id} AND empresa_id = #{empresaId}
+              AND estoque >= #{qtd} AND estoque_reservado >= #{qtd}
+            """)
+    int baixaDefinitiva(@Param("id") Long id,
+                        @Param("qtd") java.math.BigDecimal qtd,
+                        @Param("empresaId") Long empresaId);
+
+    @Update("""
+            UPDATE produto
+            SET estoque = estoque + #{qtd}, atualizado_em = NOW()
+            WHERE id = #{id} AND empresa_id = #{empresaId}
+            """)
+    int estornarBaixa(@Param("id") Long id,
+                      @Param("qtd") java.math.BigDecimal qtd,
+                      @Param("empresaId") Long empresaId);
 
     @Update("UPDATE produto SET estado = 0, atualizado_em = NOW() WHERE id = #{id}")
     int desativar(Long id);

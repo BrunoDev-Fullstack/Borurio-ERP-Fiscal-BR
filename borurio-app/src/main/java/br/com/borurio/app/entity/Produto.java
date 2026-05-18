@@ -45,6 +45,7 @@ public class Produto {
 
     private String csosn;
     private BigDecimal estoque;
+    private BigDecimal estoqueReservado;
     private LocalDateTime criadoEm;
     private LocalDateTime atualizadoEm;
 }
