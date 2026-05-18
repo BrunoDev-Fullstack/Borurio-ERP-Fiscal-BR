@@ -1,6 +1,9 @@
 package br.com.borurio.web.controller;
 
+import br.com.borurio.app.entity.EstoqueMovimento;
+import br.com.borurio.app.entity.EstoqueSaldo;
 import br.com.borurio.app.entity.Produto;
+import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.ProdutoService;
 import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.web.auth.JwtUtil;
@@ -23,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -35,6 +39,7 @@ class ProdutoControllerTest {
     @Autowired ObjectMapper objectMapper;
 
     @MockBean ProdutoService produtoService;
+    @MockBean EstoqueService estoqueService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
 
@@ -133,5 +138,65 @@ class ProdutoControllerTest {
     void semToken_returns401() throws Exception {
         mockMvc.perform(get("/api/app/produtos"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser
+    void consultarEstoque_existente_returnsSaldo() throws Exception {
+        EstoqueSaldo saldo = new EstoqueSaldo();
+        saldo.setProdutoId(1L);
+        saldo.setEstoqueTotal(new BigDecimal("100.00"));
+        saldo.setEstoqueReservado(new BigDecimal("10.00"));
+        saldo.setEstoqueDisponivel(new BigDecimal("90.00"));
+        when(estoqueService.consultarSaldo(anyLong(), isNull())).thenReturn(saldo);
+
+        mockMvc.perform(get("/api/app/produtos/1/estoque"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.estoqueTotal").value(100.00))
+                .andExpect(jsonPath("$.data.estoqueDisponivel").value(90.00));
+    }
+
+    @Test
+    @WithMockUser
+    void consultarEstoque_produtoInexistente_returns404() throws Exception {
+        when(estoqueService.consultarSaldo(anyLong(), isNull()))
+                .thenThrow(new NoSuchElementException("Produto não encontrado"));
+
+        mockMvc.perform(get("/api/app/produtos/99/estoque"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404));
+    }
+
+    @Test
+    @WithMockUser
+    void entrada_quantidadeValida_returns200() throws Exception {
+        EstoqueMovimento mov = new EstoqueMovimento();
+        mov.setId(1L);
+        mov.setTipo("ENTRADA");
+        mov.setQuantidade(new BigDecimal("50.00"));
+        when(estoqueService.entrada(anyLong(), isNull(), any(), anyString(), any())).thenReturn(mov);
+
+        String body = """
+                {"quantidade": 50.00, "observacao": "Ajuste inicial"}
+                """;
+
+        mockMvc.perform(post("/api/app/produtos/1/estoque/entrada")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tipo").value("ENTRADA"));
+    }
+
+    @Test
+    @WithMockUser
+    void entrada_quantidadeAusente_returns422() throws Exception {
+        mockMvc.perform(post("/api/app/produtos/1/estoque/entrada")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value(422));
     }
 }
