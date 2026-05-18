@@ -1,6 +1,7 @@
 package br.com.borurio.web.service;
 
 import br.com.borurio.app.entity.Pedido;
+import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeCancelamentoRequest;
@@ -13,6 +14,8 @@ import br.com.borurio.fiscal.service.NfeTransmitService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -34,6 +37,7 @@ public class PedidoOperacaoService {
     private final NfeCancelamentoService cancelamentoService;
     private final NfeCceService cceService;
     private final EmitenteProperties emitente;
+    private final EstoqueService estoqueService;
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
@@ -43,13 +47,15 @@ public class PedidoOperacaoService {
                                   NfeTransmitService transmitService,
                                   NfeCancelamentoService cancelamentoService,
                                   NfeCceService cceService,
-                                  EmitenteProperties emitente) {
+                                  EmitenteProperties emitente,
+                                  EstoqueService estoqueService) {
         this.pedidoService     = pedidoService;
         this.documentoService  = documentoService;
         this.transmitService   = transmitService;
         this.cancelamentoService = cancelamentoService;
         this.cceService        = cceService;
         this.emitente          = emitente;
+        this.estoqueService    = estoqueService;
     }
 
     // -------------------------------------------------------------------------
@@ -94,7 +100,7 @@ public class PedidoOperacaoService {
                     "Justificativa de cancelamento deve ter no mínimo 15 caracteres.");
         }
 
-        Pedido pedido = pedidoService.buscarPorId(pedidoId);
+        Pedido pedido = pedidoService.buscarComItens(pedidoId);
         if (!"AUTORIZADO".equals(pedido.getStatus())) {
             throw new IllegalStateException(
                     "Cancelamento só é permitido para pedidos com status AUTORIZADO. " +
@@ -123,6 +129,18 @@ public class PedidoOperacaoService {
         String retorno = cancelamentoService.cancelar(req);
 
         pedidoService.atualizarStatus(pedidoId, "CANCELADO", chave);
+
+        if (pedido.getItens() != null && !pedido.getItens().isEmpty()) {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            String criadoPor = auth != null ? auth.getName() : "sistema";
+            try {
+                estoqueService.estornarBaixaItens(
+                        pedido.getItens(), pedido.getEmpresaId(), pedidoId, criadoPor);
+            } catch (Exception e) {
+                log.error("[PedidoOperacao] Falha ao estornar estoque | pedidoId={} | erro={}",
+                        pedidoId, e.getMessage());
+            }
+        }
 
         log.info("[PedidoOperacao] Pedido cancelado | pedidoId={}", pedidoId);
         return retorno;

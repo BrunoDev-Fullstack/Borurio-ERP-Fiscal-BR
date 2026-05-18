@@ -5,7 +5,7 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.mapper.EmpresaMapper;
-import br.com.borurio.app.mapper.ProdutoMapper;
+import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
@@ -14,6 +14,8 @@ import br.com.borurio.fiscal.dto.NfeSefazRetorno;
 import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -22,10 +24,10 @@ import java.util.List;
 /**
  * Bridge: Pedido + snapshot fiscal → NfeEmissaoRequest → motor fiscal.
  * Após transmissão:
- *   cStat=100  → AUTORIZADO  + baixa de estoque por item
- *   cStat≥200  → REJEITADO
- *   lote aceito sem infProt → AGUARDANDO
- *   exceção     → ERRO
+ *   cStat=100  → AUTORIZADO  + baixa definitiva de estoque
+ *   cStat≥200  → REJEITADO   + desfaz reserva de estoque
+ *   lote aceito sem infProt → AGUARDANDO (reserva mantida — Opção A)
+ *   exceção     → ERRO       + desfaz reserva de estoque
  */
 @Service
 public class PedidoEmissaoService {
@@ -35,18 +37,18 @@ public class PedidoEmissaoService {
     private final PedidoService pedidoService;
     private final NfeGeracaoService nfeGeracaoService;
     private final NfeSefazRetornoParser retornoParser;
-    private final ProdutoMapper produtoMapper;
+    private final EstoqueService estoqueService;
     private final EmpresaMapper empresaMapper;
 
     public PedidoEmissaoService(PedidoService pedidoService,
                                 NfeGeracaoService nfeGeracaoService,
                                 NfeSefazRetornoParser retornoParser,
-                                ProdutoMapper produtoMapper,
+                                EstoqueService estoqueService,
                                 EmpresaMapper empresaMapper) {
         this.pedidoService     = pedidoService;
         this.nfeGeracaoService = nfeGeracaoService;
         this.retornoParser     = retornoParser;
-        this.produtoMapper     = produtoMapper;
+        this.estoqueService    = estoqueService;
         this.empresaMapper     = empresaMapper;
     }
 
@@ -61,10 +63,14 @@ public class PedidoEmissaoService {
             throw new IllegalArgumentException("Pedido sem itens não pode ser emitido.");
         }
 
-        NfeEmissaoRequest req = montarRequest(pedido);
-
         Long empresaId = EmpresaContextHolder.get() != null
                 ? EmpresaContextHolder.get() : pedido.getEmpresaId();
+        String criadoPor = resolverCriadoPor();
+
+        // Reserva ANTES da chamada SEFAZ — lança IllegalStateException (→ 422) se insuficiente
+        estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
+
+        NfeEmissaoRequest req = montarRequest(pedido);
         Empresa empresa = resolverEmpresa(empresaId);
 
         log.info("[PedidoEmissao] Transmitindo | pedidoId={} | dest={} | empresaId={} | itens={}",
@@ -75,6 +81,7 @@ public class PedidoEmissaoService {
             result = nfeGeracaoService.gerar(req, empresa);
         } catch (Exception e) {
             pedidoService.atualizarStatus(pedidoId, "ERRO", null);
+            desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
             throw e;
         }
 
@@ -82,8 +89,11 @@ public class PedidoEmissaoService {
         pedidoService.atualizarStatus(pedidoId, novoStatus, result.getChaveNfe());
 
         if ("AUTORIZADO".equals(novoStatus)) {
-            baixarEstoque(pedido.getItens());
+            estoqueService.baixaDefinitivaItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
+        } else if ("REJEITADO".equals(novoStatus)) {
+            desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
         }
+        // AGUARDANDO: reserva mantida (Opção A — liberar manualmente ou no próximo ciclo de consulta)
 
         log.info("[PedidoEmissao] Concluído | pedidoId={} | status={} | chave={}",
                 pedidoId, novoStatus, result.getChaveNfe());
@@ -108,22 +118,16 @@ public class PedidoEmissaoService {
     }
 
     // -------------------------------------------------------------------------
-    // Baixa de estoque — somente após AUTORIZADO (cStat=100)
+    // Desfaz reserva sem mascarar o resultado SEFAZ
     // -------------------------------------------------------------------------
 
-    private void baixarEstoque(List<PedidoItem> itens) {
-        for (PedidoItem item : itens) {
-            try {
-                int linhas = produtoMapper.baixarEstoque(item.getProdutoId(), item.getQuantidade());
-                if (linhas == 0) {
-                    log.warn("[PedidoEmissao] Estoque insuficiente ou produto não encontrado | produtoId={}",
-                            item.getProdutoId());
-                }
-            } catch (Exception e) {
-                // Falha de estoque nunca deve reverter uma NF-e já autorizada
-                log.error("[PedidoEmissao] Falha ao baixar estoque | produtoId={} | erro={}",
-                        item.getProdutoId(), e.getMessage());
-            }
+    private void desfazerReservaSeguro(List<PedidoItem> itens, Long empresaId,
+                                        Long pedidoId, String criadoPor) {
+        try {
+            estoqueService.desfazerReservaItens(itens, empresaId, pedidoId, criadoPor);
+        } catch (Exception e) {
+            log.error("[PedidoEmissao] Falha ao desfazer reserva | pedidoId={} | erro={}",
+                    pedidoId, e.getMessage());
         }
     }
 
@@ -139,6 +143,11 @@ public class PedidoEmissaoService {
             log.warn("[PedidoEmissao] Falha ao resolver empresa | empresaId={} | erro={}", empresaId, e.getMessage());
             return null;
         }
+    }
+
+    private String resolverCriadoPor() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null ? auth.getName() : "sistema";
     }
 
     private NfeEmissaoRequest montarRequest(Pedido pedido) {
