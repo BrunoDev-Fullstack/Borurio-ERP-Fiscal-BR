@@ -3,7 +3,7 @@
 | Atributo          | Valor                         |
 |-------------------|-------------------------------|
 | Versão            | 1.0                           |
-| Data              | 2026-05-12                    |
+| Data              | 2026-05-18                    |
 | Sprint            | 3 (final)                     |
 | Ambiente validado | HOM — `http://localhost:8081` |
 
@@ -28,18 +28,20 @@
 
 ## 2. API REST — 10 módulos
 
-| Módulo                   | Endpoint base          | Estado                                   |
-|--------------------------|------------------------|------------------------------------------|
-| Ping / health check      | `GET /api/test/ping`   | Entregue e validado em HOM               |
-| Autenticação             | `POST /auth/login`     | Entregue e validado em HOM               |
-| Empresas                 | `/api/app/empresas`    | Entregue e validado em HOM               |
-| Produtos                 | `/api/app/produtos`    | Entregue e validado em HOM               |
-| Clientes                 | `/api/app/clientes`    | Entregue e validado em HOM               |
-| Pedidos + ciclo fiscal   | `/api/app/pedidos`     | Entregue e validado em HOM               |
-| Usuários                 | `/api/app/usuarios`    | Entregue e validado em HOM               |
-| Logs fiscais             | `/api/fiscal/nfe/logs` | Entregue e validado em HOM               |
-| NCM                      | `/api/fiscal/ncm`      | Entregue e validado em HOM               |
-| NF-e legado (deprecated) | `/api/fiscal/nfe`      | Deprecated — mantido por compatibilidade |
+| Módulo                   | Endpoint base                           | Estado                                   |
+|--------------------------|-----------------------------------------|------------------------------------------|
+| Ping / health check      | `GET /api/test/ping`                    | Entregue e validado em HOM               |
+| Autenticação             | `POST /auth/login`                      | Entregue e validado em HOM               |
+| Empresas                 | `/api/app/empresas`                     | Entregue e validado em HOM               |
+| Produtos                 | `/api/app/produtos`                     | Entregue e validado em HOM               |
+| Estoque de produtos      | `/api/app/produtos/{id}/estoque`        | Entregue — 18-05-2026 (Fase 12-A)        |
+| Clientes                 | `/api/app/clientes`                     | Entregue e validado em HOM               |
+| Pedidos + ciclo fiscal   | `/api/app/pedidos`                      | Entregue e validado em HOM               |
+| Usuários                 | `/api/app/usuarios`                     | Entregue e validado em HOM               |
+| Logs fiscais             | `/api/fiscal/nfe/logs`                  | Entregue e validado em HOM               |
+| NCM                      | `/api/fiscal/ncm`                       | Entregue e validado em HOM               |
+| DANFE (PDF)              | `/api/fiscal/nfe/{chave}/danfe`         | Entregue — 18-05-2026 (Fase 12-B)        |
+| NF-e legado (deprecated) | `/api/fiscal/nfe`                       | Deprecated — mantido por compatibilidade |
 
 ---
 
@@ -87,12 +89,29 @@
 
 ---
 
+## 6b. Estoque mínimo fiscal (Fase 12-A — 18-05-2026)
+
+| Item                                                                                    | Estado   |
+|-----------------------------------------------------------------------------------------|----------|
+| Reserva atômica de estoque antes da transmissão SEFAZ (lança 422 se insuficiente)      | Entregue |
+| Baixa definitiva após `cStat=100` (AUTORIZADO)                                          | Entregue |
+| Desfazer reserva após REJEITADO ou ERRO (helper seguro — nunca mascara resultado SEFAZ) | Entregue |
+| Manutenção da reserva em AGUARDANDO (Opção A — liberação manual ou novo ciclo)          | Entregue |
+| Estorno de baixa após CANCELADO (`estoque += qtd` auditado)                             | Entregue |
+| Entrada manual de estoque via `POST /api/app/produtos/{id}/estoque/entrada` [ADMIN]     | Entregue |
+| Consulta de saldo em tempo real via `GET /api/app/produtos/{id}/estoque`                | Entregue |
+| Tabela `estoque_movimento` — auditoria completa de todos os movimentos                  | Entregue |
+| Isolamento multiempresa — `empresa_id` em todos os UPDATEs atômicos                    | Entregue |
+
+---
+
 ## 7. Testes automatizados
 
 | Item                                | Estado                           |
 |-------------------------------------|----------------------------------|
-| 57/57 testes passando (29 controller + 28 novos + fiscal) | Passando (15-05-2026) |
-| Contexto WebMvc isolado por módulo — 12 controllers cobertos | Entregue            |
+| 66/66 testes passando (borurio-web — 13 controllers cobertos + DANFE)         | Passando (18-05-2026) |
+| 33/33 testes passando borurio-fiscal (+ 1 skip esperado: TesteSefazSSL)       | Passando (18-05-2026) |
+| Contexto WebMvc isolado por módulo — MockitoExtension para serviços           | Entregue               |
 
 ---
 
@@ -100,15 +119,15 @@
 
 | Documento                                                         | Estado                                    |
 |-------------------------------------------------------------------|-------------------------------------------|
-| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.0 — 12-05-2026                         |
-| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.0 — 12-05-2026                         |
-| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.1 — validado contra código-fonte       |
-| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.1 — entrega principal para time chinês |
-| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | v1.0 — 12-05-2026                         |
-| Postman collection (9 pastas, 46 requests)                        | Disponível em `docs/postman/`             |
-| Swagger UI (10 tags, deprecated marcados)                         | Operacional em DEV e HOM                  |
-| Diagramas arquiteturais                                           | Disponíveis em `docs/architecture/`       |
-| Flyway migrations V001–V022                                       | Aplicadas em HOM                          |
+| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.3 — 18-05-2026 (DANFE + Fase 12-A)            |
+| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.3 — 18-05-2026 (DANFE + Fase 12-A)            |
+| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.1 — pendente endpoints estoque (Fase 12-A)    |
+| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.1 — pendente endpoints estoque (Fase 12-A)    |
+| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | v1.1 — 18-05-2026 (atualizado com comportamento de estoque) |
+| Postman collection (9 pastas, 46 requests)                        | Disponível em `docs/postman/` — pendente novos endpoints     |
+| Swagger UI (10 tags, deprecated marcados)                         | Operacional em DEV e HOM                          |
+| Diagramas arquiteturais                                           | Disponíveis em `docs/architecture/`               |
+| Flyway migrations V001–V024                                       | V001–V022 aplicadas em HOM; V023–V024 pendentes HOM |
 
 ---
 
@@ -144,7 +163,7 @@
 | Rate limiting no `POST /api/app/pedidos/{id}/emitir`                  | Médio       |
 | CI/CD automatizado (GitHub Actions → deploy HOM → smoke test)         | Médio       |
 | Política de retenção de `nfe_log` (agendamento do `deleteAntigos`)    | Baixo       |
-| DANFE — PDF da NF-e para destinatário (Fase 12+)                      | Roadmap     |
+| ~~DANFE — PDF da NF-e para destinatário (Fase 12-B)~~                 | ✓ Entregue (18-05-2026) |
 
 ---
 

@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.0                                      |
-| Data                   | 2026-05-12                               |
+| Versão                 | 1.1                                      |
+| Data                   | 2026-05-18                               |
 | Ambiente de referência | HOM — `http://localhost:8081`            |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | Pronto para execução                     |
@@ -75,9 +75,36 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 | Campo     | Default   |
 |-----------|-----------|
 | `csosn`   | `"400"`   |
-| `estoque` | nulo      |
+| `estoque` | `0`       |
 
 **Atenção:** Produto com `estado=0` (inativo) é rejeitado na criação de pedido (`HTTP 400`).
+
+**Estoque — comportamento obrigatório para integração:**
+
+O sistema controla estoque com reserva atômica. A OMS deve garantir que o estoque do produto seja suficiente antes de emitir. Use o endpoint abaixo para consultar saldo antes de enviar o pedido:
+
+```
+GET /api/app/produtos/{id}/estoque
+```
+
+Resposta:
+```json
+{
+  "code": 200,
+  "data": {
+    "produtoId": 1,
+    "estoqueTotal": "100.0000",
+    "estoqueReservado": "10.0000",
+    "estoqueDisponivel": "90.0000"
+  }
+}
+```
+
+Para adicionar estoque (entrada de mercadoria), use — **requer role ADMIN:**
+```
+POST /api/app/produtos/{id}/estoque/entrada
+Body: {"quantidade": 50.00, "observacao": "Entrada inicial OMS"}
+```
 
 ---
 
@@ -108,6 +135,17 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 - [ ] Confirmar que `data.chaveNfe` tem exatamente **44 dígitos** — este é o indicador que o lote foi aceito pela SEFAZ
 - [ ] Guardar `data.soapRetorno` para diagnóstico se necessário
 - [ ] Confirmar que não ocorreu `HTTP 500` (status `ERRO`)
+
+**Comportamento de estoque durante a emissão:**
+
+| Evento                        | Estoque                                                         |
+|-------------------------------|-----------------------------------------------------------------|
+| `POST /emitir` chamado        | Reserva atômica — `estoqueDisponivel -= qtd` para cada item     |
+| `HTTP 422` retornado          | Estoque insuficiente — reserva não feita; pedido em `RASCUNHO`  |
+| Status → `AUTORIZADO`         | Baixa definitiva — `estoqueTotal -= qtd`, reserva liberada      |
+| Status → `REJEITADO` ou `ERRO`| Reserva desfeita — `estoqueDisponivel += qtd` para cada item    |
+| Status → `AGUARDANDO`         | Reserva mantida — `estoqueDisponivel` permanece bloqueado       |
+| Status → `CANCELADO`          | Estorno — `estoqueTotal += qtd`                                 |
 
 **Comportamento esperado em HOM/SP:**
 

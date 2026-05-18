@@ -4,9 +4,9 @@
 ---
 
 **Document:** MTF-001  
-**Version:** 2.1  
+**Version:** 2.3  
 **Issued:** 2026-05-11  
-**Last updated:** 2026-05-15  
+**Last updated:** 2026-05-18  
 **Author:** Bruno Ribeiro — Fullstack Developer / DevSecOps  
 **Status:** VALIDATED IN STAGING (HOM)  
 **Reference branch:** `fix/sefaz-xml-structure`  
@@ -15,6 +15,8 @@
 > - v1.0 (2026-05-11): initial document, phases 1–9 + phase 10 in progress
 > - v2.0 (2026-05-12): sprint 3 complete; RBAC updated; `/situacao` response corrected; Phase 10 closed; integration endpoints and smoke test added
 > - v2.1 (2026-05-15): technical review corrections; SecureRandom for cNF; rate limiting implemented; log retention scheduler implemented; certificate cache invalidation gap resolved; 57 tests passing; integration contract updated with message reference table
+> - v2.2 (2026-05-18): Phase 12-A — minimum fiscal inventory implemented; atomic reservation before SEFAZ; definitive write-off on AUTORIZADO; reversal on CANCELADO; `estoque_movimento` table; 61/61 tests; V023–V024 applied
+> - v2.3 (2026-05-18): DANFE implemented — `DanfeXmlParser`, `DanfePdfGenerator`, `DanfeService`, `GET /api/fiscal/nfe/{chave}/danfe`; OpenPDF 1.3.30; watermark "SEM VALOR FISCAL" in staging; 66/66 tests; V023–V024 applied to HOM
 
 ---
 
@@ -78,6 +80,14 @@ The document is intended for:
 | `nfe_log` retention scheduling (`NfeLogRetencaoScheduler`)                     | ✓ Code — 2026-05-15                                       |
 | CORS restricted — `*` replaced by explicit origins per environment             | ✓ Code — 2026-05-15                                       |
 | `SecureRandom` for `cNF` generation (replaced `new Random()`)                  | ✓ Code — 2026-05-15                                       |
+| Minimum fiscal inventory — reservation, write-off, undo, reversal              | ✓ Code — 2026-05-18                                       |
+| `estoque_movimento` — full atomic audit of all stock movements                  | ✓ Code — 2026-05-18                                       |
+| `GET /api/app/produtos/{id}/estoque` — real-time stock balance query            | ✓ Code — 2026-05-18                                       |
+| `POST /api/app/produtos/{id}/estoque/entrada` — manual stock entry [ADMIN]     | ✓ Code — 2026-05-18                                       |
+| DANFE — `DanfePdfGenerator` (OpenPDF 1.3.30, barcode128, watermark in staging) | ✓ Code — 2026-05-18                                       |
+| `GET /api/fiscal/nfe/{chave}/danfe` — REST endpoint returning `application/pdf`| ✓ Code — 2026-05-18                                       |
+| 66/66 tests passing (DANFE added 5 controller tests)                            | ✓ Code — 2026-05-18                                       |
+| V023–V024 applied to HOM (Flyway at v024)                                       | ✓ HOM/SP — 2026-05-18                                     |
 
 ### 1.2 What is PENDING
 
@@ -86,7 +96,6 @@ The document is intended for:
 | `CERT_ENCRYPTION_KEY` configured in production                  | Phase 11 | Passthrough active in HOM by design |
 | Automated CI/CD                                                 | Phase 11 | Manual deployment via docker cp     |
 | Production A1 certificates with real CNPJ                       | Phase 11 | Phase 11 critical item              |
-| DANFE — NF-e PDF generation for delivery to the recipient       | Phase 12+ | No PDF library present in the project; `nfe_documento.xml_protocolo` already stores the complete nfeProc required for future generation |
 
 ---
 
@@ -132,7 +141,7 @@ The bridge between the two domains is exclusively the `borurio-web` module. When
 | Framework         | Spring Boot 3.3.2                                                |
 | Persistence       | MyBatis (annotations)                                            |
 | Database          | MySQL 8.4                                                        |
-| Migrations        | Flyway (V001–V022)                                               |
+| Migrations        | Flyway (V001–V024)                                               |
 | Auth              | Stateless JWT (HMAC-SHA256)                                      |
 | Security          | Spring Security 6.x                                              |
 | XML Signing       | Java XML Crypto API (`javax.xml.crypto.dsig`)                    |
@@ -145,7 +154,7 @@ The bridge between the two domains is exclusively the `borurio-web` module. When
 
 ## 3. FISCAL DATA MODEL
 
-### 3.1 Applied migrations (V001–V022)
+### 3.1 Applied migrations (V001–V024)
 
 | Migration  | Description                                                                  |
 |------------|------------------------------------------------------------------------------|
@@ -806,6 +815,44 @@ Condition: `status == "AUTORIZADO"` — throws `IllegalStateException` (HTTP 422
 
 Response: raw SEFAZ XML in `data` of the `Result<String>` envelope.
 
+### 12.4 DANFE — Auxiliary Document of the Electronic Invoice
+
+```
+GET /api/fiscal/nfe/{chave}/danfe
+```
+
+Returns the DANFE PDF for the given access key. JWT authentication required (any role).
+
+**Success response:**
+- HTTP 200
+- `Content-Type: application/pdf`
+- `Content-Disposition: attachment; filename="danfe-{chave}.pdf"`
+- Body: PDF bytes
+
+**Error responses:**
+
+| Code | Cause                                                           |
+|------|-----------------------------------------------------------------|
+| 400  | Access key length is not 44 digits                              |
+| 401  | Missing or invalid JWT token                                    |
+| 404  | NF-e not found in `nfe_documento` table                         |
+| 422  | NF-e XML not yet available (issuance not processed)             |
+| 500  | Internal error during PDF generation                            |
+
+**DANFE architecture:**
+
+| Class                     | Module            | Responsibility                                                      |
+|---------------------------|-------------------|---------------------------------------------------------------------|
+| `DanfeXmlParser`          | `borurio-fiscal`  | Extracts fields from signed NF-e XML via XPath + `nfe:` namespace   |
+| `DanfePdfGenerator`       | `borurio-fiscal`  | Generates A4 PDF with barcode128, items table, HOM watermark        |
+| `DanfeService`            | `borurio-fiscal`  | Interface; loads `NfeDocumento` and orchestrates parser + generator |
+| `DanfeServiceImpl`        | `borurio-fiscal`  | Implementation; fetches XML by access key, formats dhRecbto         |
+| `DanfeController`         | `borurio-web`     | REST controller `GET /api/fiscal/nfe/{chave}/danfe`                 |
+
+**Legal requirement — watermark:**
+- When `tpAmb=2` (staging/HOM), the DANFE displays a diagonal "SEM VALOR FISCAL" watermark in light gray.
+- Implemented via `PdfPageEventHelper.onEndPage()` (OpenPDF 1.3.30, LGPL).
+
 ---
 
 ## 13. KNOWN HOM/SP ENVIRONMENT LIMITATIONS
@@ -1002,7 +1049,7 @@ Security checks:
 
 | Item                                           | Status                                                  |
 |------------------------------------------------|---------------------------------------------------------|
-| Technical manual PT                            | ✓ This document (v2.0)                                  |
+| Technical manual PT                            | ✓ This document (v2.3)                                  |
 | Technical manual EN                            | ✓ `MTF-001_motor-fiscal-nfe_EN.md`                      |
 | PT-BR integration contract                     | ✓ `INTEGRATION_CONTRACT_PT-BR.md`                       |
 | EN integration contract                        | ✓ `INTEGRATION_CONTRACT_EN.md`                          |
@@ -1020,6 +1067,16 @@ Security checks:
 | ~~Automatic certificate cache invalidation~~  | ~~HIGH~~     | ✓ Implemented — `EmpresaController.atualizar()` calls `invalidar()`   |
 | ~~Rate limiting~~                             | ~~MEDIUM~~   | ✓ Implemented — `RateLimitInterceptor` (10 req/min login, 30 emitir)  |
 | ~~`nfe_log` retention policy~~                | ~~LOW~~      | ✓ Implemented — `NfeLogRetencaoScheduler` + `@EnableScheduling`       |
+
+### Phase 12-B — DANFE ✓ COMPLETED (2026-05-18)
+
+| Item                                                                   | Status                                            |
+|------------------------------------------------------------------------|---------------------------------------------------|
+| `DanfeXmlParser` — XPath + `nfe:` namespace over signed XML            | ✓ `borurio-fiscal/danfe/` — 2026-05-18            |
+| `DanfePdfGenerator` — OpenPDF 1.3.30, barcode128, watermark in staging | ✓ `borurio-fiscal/danfe/` — 2026-05-18            |
+| `DanfeService` + `DanfeServiceImpl`                                    | ✓ `borurio-fiscal/danfe/` — 2026-05-18            |
+| `DanfeController` `GET /api/fiscal/nfe/{chave}/danfe`                  | ✓ `borurio-web/controller/fiscal/` — 2026-05-18   |
+| `DanfeControllerTest` — 5 scenarios covered                            | ✓ 66/66 tests passing — 2026-05-18                |
 
 ---
 
