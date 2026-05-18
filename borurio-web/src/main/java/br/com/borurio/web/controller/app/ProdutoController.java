@@ -1,14 +1,20 @@
 package br.com.borurio.web.controller.app;
 
 import br.com.borurio.app.context.EmpresaContextHolder;
+import br.com.borurio.app.entity.EstoqueMovimento;
+import br.com.borurio.app.entity.EstoqueSaldo;
 import br.com.borurio.app.entity.Produto;
+import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.ProdutoService;
 import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
+import br.com.borurio.web.dto.EstoqueEntradaRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,9 +25,11 @@ import java.util.List;
 public class ProdutoController {
 
     private final ProdutoService produtoService;
+    private final EstoqueService estoqueService;
 
-    public ProdutoController(ProdutoService produtoService) {
+    public ProdutoController(ProdutoService produtoService, EstoqueService estoqueService) {
         this.produtoService = produtoService;
+        this.estoqueService = estoqueService;
     }
 
     @GetMapping
@@ -76,5 +84,23 @@ public class ProdutoController {
     public Result<String> desativar(@PathVariable Long id) {
         produtoService.desativar(id);
         return ResultUtil.success("Produto desativado com sucesso.");
+    }
+
+    @GetMapping("/{id}/estoque")
+    @Operation(summary = "Consulta saldo de estoque do produto (total, reservado, disponível)")
+    public Result<EstoqueSaldo> consultarEstoque(@PathVariable Long id) {
+        Long empresaId = EmpresaContextHolder.get();
+        return ResultUtil.success(estoqueService.consultarSaldo(id, empresaId));
+    }
+
+    @PostMapping("/{id}/estoque/entrada")
+    @Operation(summary = "Registra entrada manual de estoque [ADMIN]")
+    public Result<EstoqueMovimento> entrada(@PathVariable Long id,
+                                             @Valid @RequestBody EstoqueEntradaRequest req) {
+        Long empresaId = EmpresaContextHolder.get();
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String criadoPor = auth != null ? auth.getName() : "sistema";
+        return ResultUtil.success(
+                estoqueService.entrada(id, empresaId, req.getQuantidade(), criadoPor, req.getObservacao()));
     }
 }
