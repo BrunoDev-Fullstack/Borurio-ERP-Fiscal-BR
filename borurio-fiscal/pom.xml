@@ -138,6 +138,13 @@ ________________________________________________________________________________
             <version>2.2.0</version>
         </dependency>
 
+        <!-- OpenPDF — geração de DANFE (LGPL, fork do iText 5) -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>1.3.30</version>
+        </dependency>
+
         <!-- H2 -->
         <dependency>
             <groupId>com.h2database</groupId>
