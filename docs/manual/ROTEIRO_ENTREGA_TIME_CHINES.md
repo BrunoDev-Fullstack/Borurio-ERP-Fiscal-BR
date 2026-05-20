@@ -37,16 +37,47 @@ Execute os blocos em ordem. Cada bloco tem um dono (**Bruno** ou **Time chinês*
 
 ## BLOCO 1 — Acesso externo ao HOM
 **Dono:** Bruno / Operações  
-**Critério:** Time chinês consegue acessar `GET <URL_EXTERNA>/api/test/ping` e recebe `"status": "UP"`
+**Critério:** Time chinês consegue acessar `GET https://hom-api.borurio.com/api/test/ping` e recebe `"status": "UP"`
 
-- [ ] Definir mecanismo de acesso remoto ao HOM
-  - Opção A — VPN: configurar VPN e fornecer credenciais ao time chinês
-  - Opção B — SSH tunnel: `ssh -L 8081:localhost:8081 usuario@servidor`
-  - Opção C — URL pública controlada (ngrok, Cloudflare Tunnel ou equivalente)
-- [ ] Confirmar URL externa com o time chinês antes de avançar
-- [ ] Atualizar `CHECKLIST_OMS_ONBOARDING.md` Bloco 0 com a URL real (substituir `http://localhost:8081`)
+**URL confirmada:** `https://hom-api.borurio.com` (Cloudflare Tunnel — HTTPS, TLS 1.3)  
+**PRD reservado:** `https://api.borurio.com` (não configurar agora)
 
-> **Ponto de verificação**: Time chinês consegue fazer `GET <URL>/api/test/ping` sem estar na mesma máquina.
+- [x] Mecanismo definido: Cloudflare Tunnel (`cloudflared`)
+- [x] URL externa confirmada: `https://hom-api.borurio.com`
+- [x] Documentos, Postman collection e Swagger atualizados com a URL
+- [ ] **Pré-requisito DNS:** confirmar se `borurio.com` está com DNS gerenciado na Cloudflare
+  - Se sim: `cloudflared tunnel route dns borurio-hom hom-api.borurio.com` cria o CNAME automaticamente
+  - Se não: criar CNAME manualmente no provedor DNS: `hom-api → <TUNNEL_ID>.cfargotunnel.com`
+- [ ] Instalar e iniciar o Cloudflare Tunnel na máquina que hospeda o HOM:
+  ```powershell
+  winget install Cloudflare.cloudflared
+  cloudflared tunnel login
+  cloudflared tunnel create borurio-hom
+  cloudflared tunnel route dns borurio-hom hom-api.borurio.com
+  cloudflared tunnel run borurio-hom   # testar manualmente primeiro
+  cloudflared service install          # persistir como serviço Windows
+  net start cloudflared
+  ```
+  Config em `%USERPROFILE%\.cloudflared\config.yml`:
+  ```yaml
+  tunnel: <TUNNEL_ID>
+  credentials-file: C:\Users\bruno\.cloudflared\<TUNNEL_ID>.json
+  ingress:
+    - hostname: hom-api.borurio.com
+      service: http://localhost:8081
+    - service: http_status:404
+  ```
+- [ ] Validar externamente: `curl https://hom-api.borurio.com/api/test/ping` retorna `"status":"UP"`
+- [ ] Adicionar `https://hom-api.borurio.com` ao `CORS_ALLOWED_ORIGINS` no `docker/env/.env.hom` e reiniciar container HOM:
+  ```
+  CORS_ALLOWED_ORIGINS=https://hom-api.borurio.com,http://localhost:8080,http://localhost:3000
+  ```
+  ```powershell
+  docker restart borurio-web-hom
+  ```
+- [x] `CHECKLIST_OMS_ONBOARDING.md` atualizado com URL `https://hom-api.borurio.com`
+
+> **Ponto de verificação**: Time chinês faz `GET https://hom-api.borurio.com/api/test/ping` de qualquer rede e recebe `"status": "UP"`.
 
 ---
 
@@ -184,4 +215,4 @@ produto cadastrado → pedido criado → POST /emitir → GET /situacao (poll)
 | Checklist onboarding OMS | `docs/manual/CHECKLIST_OMS_ONBOARDING.md` | Time chinês |
 | Checklist entrega ERP | `docs/manual/CHECKLIST_ERP_DELIVERY.md` | Bruno / operações |
 | Postman collection | `docs/postman/borurio-erp-collection.json` | Time chinês |
-| Swagger UI (HOM) | `http://<URL_HOM>/swagger-ui/index.html` | Time chinês |
+| Swagger UI (HOM) | `https://hom-api.borurio.com/swagger-ui/index.html` | Time chinês |

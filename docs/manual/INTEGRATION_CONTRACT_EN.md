@@ -40,12 +40,12 @@ This document describes the integration contract between the external logistics 
 | Environment   | Base URL                | Purpose                                   |
 |---------------|-------------------------|-------------------------------------------|
 | DEV           | `http://localhost:8080` | Local development                         |
-| HOM           | `http://localhost:8081` | SEFAZ-SP staging                          |
+| HOM           | `https://hom-api.borurio.com` | SEFAZ-SP staging                    |
 | PRD           | Defined by operations   | Production — not covered by this document |
 
 > `[CONTRACT]` All integration tests must be executed in HOM before any operation in PRD.
 
-> `[OPERATIONAL]` The URLs above are local addresses valid only on the host machine running Docker. The HOM environment **is not publicly accessible by default**. The integration team must confirm with the responsible party for the HOM environment that remote access has been set up (VPN access to the host network, controlled SSH tunnel, or a dedicated externally-accessible HOM URL) before starting the smoke test sequence. Without this, no test can be executed.
+> `[OPERATIONAL]` The HOM environment is externally accessible at `https://hom-api.borurio.com` via Cloudflare Tunnel (HTTPS, TLS 1.3). No VPN or SSH tunnel configuration is required on the integration team's side. Verify access with `GET https://hom-api.borurio.com/api/test/ping` before starting the smoke test sequence.
 
 ---
 

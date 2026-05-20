@@ -4,7 +4,7 @@
 |------------------------|------------------------------------------|
 | Versão                 | 1.1                                      |
 | Data                   | 2026-05-18                               |
-| Ambiente de referência | HOM — `http://localhost:8081`            |
+| Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | Pronto para execução                     |
 
@@ -20,9 +20,9 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 
 - [ ] **[BLOQUEANTE]** Receber e-mail e senha de usuário com role `OPERADOR` criado pelo ADMIN
 - [ ] **[BLOQUEANTE]** Confirmar base URL do ambiente HOM: `http://localhost:8081`
-- [ ] **[BLOQUEANTE]** Confirmar que o acesso remoto ao ambiente HOM foi configurado pelo responsável pelo ambiente HOM — `http://localhost:8081` é válido apenas na máquina local onde o Docker está em execução; o time de integração deve solicitar VPN, túnel SSH controlado ou URL externa antes de iniciar qualquer teste
+- [ ] **[BLOQUEANTE]** Confirmar que o Cloudflare Tunnel está ativo no servidor HOM — URL externa definida: `https://hom-api.borurio.com`. Verificar com `GET https://hom-api.borurio.com/api/test/ping` antes de iniciar os testes. Comandos de setup em `docs/manual/ROTEIRO_ENTREGA_TIME_CHINES.md` Bloco 1.
 - [ ] Ter cliente HTTP configurado (Postman ou equivalente)
-- [ ] Importar `docs/postman/borurio-erp-collection.json` (9 pastas, 46 requests)
+- [ ] Importar `docs/postman/borurio-erp-collection.json` (10 pastas, 49 requests)
 - [ ] Ler `docs/manual/INTEGRATION_CONTRACT_EN.md` completo antes de executar qualquer chamada
 
 ---
@@ -214,4 +214,4 @@ Estes itens não são responsabilidade do time chinês, mas bloqueiam o go-live 
 | Contrato de integração (EN)      | `docs/manual/INTEGRATION_CONTRACT_EN.md`      |
 | Manual técnico motor fiscal (EN) | `docs/manual/MTF-001_motor-fiscal-nfe_EN.md`  |
 | Postman collection               | `docs/postman/borurio-erp-collection.json`    |
-| Swagger UI (DEV)                 | `http://localhost:8080/swagger-ui/index.html` |
+| Swagger UI (HOM)                 | `https://hom-api.borurio.com/swagger-ui/index.html` |
