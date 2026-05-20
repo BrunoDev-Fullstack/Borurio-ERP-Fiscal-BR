@@ -5,7 +5,7 @@
 | Versão            | 1.0                           |
 | Data              | 2026-05-18                    |
 | Sprint            | 3 (final)                     |
-| Ambiente validado | HOM — `http://localhost:8081` |
+| Ambiente validado | HOM — `https://hom-api.borurio.com` |
 
 ---
 
