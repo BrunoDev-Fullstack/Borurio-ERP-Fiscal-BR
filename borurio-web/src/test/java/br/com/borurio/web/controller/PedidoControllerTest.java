@@ -215,4 +215,44 @@ class PedidoControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
     }
+
+    @Test
+    @WithMockUser
+    void emitir_pedidoNaoRascunho_returns422() throws Exception {
+        when(pedidoEmissaoService.emitir(1L))
+                .thenThrow(new IllegalStateException("Pedido não está em RASCUNHO."));
+
+        mockMvc.perform(post("/api/app/pedidos/1/emitir")
+                        .with(csrf()))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value(422));
+    }
+
+    @Test
+    @WithMockUser
+    void cancelar_statusErrado_returns422() throws Exception {
+        when(pedidoOperacaoService.cancelar(anyLong(), anyString()))
+                .thenThrow(new IllegalStateException("Cancelamento só é permitido para pedidos AUTORIZADOS."));
+
+        mockMvc.perform(post("/api/app/pedidos/1/cancelar")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"justificativa\": \"Justificativa válida longa\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value(422));
+    }
+
+    @Test
+    @WithMockUser
+    void cce_statusErrado_returns422() throws Exception {
+        when(pedidoOperacaoService.emitirCce(anyLong(), anyString()))
+                .thenThrow(new IllegalStateException("CC-e só é permitida para pedidos AUTORIZADOS."));
+
+        mockMvc.perform(post("/api/app/pedidos/1/cce")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"correcao\": \"Correção de campo válida\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value(422));
+    }
 }
