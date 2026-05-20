@@ -7,7 +7,7 @@
 | Version               | 1.1                                     |
 | Status                | **Approved for integration**            |
 | Validation date       | 2026-05-12                              |
-| Reference environment | HOM — `http://localhost:8081`           |
+| Reference environment | HOM — `https://hom-api.borurio.com`     |
 | Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validated against     | Source code + HOM tests                 |
 

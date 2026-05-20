@@ -19,7 +19,7 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 ## Bloco 0 — Pré-requisitos
 
 - [ ] **[BLOQUEANTE]** Receber e-mail e senha de usuário com role `OPERADOR` criado pelo ADMIN
-- [ ] **[BLOQUEANTE]** Confirmar base URL do ambiente HOM: `http://localhost:8081`
+- [ ] **[BLOQUEANTE]** Confirmar base URL do ambiente HOM: `https://hom-api.borurio.com`
 - [ ] **[BLOQUEANTE]** Confirmar que o Cloudflare Tunnel está ativo no servidor HOM — URL externa definida: `https://hom-api.borurio.com`. Verificar com `GET https://hom-api.borurio.com/api/test/ping` antes de iniciar os testes. Comandos de setup em `docs/manual/ROTEIRO_ENTREGA_TIME_CHINES.md` Bloco 1.
 - [ ] Ter cliente HTTP configurado (Postman ou equivalente)
 - [ ] Importar `docs/postman/borurio-erp-collection.json` (10 pastas, 49 requests)
@@ -153,7 +153,7 @@ Body: {"quantidade": 50.00, "observacao": "Entrada inicial OMS"}
 |------------------------------|--------------------------------------------------------------------------------------------|
 | Lote aceito pela SEFAZ       | `chaveNfe` com 44 dígitos                                                                  |
 | `cStat=225` no `soapRetorno` | **Normal em HOM/SP** — limitação do processador `SP_NFE_PL_008i2`. Não é falha do sistema. |
-| `cStat=100` no `soapRetorno` | AUTORIZADO — ocorre em PRD com certificado real                                            |
+| `cStat=100` no `soapRetorno` | AUTORIZADO — será validado em PRD com infraestrutura pronta, usando o A1 real da Jcho Factory Ltda (`tpAmb=1`) |
 | `HTTP 422`                   | Pedido não está em `RASCUNHO`                                                              |
 | `HTTP 500`                   | Exceção durante transmissão — pedido vai para `ERRO`                                       |
 
@@ -201,7 +201,7 @@ Estes itens não são responsabilidade do time chinês, mas bloqueiam o go-live 
 
 | Bloqueador                                         | Responsável       | Status   |
 |----------------------------------------------------|-------------------|----------|
-| Certificados A1 de produção (`tpAmb=1`, CNPJ real) | Operações / Bruno | Pendente |
+| Configurar A1 real da Jcho Factory Ltda (já entregue) com `tpAmb=1` em PRD | Operações / Bruno | Pendente |
 | `CERT_ENCRYPTION_KEY` configurada em PRD           | Operações / Bruno | Pendente |
 | URL de PRD definida e acessível                    | Operações         | Pendente |
 

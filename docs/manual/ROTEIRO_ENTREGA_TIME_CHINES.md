@@ -159,11 +159,11 @@ produto cadastrado → pedido criado → POST /emitir → GET /situacao (poll)
 
 ## BLOCO 5 — Preparação PRD [Bruno / Operações]
 **Dono:** Bruno / Operações  
-**Critério:** Ambiente PRD configurado e pronto para receber certificado real
+**Critério:** Ambiente PRD configurado e pronto para configurar o certificado A1 real da Jcho Factory Ltda (já entregue pela Bless)
 
 > **ATENÇÃO: estes itens bloqueiam o go-live. Nenhum deles pode ser substituído.**
 
-- [ ] **[CRÍTICO]** Obter certificado A1 de produção com CNPJ real (`tpAmb=1`)
+- [ ] **[CRÍTICO]** Configurar o certificado A1 real da Jcho Factory Ltda (já entregue pela Bless) com `tpAmb=1` em PRD
   - Tipo: PKCS12 (.pfx), emitido por AC autorizada pela ICP-Brasil
   - Cadastrar via `PUT /api/app/empresas/{id}` (campos `certPath`, `certSenha`, `certTipo`)
 - [ ] **[CRÍTICO]** Configurar `CERT_ENCRYPTION_KEY` em PRD
