@@ -23,10 +23,14 @@ public class DanfePdfGenerator {
     private static final Font FONTE_DANFE  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11f, PRETO);
     private static final Font FONTE_CHAVE  = FontFactory.getFont(FontFactory.HELVETICA, 6.5f, PRETO);
 
-    private static final DecimalFormat DF_MOEDA = new DecimalFormat(
-            "#,##0.00", new DecimalFormatSymbols(new Locale("pt", "BR")));
-    private static final DecimalFormat DF_QTDE = new DecimalFormat(
-            "#,##0.####", new DecimalFormatSymbols(new Locale("pt", "BR")));
+    // DecimalFormat não é thread-safe — criar instância por chamada (bean é singleton)
+    private static DecimalFormat dfMoeda() {
+        return new DecimalFormat("#,##0.00", new DecimalFormatSymbols(new Locale("pt", "BR")));
+    }
+
+    private static DecimalFormat dfQtde() {
+        return new DecimalFormat("#,##0.####", new DecimalFormatSymbols(new Locale("pt", "BR")));
+    }
 
     public byte[] gerar(DanfeData d) {
         try {
@@ -102,18 +106,24 @@ public class DanfePdfGenerator {
         cDanfe.addElement(new Phrase("Folha 1/1", FONTE_VALOR));
         t.addCell(cDanfe);
 
-        // Protocolo
+        // Protocolo — label condicional: só usa "AUTORIZAÇÃO" se realmente autorizado
         PdfPCell cProt = new PdfPCell();
         cProt.setBorder(Rectangle.BOX);
         cProt.setPadding(4);
-        addLabeled(cProt, "PROTOCOLO DE AUTORIZAÇÃO", null, null);
-        if ("100".equals(d.cStat)) {
+        if ("100".equals(d.cStat) && d.nProt != null && !d.nProt.isBlank()) {
+            addLabeled(cProt, "PROTOCOLO DE AUTORIZAÇÃO DE USO", null, null);
             cProt.addElement(new Phrase(safe(d.nProt), FONTE_VALOR));
             cProt.addElement(new Phrase(safe(d.dhRecbto), FONTE_VALOR));
         } else {
-            cProt.addElement(new Phrase("Situação: cStat " + safe(d.cStat), FONTE_VALOR));
+            String labelProt = "2".equals(d.tpAmb)
+                    ? "RETORNO SEFAZ — HOMOLOGAÇÃO"
+                    : "PROTOCOLO NÃO DISPONÍVEL";
+            addLabeled(cProt, labelProt, null, null);
+            if (d.cStat != null) {
+                cProt.addElement(new Phrase("cStat: " + d.cStat, FONTE_VALOR));
+            }
             if ("2".equals(d.tpAmb)) {
-                cProt.addElement(new Phrase("Ambiente de Homologação", FONTE_VALOR));
+                cProt.addElement(new Phrase("Sem valor fiscal", FONTE_VALOR));
             }
         }
         t.addCell(cProt);
@@ -230,9 +240,9 @@ public class DanfePdfGenerator {
             t.addCell(cellAlinhado(safe(item.ncm), Element.ALIGN_CENTER));
             t.addCell(cellAlinhado(safe(item.cfop), Element.ALIGN_CENTER));
             t.addCell(cellAlinhado(safe(item.uCom), Element.ALIGN_CENTER));
-            t.addCell(cellAlinhado(formatDecimal(item.qCom, DF_QTDE), Element.ALIGN_RIGHT));
-            t.addCell(cellAlinhado(formatDecimal(item.vUnCom, DF_MOEDA), Element.ALIGN_RIGHT));
-            t.addCell(cellAlinhado(formatDecimal(item.vProd, DF_MOEDA), Element.ALIGN_RIGHT));
+            t.addCell(cellAlinhado(formatDecimal(item.qCom,   dfQtde()),  Element.ALIGN_RIGHT));
+            t.addCell(cellAlinhado(formatDecimal(item.vUnCom, dfMoeda()), Element.ALIGN_RIGHT));
+            t.addCell(cellAlinhado(formatDecimal(item.vProd,  dfMoeda()), Element.ALIGN_RIGHT));
             t.addCell(cellAlinhado(safe(item.csosn), Element.ALIGN_CENTER));
         }
 
@@ -245,9 +255,9 @@ public class DanfePdfGenerator {
         t.setWidths(new float[]{35, 15, 35, 15});
         t.setSpacingAfter(2);
 
-        addLabeledCell(t, "VALOR TOTAL DOS PRODUTOS", d.vProd != null ? "R$ " + d.vProd : "");
+        addLabeledCell(t, "VALOR TOTAL DOS PRODUTOS", d.vProd != null ? "R$ " + formatDecimal(d.vProd, dfMoeda()) : "");
         addLabeledCell(t, "DESCONTO", "");
-        addLabeledCell(t, "VALOR TOTAL DA NF-e", d.vNF != null ? "R$ " + d.vNF : "");
+        addLabeledCell(t, "VALOR TOTAL DA NF-e",      d.vNF  != null ? "R$ " + formatDecimal(d.vNF,   dfMoeda()) : "");
         addLabeledCell(t, "AMBIENTE", "2".equals(d.tpAmb) ? "HOMOLOGAÇÃO" : "PRODUÇÃO");
 
         doc.add(t);
