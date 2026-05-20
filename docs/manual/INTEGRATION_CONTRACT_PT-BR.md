@@ -7,7 +7,7 @@
 | Versão                 | 1.1                                     |
 | Status                 | **Aprovado para integração**            |
 | Data de validação      | 12-05-2026                              |
-| Ambiente de referência | HOM — `http://localhost:8081`           |
+| Ambiente de referência | HOM — `https://hom-api.borurio.com`     |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validado contra        | Código-fonte + testes em HOM            |
 
@@ -40,12 +40,12 @@ Este documento descreve o contrato de integração entre o ERP logístico extern
 | Ambiente   | URL base                | Finalidade                                |
 |------------|-------------------------|-------------------------------------------|
 | DEV        | `http://localhost:8080` | Desenvolvimento local                     |
-| HOM        | `http://localhost:8081` | Homologação SEFAZ-SP                      |
+| HOM        | `https://hom-api.borurio.com` | Homologação SEFAZ-SP                 |
 | PRD        | Definido por operações  | Produção — não coberto por este documento |
 
 > `[CONTRATO]` Todos os testes de integração devem ser executados em HOM antes de qualquer operação em PRD.
 
-> `[OPERACIONAL]` As URLs acima são endereços locais válidos apenas na máquina host onde o Docker está em execução. O ambiente HOM **não é acessível remotamente por padrão**. O time de integração deve confirmar com o responsável pelo ambiente HOM que o acesso foi configurado (VPN à rede do host, túnel SSH controlado ou URL externa dedicada) antes de iniciar a sequência de smoke test. Sem isso, nenhum teste pode ser executado.
+> `[OPERACIONAL]` O ambiente HOM é acessível externamente em `https://hom-api.borurio.com` via Cloudflare Tunnel (HTTPS, TLS 1.3). Não é necessário configurar VPN ou túnel SSH do lado do time de integração. Verificar o acesso com `GET https://hom-api.borurio.com/api/test/ping` antes de iniciar a sequência de smoke test.
 
 ---
 
