@@ -20,12 +20,15 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -140,5 +143,76 @@ class PedidoControllerTest {
     void semToken_returns401() throws Exception {
         mockMvc.perform(get("/api/app/pedidos"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser
+    void situacao_comChaveNfe_returns200() throws Exception {
+        Map<String, Object> mapa = new LinkedHashMap<>();
+        mapa.put("pedidoId", 1L);
+        mapa.put("status", "AGUARDANDO");
+        mapa.put("chaveNfe", "12345678901234567890123456789012345678901234");
+        mapa.put("consultaSefaz", "<retConsSitNFe/>");
+        when(pedidoOperacaoService.consultarSituacao(1L)).thenReturn(mapa);
+
+        mockMvc.perform(get("/api/app/pedidos/1/situacao"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.status").value("AGUARDANDO"))
+                .andExpect(jsonPath("$.data.chaveNfe").exists());
+    }
+
+    @Test
+    @WithMockUser
+    void cancelar_valido_returns200() throws Exception {
+        when(pedidoOperacaoService.cancelar(anyLong(), anyString())).thenReturn("<retEvento/>");
+
+        mockMvc.perform(post("/api/app/pedidos/1/cancelar")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"justificativa\": \"Erro no pedido cancelado\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+    }
+
+    @Test
+    @WithMockUser
+    void cancelar_justificativaCurta_returns400() throws Exception {
+        when(pedidoOperacaoService.cancelar(anyLong(), anyString()))
+                .thenThrow(new IllegalArgumentException("Justificativa deve ter no mínimo 15 caracteres."));
+
+        mockMvc.perform(post("/api/app/pedidos/1/cancelar")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"justificativa\": \"curta\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    @WithMockUser
+    void cce_valido_returns200() throws Exception {
+        when(pedidoOperacaoService.emitirCce(anyLong(), anyString())).thenReturn("<retEvento/>");
+
+        mockMvc.perform(post("/api/app/pedidos/1/cce")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"correcao\": \"Correção de campo errado\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+    }
+
+    @Test
+    @WithMockUser
+    void cce_correcaoCurta_returns400() throws Exception {
+        when(pedidoOperacaoService.emitirCce(anyLong(), anyString()))
+                .thenThrow(new IllegalArgumentException("Correção deve ter no mínimo 15 caracteres."));
+
+        mockMvc.perform(post("/api/app/pedidos/1/cce")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"correcao\": \"curta\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
     }
 }

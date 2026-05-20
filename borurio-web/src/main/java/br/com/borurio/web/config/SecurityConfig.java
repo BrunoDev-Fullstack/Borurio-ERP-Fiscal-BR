@@ -84,7 +84,6 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/auth/**"),
                                 new AntPathRequestMatcher("/ping"),
                                 new AntPathRequestMatcher("/api/test/**"),
-                                new AntPathRequestMatcher("/api/fiscal/nfe/test/**"),
                                 new AntPathRequestMatcher("/swagger-ui/**"),
                                 new AntPathRequestMatcher("/swagger-ui.html"),
                                 new AntPathRequestMatcher("/v3/api-docs/**"),

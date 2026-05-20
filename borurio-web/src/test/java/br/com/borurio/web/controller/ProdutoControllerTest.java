@@ -7,12 +7,14 @@ import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.ProdutoService;
 import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.config.SecurityConfig;
 import br.com.borurio.web.controller.app.ProdutoController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -33,6 +35,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ProdutoController.class)
+@Import(SecurityConfig.class)
 class ProdutoControllerTest {
 
     @Autowired MockMvc mockMvc;
@@ -169,7 +172,7 @@ class ProdutoControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     void entrada_quantidadeValida_returns200() throws Exception {
         EstoqueMovimento mov = new EstoqueMovimento();
         mov.setId(1L);
@@ -190,7 +193,7 @@ class ProdutoControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     void entrada_quantidadeAusente_returns422() throws Exception {
         mockMvc.perform(post("/api/app/produtos/1/estoque/entrada")
                         .with(csrf())
@@ -198,5 +201,16 @@ class ProdutoControllerTest {
                         .content("{}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value(422));
+    }
+
+    @Test
+    @WithMockUser
+    void entrada_semAdmin_returns403() throws Exception {
+        mockMvc.perform(post("/api/app/produtos/1/estoque/entrada")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantidade\": 50.00, \"observacao\": \"teste\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
     }
 }
