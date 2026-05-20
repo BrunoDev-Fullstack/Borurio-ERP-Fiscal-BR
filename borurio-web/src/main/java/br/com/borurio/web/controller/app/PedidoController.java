@@ -102,7 +102,15 @@ public class PedidoController {
     }
 
     @PostMapping("/{id}/emitir")
-    @Operation(summary = "Emite NF-e — pedido muda para AUTORIZADO, AGUARDANDO ou REJEITADO")
+    @Operation(
+            summary = "Emite NF-e — pedido muda para AUTORIZADO, AGUARDANDO ou REJEITADO",
+            description = "Transmite a NF-e 4.00 à SEFAZ a partir do snapshot fiscal dos itens. Não requer body. " +
+                          "Retorna `chaveNfe` com 44 dígitos (critério de aceitação do lote) e `soapRetorno` com a resposta SOAP bruta. " +
+                          "**HTTP 200 não significa autorização** — indica apenas que a chamada à SEFAZ foi processada. " +
+                          "O status real da NF-e é obtido via `GET /{id}/situacao`. " +
+                          "Em HOM/SP: `cStat=225` no `soapRetorno` é comportamento normal do processador `SP_NFE_PL_008i2` — não é falha do sistema. " +
+                          "Precondição: pedido deve estar em `RASCUNHO`. Qualquer outro estado retorna HTTP 422."
+    )
     public Result<Map<String, String>> emitir(@PathVariable Long id) throws Exception {
         NfeGeracaoResult result = pedidoEmissaoService.emitir(id);
         return ResultUtil.success(Map.of(
@@ -112,7 +120,14 @@ public class PedidoController {
     }
 
     @GetMapping("/{id}/situacao")
-    @Operation(summary = "Consulta situação fiscal do pedido na SEFAZ (consSitNFe)")
+    @Operation(
+            summary = "Consulta situação fiscal do pedido na SEFAZ (consSitNFe)",
+            description = "Executa consulta em tempo real à SEFAZ (`consSitNFe`). " +
+                          "O campo `consultaSefaz` (XML bruto) está **sempre presente**. " +
+                          "Os campos `cStat`, `xMotivo`, `nProt` e `dhRecbto` são condicionais — presentes apenas se o documento foi registrado internamente. " +
+                          "Máquina de estados: `RASCUNHO` → `AGUARDANDO` → `AUTORIZADO` | `REJEITADO` | `ERRO` | `CANCELADO`. " +
+                          "Precondição: pedido deve ter `chaveNfe` definida (ter passado por `/emitir`). Retorna HTTP 422 caso contrário."
+    )
     public Result<Object> situacao(@PathVariable Long id) throws Exception {
         return ResultUtil.success(pedidoOperacaoService.consultarSituacao(id));
     }

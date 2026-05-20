@@ -138,3 +138,9 @@ app:
   profile: hom
   description: Ambiente de homologação SEFAZ-SP
   version: ${project.version:1.0.0}
+
+###################################################################################################
+# SWAGGER — URL externa via Cloudflare Tunnel
+###################################################################################################
+swagger:
+  external-url: https://hom-api.borurio.com

@@ -1,6 +1,7 @@
 package br.com.borurio.web.auth;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @Slf4j
 @RestController
 @RequestMapping("/auth")
+@Tag(name = "Autenticação", description = "Obtenção de token JWT — pré-requisito para todos os endpoints protegidos")
 public class AuthController {
 
     private final AuthService authService;
@@ -28,7 +30,15 @@ public class AuthController {
         this.authService = authService;
     }
 
-    @Operation(security = {})
+    @Operation(
+            summary = "Realiza login e retorna token JWT",
+            description = "Endpoint público — não requer autenticação prévia. " +
+                          "O campo `username` é o **e-mail** cadastrado no sistema (não um username livre). " +
+                          "O token retornado tem TTL de **1 hora** e deve ser enviado como " +
+                          "`Authorization: Bearer <token>` em todos os demais endpoints. " +
+                          "Implementar renovação automática antes de usar em fluxos de longa duração.",
+            security = {}
+    )
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request) {
 
