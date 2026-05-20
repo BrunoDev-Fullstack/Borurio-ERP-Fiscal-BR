@@ -2,11 +2,11 @@
   "info": {
     "name": "Borurio ERP Fiscal BR — API v3.3.0",
     "_postman_id": "borurio-erp-fiscal-br-v3",
-    "description": "Coleção completa da API REST do Borurio ERP Fiscal BR.\n\nComo usar:\n1. Configure a variável `baseUrl` para http://localhost:8080 (DEV) ou http://localhost:8081 (HOM)\n2. Execute 'Auth / Login' e o token JWT será salvo automaticamente em `{{token}}`\n3. Todas as demais requisições já usam Bearer {{token}}\n\nOperações marcadas como [ADMIN] exigem usuário com role ADMIN.\nOperações sem marcação exigem apenas autenticação (qualquer role).",
+    "description": "Coleção completa da API REST do Borurio ERP Fiscal BR.\n\nURL HOM (Cloudflare Tunnel): https://hom-api.borurio.com\nSwagger HOM: https://hom-api.borurio.com/swagger-ui/index.html\n\nComo usar:\n1. A variável `baseUrl` já aponta para https://hom-api.borurio.com (HOM externo).\n2. Execute 'Auth / Login' — o token JWT será salvo automaticamente em `{{token}}`.\n3. Todas as demais requisições já usam Bearer {{token}}.\n\nOperações marcadas como [ADMIN] exigem usuário com role ADMIN.\nOperações sem marcação exigem apenas autenticação (qualquer role).\n\nNota: em HOM, cStat=225 no soapRetorno é comportamento normal (SP_NFE_PL_008i2). O DANFE pode ser gerado mesmo com cStat=225.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "baseUrl", "value": "https://hom-api.borurio.com", "type": "string" },
     { "key": "token",   "value": "",                      "type": "string" }
   ],
   "auth": {
@@ -113,7 +113,7 @@
             "url": "{{baseUrl}}/api/app/produtos",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"codigo\": \"PROD-001\",\n  \"descricao\": \"Produto Teste NF-e\",\n  \"ncm\": \"84715000\",\n  \"cfop\": 5102,\n  \"unidade\": \"UN\",\n  \"valorUnitario\": 99.90,\n  \"origem\": 0,\n  \"csosn\": 400\n}"
+              "raw": "{\n  \"codigo\": \"PROD-001\",\n  \"descricao\": \"Produto Teste NF-e\",\n  \"ncm\": \"84715000\",\n  \"cfop\": \"5102\",\n  \"unidade\": \"UN\",\n  \"preco\": 99.90,\n  \"origem\": 0,\n  \"csosn\": \"400\"\n}"
             }
           }
         },
@@ -125,13 +125,29 @@
             "url": "{{baseUrl}}/api/app/produtos/1",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"codigo\": \"PROD-001\",\n  \"descricao\": \"Produto Atualizado\",\n  \"ncm\": \"84715000\",\n  \"cfop\": 5102,\n  \"unidade\": \"UN\",\n  \"valorUnitario\": 149.90,\n  \"origem\": 0,\n  \"csosn\": 400\n}"
+              "raw": "{\n  \"codigo\": \"PROD-001\",\n  \"descricao\": \"Produto Atualizado\",\n  \"ncm\": \"84715000\",\n  \"cfop\": \"5102\",\n  \"unidade\": \"UN\",\n  \"preco\": 149.90,\n  \"origem\": 0,\n  \"csosn\": \"400\"\n}"
             }
           }
         },
         {
           "name": "Desativar produto (soft-delete)",
           "request": { "method": "DELETE", "url": "{{baseUrl}}/api/app/produtos/1" }
+        },
+        {
+          "name": "Consultar estoque do produto",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/produtos/1/estoque" }
+        },
+        {
+          "name": "Entrada de estoque [ADMIN]",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/produtos/1/estoque/entrada",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantidade\": 50.00,\n  \"observacao\": \"Entrada inicial de estoque OMS\"\n}"
+            }
+          }
         }
       ]
     },
@@ -246,6 +262,14 @@
               "mode": "raw",
               "raw": "{\n  \"correcao\": \"Correção do campo endereço do destinatário: Rua correta é Av. Paulista\"\n}"
             }
+          }
+        },
+        {
+          "name": "Download DANFE (PDF) — substituir chave pelos 44 dígitos reais",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/pdf" }],
+            "url": "{{baseUrl}}/api/fiscal/nfe/35260519000000000000550010000000011000000011/danfe"
           }
         }
       ]
