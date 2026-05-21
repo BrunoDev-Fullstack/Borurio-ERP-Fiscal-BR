@@ -4,9 +4,9 @@
 ---
 
 **Documento:** MTF-001  
-**Versão:** 2.3  
+**Versão:** 2.4  
 **Data de emissão:** 11-05-2026  
-**Última atualização:** 18-05-2026  
+**Última atualização:** 21-05-2026  
 **Autor:** Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps  
 **Status:** VALIDADO EM HOMOLOGAÇÃO  
 **Branch de referência:** `fix/sefaz-xml-structure`  
@@ -17,6 +17,7 @@
 > - v2.1 (15-05-2026): correções de revisão técnica; SecureRandom para cNF; rate limiting implementado; scheduler de retenção de logs implementado; gap de cache certificado corrigido no código; 57 testes passando; contrato de integração atualizado com referência de mensagens
 > - v2.2 (18-05-2026): Fase 12-A — estoque mínimo fiscal implementado; reserva atômica antes da SEFAZ; baixa definitiva em AUTORIZADO; estorno em CANCELADO; tabela `estoque_movimento`; 61/61 testes; V023–V024 aplicados
 > - v2.3 (18-05-2026): DANFE implementado — `DanfeXmlParser`, `DanfePdfGenerator`, `DanfeService`, `GET /api/fiscal/nfe/{chave}/danfe`; OpenPDF 1.3.30; watermark "SEM VALOR FISCAL" em HOM; 66/66 testes; V023–V024 aplicados em HOM
+> - v2.4 (21-05-2026): 3 bugs corrigidos em `DanfePdfGenerator` — formatação monetária pt_BR nos totais, `DecimalFormat` thread-safe por chamada, label de protocolo condicional; testes borurio-web 66 → 75 (9 novos — estados fiscais, RBAC estoque, UsuarioController)
 
 ---
 
@@ -91,6 +92,10 @@ O documento destina-se a:
 | Watermark "SEM VALOR FISCAL" automática em DANFE quando `tpAmb=2`           | ✓ Código — 18-05-2026                                         |
 | 66/66 testes passando (DANFE adicionou 5 testes de controller)               | ✓ Código — 18-05-2026                                         |
 | V023–V024 aplicados em HOM (Flyway at v024)                                  | ✓ HOM/SP — 18-05-2026                                         |
+| `DanfePdfGenerator` thread-safe — `DecimalFormat` recriado por chamada (substituiu `static final`) | ✓ Código — 20-05-2026                              |
+| DANFE — formatação monetária pt_BR nos totais (`R$ 91,80` com vírgula decimal)                    | ✓ Código + HOM — 20-05-2026                                   |
+| DANFE — label de protocolo condicional (`RETORNO SEFAZ — HOMOLOGAÇÃO` quando `cStat≠100`)         | ✓ Código + HOM — 20-05-2026                                   |
+| 75/75 testes passando (borurio-web — 9 novos testes em 20-05-2026)                                | ✓ Código — 20-05-2026                                         |
 
 ### 1.2 O que está PENDENTE
 
@@ -866,6 +871,14 @@ Retorna o PDF do DANFE correspondente à chave informada. Autenticação JWT obr
 
 **Biblioteca:**
 - OpenPDF 1.3.30 (LGPL) — fork do iText 5; compatível com uso comercial sem restrições AGPL.
+
+**Correções aplicadas em 20-05-2026:**
+
+| Bug corrigido | Solução |
+|---|---|
+| `static final DecimalFormat` — não thread-safe em singleton Spring | `dfMoeda()` / `dfQtde()` retornam nova instância por chamada |
+| Totais formatados via `BigDecimal.toString()` — ignorava Locale pt_BR | Passados por `formatDecimal()` com `dfMoeda()` — resultado: `R$ 91,80` |
+| Label de protocolo fixo mesmo para `cStat≠100` | Condicional: `PROTOCOLO DE AUTORIZAÇÃO DE USO` (cStat=100 + nProt presente); `RETORNO SEFAZ — HOMOLOGAÇÃO` (tpAmb=2, cStat≠100); `PROTOCOLO NÃO DISPONÍVEL` (outros) |
 
 ---
 

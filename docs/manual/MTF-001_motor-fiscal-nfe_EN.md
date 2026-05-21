@@ -4,9 +4,9 @@
 ---
 
 **Document:** MTF-001  
-**Version:** 2.3  
+**Version:** 2.4  
 **Issued:** 2026-05-11  
-**Last updated:** 2026-05-18  
+**Last updated:** 2026-05-21  
 **Author:** Bruno Ribeiro — Fullstack Developer / DevSecOps  
 **Status:** VALIDATED IN STAGING (HOM)  
 **Reference branch:** `fix/sefaz-xml-structure`  
@@ -17,6 +17,7 @@
 > - v2.1 (2026-05-15): technical review corrections; SecureRandom for cNF; rate limiting implemented; log retention scheduler implemented; certificate cache invalidation gap resolved; 57 tests passing; integration contract updated with message reference table
 > - v2.2 (2026-05-18): Phase 12-A — minimum fiscal inventory implemented; atomic reservation before SEFAZ; definitive write-off on AUTORIZADO; reversal on CANCELADO; `estoque_movimento` table; 61/61 tests; V023–V024 applied
 > - v2.3 (2026-05-18): DANFE implemented — `DanfeXmlParser`, `DanfePdfGenerator`, `DanfeService`, `GET /api/fiscal/nfe/{chave}/danfe`; OpenPDF 1.3.30; watermark "SEM VALOR FISCAL" in staging; 66/66 tests; V023–V024 applied to HOM
+> - v2.4 (2026-05-21): 3 bugs fixed in `DanfePdfGenerator` — pt_BR monetary formatting in totals, thread-safe `DecimalFormat` per call, conditional protocol label; borurio-web tests 66 → 75 (9 new — fiscal states, inventory RBAC, UsuarioController)
 
 ---
 
@@ -88,6 +89,10 @@ The document is intended for:
 | `GET /api/fiscal/nfe/{chave}/danfe` — REST endpoint returning `application/pdf`| ✓ Code — 2026-05-18                                       |
 | 66/66 tests passing (DANFE added 5 controller tests)                            | ✓ Code — 2026-05-18                                       |
 | V023–V024 applied to HOM (Flyway at v024)                                       | ✓ HOM/SP — 2026-05-18                                     |
+| `DanfePdfGenerator` thread-safe — `DecimalFormat` recreated per call (replaced `static final`) | ✓ Code — 2026-05-20                        |
+| DANFE — pt_BR monetary formatting in totals (`R$ 91,80` with decimal comma)                    | ✓ Code + HOM — 2026-05-20                                 |
+| DANFE — conditional protocol label (`RETORNO SEFAZ — HOMOLOGAÇÃO` when `cStat≠100`)           | ✓ Code + HOM — 2026-05-20                                 |
+| 75/75 tests passing (borurio-web — 9 new tests on 2026-05-20)                                  | ✓ Code — 2026-05-20                                       |
 
 ### 1.2 What is PENDING
 
@@ -852,6 +857,14 @@ Returns the DANFE PDF for the given access key. JWT authentication required (any
 **Legal requirement — watermark:**
 - When `tpAmb=2` (staging/HOM), the DANFE displays a diagonal "SEM VALOR FISCAL" watermark in light gray.
 - Implemented via `PdfPageEventHelper.onEndPage()` (OpenPDF 1.3.30, LGPL).
+
+**Bug fixes applied on 2026-05-20:**
+
+| Bug fixed | Solution |
+|---|---|
+| `static final DecimalFormat` — not thread-safe in Spring singleton | `dfMoeda()` / `dfQtde()` return a new instance per call |
+| Totals formatted via `BigDecimal.toString()` — ignored pt_BR Locale | Routed through `formatDecimal()` with `dfMoeda()` — result: `R$ 91,80` |
+| Fixed protocol label regardless of `cStat` | Conditional: `PROTOCOLO DE AUTORIZAÇÃO DE USO` (cStat=100 + nProt present); `RETORNO SEFAZ — HOMOLOGAÇÃO` (tpAmb=2, cStat≠100); `PROTOCOLO NÃO DISPONÍVEL` (other cases) |
 
 ---
 

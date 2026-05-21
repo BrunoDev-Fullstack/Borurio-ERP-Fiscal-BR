@@ -20,7 +20,7 @@ Execute os blocos em ordem. Cada bloco tem um dono (**Bruno** ou **Time chinês*
 **Dono:** Bruno  
 **Critério:** branch `fix/sefaz-xml-structure` com todo o trabalho das Fases 12-A e 12-B comitado
 
-- [ ] Commit da Fase 12-B — DANFE (5 arquivos de código + 3 docs + 1 relatório)
+- [x] Commit da Fase 12-B — DANFE (5 arquivos de código + 3 docs + 1 relatório) — concluído (histórico git)
   - `DanfePdfGenerator.java`
   - `DanfeService.java`
   - `DanfeServiceImpl.java`

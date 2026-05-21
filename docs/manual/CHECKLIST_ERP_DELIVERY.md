@@ -109,7 +109,7 @@
 
 | Item                                | Estado                           |
 |-------------------------------------|----------------------------------|
-| 66/66 testes passando (borurio-web — 13 controllers cobertos + DANFE)         | Passando (18-05-2026) |
+| 75/75 testes passando (borurio-web — 13 controllers cobertos)                 | Passando (20-05-2026) |
 | 33/33 testes passando borurio-fiscal (+ 1 skip esperado: TesteSefazSSL)       | Passando (18-05-2026) |
 | Contexto WebMvc isolado por módulo — MockitoExtension para serviços           | Entregue               |
 
