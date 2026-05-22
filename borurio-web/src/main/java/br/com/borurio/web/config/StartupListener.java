@@ -99,6 +99,10 @@ public class StartupListener {
 
     private void seedAdminUser(Long empresaId) {
         try {
+            if ("prd".equalsIgnoreCase(activeProfile)) {
+                log.info("[Startup] Seed de admin desabilitado em perfil prd.");
+                return;
+            }
             if (dbUserMapper.count() > 0) return;
             DbUser admin = new DbUser();
             admin.setEmpresaId(empresaId);

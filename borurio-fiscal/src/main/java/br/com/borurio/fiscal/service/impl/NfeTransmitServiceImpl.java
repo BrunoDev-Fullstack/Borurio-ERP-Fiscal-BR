@@ -13,7 +13,9 @@ import org.springframework.stereotype.Service;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -22,6 +24,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
 @Service
@@ -339,20 +342,28 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     // HELPERS
     // =========================
 
-    /** Gera idLote de 15 dígitos baseado no timestamp atual. */
+    // Contador atômico garante unicidade de idLote mesmo em emissões concorrentes no mesmo ms
+    private final AtomicLong loteCounter = new AtomicLong(System.currentTimeMillis());
+
+    /** Gera idLote de 15 dígitos único por chamada, sem colisão em chamadas concorrentes. */
     private String gerarIdLote() {
-        return String.format("%015d", System.currentTimeMillis() % 1_000_000_000_000_000L);
+        return String.format("%015d", loteCounter.getAndIncrement() % 1_000_000_000_000_000L);
     }
 
     private String extrairChaveNFe(String xml) {
         try {
-            if (xml.contains("Id=\"NFe")) {
-                int start = xml.indexOf("Id=\"NFe") + 4;
-                int end = xml.indexOf("\"", start);
-                return xml.substring(start, end).replace("NFe", "");
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            org.w3c.dom.NodeList list = factory.newDocumentBuilder()
+                    .parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)))
+                    .getElementsByTagNameNS("*", "infNFe");
+            if (list.getLength() > 0) {
+                String id = ((org.w3c.dom.Element) list.item(0)).getAttribute("Id");
+                return id.startsWith("NFe") ? id.substring(3) : id;
             }
         } catch (Exception e) {
-            log.warn("Erro ao extrair chave NF-e", e);
+            log.warn("[NF-e] Erro ao extrair chave via DOM: {}", e.getMessage());
         }
         return "SEM-CHAVE";
     }
