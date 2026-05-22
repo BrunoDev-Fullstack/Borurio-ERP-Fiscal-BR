@@ -45,7 +45,7 @@ This document describes the integration contract between the external logistics 
 
 > `[CONTRACT]` All integration tests must be executed in HOM before any operation in PRD.
 
-> `[OPERATIONAL]` The HOM environment is externally accessible at `https://hom-api.borurio.com` via Cloudflare Tunnel (HTTPS, TLS 1.3). No VPN or SSH tunnel configuration is required on the integration team's side. Verify access with `GET https://hom-api.borurio.com/api/test/ping` before starting the smoke test sequence.
+> `[OPERATIONAL]` The HOM environment is currently validated locally at `http://localhost:8081`. External access is planned through `https://hom-api.borurio.com` (Cloudflare Tunnel, HTTPS, TLS 1.3) — no VPN or SSH tunnel will be required on the integration team's side once the tunnel is active. **This setup is pending** and will be completed by Bruno/Ops according to `ROTEIRO_ENTREGA_TIME_CHINES.md` — Block 1. Until confirmed, do not expect the external URL to respond; use the documentation and Postman collection for review in the meantime. Bruno will notify when `GET https://hom-api.borurio.com/api/test/ping` returns `"status": "UP"`.
 
 ---
 
@@ -171,6 +171,8 @@ AGUARDANDO ──► GET  /situacao ──► (check current cStat)
 REJEITADO  ──► (create a new corrected order)
 ERRO       ──► (check logs, evaluate manual retry)
 ```
+
+> `[OPERATIONAL]` The `cStat` values in the diagram above refer to the **individual NF-e response** (`infProt/cStat`) returned inside the SOAP envelope — not the batch-level code (`retEnviNFe/cStat`). In HOM-SP specifically, the batch is accepted with `cStat=104` (AGUARDANDO) even though the individual NF-e entry inside the same response shows `cStat=225`. The system reads the batch result first: `cStat=104 → AGUARDANDO`. Therefore **do not expect `REJEITADO` when you see `cStat=225` in HOM** — the order will be `AGUARDANDO`. See section 9.3 for the full HOM-SP behavior.
 
 ---
 

@@ -38,11 +38,11 @@ A OMS consome a API REST do Borurio para criar produtos, abrir pedidos e acionar
 | Autenticação JWT + RBAC | Operacional em HOM (validado 12-05-2026) |
 | Multiempresa (isolamento por empresa_id) | Operacional em HOM (validado 08-05-2026) |
 | Certificado A1 por empresa | Operacional em HOM (validado 11-05-2026) |
-| 30/30 testes de controller | Passando (Sprint 3 — 12-05-2026) |
+| 75/75 testes borurio-web · 38/38 borurio-fiscal (1 skip esperado) | Passando (20-05-2026) |
 | Swagger UI | Disponível em `/swagger-ui/index.html` |
 | Postman collection | Disponível em `docs/postman/` |
 | Contrato de integração PT-BR / EN | Disponível em `docs/manual/` |
-| Onboarding OMS chinesa | Pronto para execução em HOM |
+| Onboarding OMS chinesa | Documentação pronta — acesso externo HOM pendente (Cloudflare Tunnel, Bloco 1 do ROTEIRO) |
 | Deploy PRD | Pendente (Fase 11) |
 
 ---
@@ -97,6 +97,8 @@ borurio-erp-br
 | Clientes | `/api/app/clientes` | Autenticado |
 | Pedidos + ciclo fiscal | `/api/app/pedidos` | Autenticado |
 | Usuários | `/api/app/usuarios` | ADMIN |
+| Estoque de produtos | `/api/app/produtos/{id}/estoque` | Autenticado (GET) · ADMIN (POST entrada) |
+| DANFE (PDF) | `/api/fiscal/nfe/{chave}/danfe` | Autenticado |
 | Logs fiscais | `/api/fiscal/nfe/logs` | Autenticado |
 | NCM | `/api/fiscal/ncm` | Autenticado |
 | NF-e (legado, deprecated) | `/api/fiscal/nfe` | Autenticado |
@@ -111,6 +113,7 @@ POST /api/app/pedidos/{id}/emitir          → XML NF-e 4.00 gerado, assinado e 
 GET  /api/app/pedidos/{id}/situacao        → estado local + consulta live consSitNFe
 POST /api/app/pedidos/{id}/cancelar        → cancelamento (evento 110111), somente AUTORIZADO
 POST /api/app/pedidos/{id}/cce             → Carta de Correção (evento 110110), somente AUTORIZADO
+GET  /api/fiscal/nfe/{chave}/danfe         → PDF DANFE para entrega ao destinatário
 ```
 
 ### Estados do pedido
@@ -120,7 +123,7 @@ POST /api/app/pedidos/{id}/cce             → Carta de Correção (evento 11011
 | `RASCUNHO` | Criado, não transmitido |
 | `AUTORIZADO` | cStat=100 — NF-e aprovada, estoque baixado |
 | `AGUARDANDO` | cStat=104 ou retorno não parseável |
-| `REJEITADO` | cStat ≥ 200 — SEFAZ recusou |
+| `REJEITADO` | cStat ≥ 200 — SEFAZ recusou (⚠ em HOM/SP, cStat=225 resulta em `AGUARDANDO` — ver seção "Limitações conhecidas") |
 | `ERRO` | Exceção durante transmissão (HTTP 500) |
 | `CANCELADO` | Evento de cancelamento autorizado — imutável |
 
@@ -167,7 +170,7 @@ Para validar o fluxo técnico em HOM: verificar que `data.chaveNfe` tem 44 dígi
 | Contrato de integração (EN) | `docs/manual/INTEGRATION_CONTRACT_EN.md` | Versão em inglês — entrega principal para time chinês |
 | Checklist onboarding OMS chinesa | `docs/manual/CHECKLIST_OMS_ONBOARDING.md` | Passo a passo para integração da OMS com o Borurio |
 | Checklist de entrega do ERP | `docs/manual/CHECKLIST_ERP_DELIVERY.md` | Estado completo de entrega e pendências |
-| Postman collection | `docs/postman/borurio-erp-collection.json` | 9 pastas, 46 requests, variáveis `{{baseUrl}}` e `{{token}}` |
+| Postman collection | `docs/postman/borurio-erp-collection.json` | 10 pastas, 49 requests, variáveis `{{baseUrl}}` e `{{token}}` |
 | Swagger UI | `http://localhost:8080/swagger-ui/index.html` (DEV) | Documentação interativa — 10 tags, deprecated marcados |
 | Diagramas arquiteturais | `docs/architecture/` | Topologias gerais, fluxo fiscal, ambientes, segurança e CI/CD |
 
@@ -201,7 +204,8 @@ borurio-erp-br/
 | Ambiente | URL | Estado |
 |---|---|---|
 | DEV | `http://localhost:8080` | Operacional |
-| HOM | `http://localhost:8081` | Operacional — validado em 12-05-2026 |
+| HOM (local) | `http://localhost:8081` | Operacional — validado em 22-05-2026 |
+| HOM (externo) | `https://hom-api.borurio.com` | **Pendente** — Cloudflare Tunnel (Bloco 1 do ROTEIRO) |
 | PRD | Definido por operações | Pendente (Fase 11) |
 
 **Deploy HOM (manual):**
@@ -230,7 +234,6 @@ docker restart borurio-web-hom
 |---|---|
 | `CERT_ENCRYPTION_KEY` configurada em PRD via secrets manager | Crítico |
 | Certificados A1 de produção com CNPJ real (`tpAmb=1`) | Crítico |
-| Invalidação automática do cache de certificado no `EmpresaController` | Alto |
 | Rate limiting no `POST /api/app/pedidos/{id}/emitir` | Médio |
 | CI/CD automatizado (GitHub Actions → deploy HOM → smoke test) | Médio |
 | Política de retenção de `nfe_log` (agendamento do `deleteAntigos`) | Baixo |
