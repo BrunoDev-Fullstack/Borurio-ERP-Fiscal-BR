@@ -4,9 +4,9 @@
 
 | Atributo               | Valor                                   |
 |------------------------|-----------------------------------------|
-| Versão                 | 1.1                                     |
+| Versão                 | 1.2                                     |
 | Status                 | **Aprovado para integração**            |
-| Data de validação      | 12-05-2026                              |
+| Data de validação      | 22-05-2026                              |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`     |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validado contra        | Código-fonte + testes em HOM            |
@@ -272,6 +272,59 @@ Content-Type: application/json
 
 ---
 
+### 6.2b Gestão de Estoque
+
+> `[CONTRATO]` O motor fiscal controla o estoque de produtos com reservas atômicas vinculadas ao ciclo de emissão de NF-e. A OMS deve verificar o estoque disponível antes de submeter um pedido para emissão.
+
+#### Consulta de Saldo de Estoque
+
+```
+GET /api/app/produtos/{id}/estoque
+Authorization: Bearer {token}
+```
+
+**Resposta — HTTP 200:**
+```json
+{
+  "code": 200,
+  "data": {
+    "produtoId":         1,
+    "estoqueTotal":      "100.0000",
+    "estoqueReservado":  "10.0000",
+    "estoqueDisponivel": "90.0000"
+  }
+}
+```
+
+> `[CONTRATO]` Usar `estoqueDisponivel` para decidir se prossegue com o pedido. Se a quantidade dos itens exceder `estoqueDisponivel`, a chamada `/emitir` retorna HTTP 422 e o pedido permanece em `RASCUNHO`.
+
+#### Entrada Manual de Estoque
+
+```
+POST /api/app/produtos/{id}/estoque/entrada
+Authorization: Bearer {token}    ← requer role ADMIN
+Content-Type: application/json
+```
+
+```json
+{ "quantidade": 50.00, "observacao": "Entrada inicial OMS" }
+```
+
+> `[CONTRATO]` Este endpoint requer role ADMIN. Token de OPERADOR recebe HTTP 403.
+
+#### Ciclo de Estoque Durante a Emissão de NF-e
+
+| Evento                        | Efeito no estoque                                                      |
+|-------------------------------|------------------------------------------------------------------------|
+| `POST /emitir` chamado        | Reserva atômica — `estoqueDisponivel -= qtd` por item                  |
+| HTTP 422 retornado            | Estoque insuficiente — sem reserva; pedido permanece em `RASCUNHO`     |
+| Status → `AUTORIZADO`         | Baixa definitiva — `estoqueTotal -= qtd`, reserva liberada             |
+| Status → `REJEITADO` / `ERRO` | Reserva desfeita — `estoqueDisponivel += qtd` por item                 |
+| Status → `AGUARDANDO`         | Reserva mantida — `estoqueDisponivel` permanece bloqueado              |
+| Status → `CANCELADO`          | Estorno — `estoqueTotal += qtd`                                        |
+
+---
+
 ### 6.3 Criação de Pedido — RASCUNHO (Etapa 3)
 
 > `[CONTRATO]` O pedido recém-criado inicia obrigatoriamente em estado `RASCUNHO`. Campos como `status`, `chaveNfe`, `numero` e `cnpjEmitente` são preenchidos automaticamente — **não enviar no body**.
@@ -516,6 +569,39 @@ Content-Type: application/json
 
 ---
 
+### 6.8 DANFE — Documento Auxiliar da Nota Fiscal Eletrônica
+
+> `[CONTRATO]` O DANFE é o documento PDF complementar da NF-e emitida. É gerado a partir do XML assinado armazenado em `nfe_documento`. Requer autenticação JWT (qualquer role).
+
+```
+GET /api/fiscal/nfe/{chaveNfe}/danfe
+Authorization: Bearer {token}
+```
+
+| Parâmetro  | Regra                                        |
+|------------|----------------------------------------------|
+| `chaveNfe` | Exatamente 44 dígitos numéricos (path var)   |
+
+**Resposta de sucesso — HTTP 200:**
+- `Content-Type: application/pdf`
+- `Content-Disposition: attachment; filename="danfe-{chaveNfe}.pdf"`
+- Body: bytes do PDF
+
+**Respostas de erro:**
+
+| Código | Causa                                                |
+|--------|------------------------------------------------------|
+| 400    | Chave de acesso não tem 44 dígitos                   |
+| 401    | Token ausente ou inválido                            |
+| 404    | NF-e não encontrada na tabela `nfe_documento`        |
+| 500    | Erro interno durante a geração do PDF                |
+
+> `[OPERACIONAL]` Em HOM (homologação, `tpAmb=2`), o DANFE exibe marca d'água diagonal "SEM VALOR FISCAL" em cinza claro. A marca d'água é suprimida em PRD (`tpAmb=1`).
+
+> `[OPERACIONAL]` O rótulo de protocolo no DANFE é condicional: `PROTOCOLO DE AUTORIZAÇÃO DE USO` quando autorizada (cStat=100 + nProt presente); `RETORNO SEFAZ — HOMOLOGAÇÃO` em homologação quando ainda não autorizada (tpAmb=2, cStat≠100).
+
+---
+
 ## 7. Máquina de Estados do Pedido
 
 > `[CONTRATO]` Tabela de estados válidos e operações permitidas por estado:
@@ -680,7 +766,7 @@ Resultado típico de `POST /api/app/pedidos/{id}/emitir` em HOM-SP:
 HTTP 200
 data.chaveNfe:    "35260512..." (44 dígitos) → transmissão chegou à SEFAZ
 data.soapRetorno: contém cStat=225           → limitação HOM, não é erro do sistema
-pedido.status:    "REJEITADO" ou "AGUARDANDO"→ normal em HOM; não ocorre em PRD
+pedido.status:    "AGUARDANDO" → normal em HOM (lote aceito, cStat=104); não ocorre em PRD
 ```
 
 > `[CONTRATO]` Para validar o fluxo completo em HOM, verificar `data.soapRetorno` bruto do `/emitir` e `data.consultaSefaz` da situação — esses campos contêm a resposta real da SEFAZ independente do status final do pedido.

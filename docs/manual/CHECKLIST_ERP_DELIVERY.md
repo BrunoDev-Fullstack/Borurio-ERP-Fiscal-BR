@@ -121,8 +121,8 @@
 |-------------------------------------------------------------------|-------------------------------------------|
 | Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.3 — 18-05-2026 (DANFE + Fase 12-A)            |
 | Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.3 — 18-05-2026 (DANFE + Fase 12-A)            |
-| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.1 — pendente endpoints estoque (Fase 12-A)    |
-| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.1 — pendente endpoints estoque (Fase 12-A)    |
+| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.2 — 22-05-2026 (estoque + DANFE adicionados)  |
+| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.2 — 22-05-2026 (estoque + DANFE adicionados)  |
 | Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | v1.1 — 18-05-2026 (atualizado com comportamento de estoque) |
 | Postman collection (9 pastas, 46 requests)                        | Disponível em `docs/postman/` — pendente novos endpoints     |
 | Swagger UI (10 tags, deprecated marcados)                         | Operacional em DEV e HOM                          |

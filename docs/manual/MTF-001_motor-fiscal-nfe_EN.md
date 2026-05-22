@@ -1026,7 +1026,7 @@ Security checks:
 
 **Motivation:** A1 certificates have a validity of 1 to 3 years. Reloading the KeyStore on every issuance has unnecessary cryptographic overhead.
 
-**Gap:** invalidation is not called automatically in `EmpresaController.atualizar()`. Must be fixed before production.
+**Resolution:** ✓ Automatic invalidation implemented — `EmpresaController.atualizar()` calls `empresaCertificadoService.invalidar(id)` after every `PUT /api/app/empresas/{id}`. The cache is cleared on every company update. No gap remains before production.
 
 ---
 
@@ -1106,7 +1106,7 @@ Security checks:
 
 ---
 
-*Document MTF-001 — version 2.0 — Borurio ERP Fiscal BR*  
+*Document MTF-001 — version 2.4 — Borurio ERP Fiscal BR*  
 *Based on the state validated in HOM on 2026-05-11*  
-*Updated with Sprint 3 on 2026-05-12*  
+*Last updated: 2026-05-22 (DA-04 resolved; integration contracts updated with stock and DANFE endpoints)*  
 *Next revision: after PRD deployment (Phase 11)*

@@ -6,7 +6,7 @@
 **Documento:** MTF-001  
 **Versão:** 2.4  
 **Data de emissão:** 11-05-2026  
-**Última atualização:** 21-05-2026  
+**Última atualização:** 22-05-2026  
 **Autor:** Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps  
 **Status:** VALIDADO EM HOMOLOGAÇÃO  
 **Branch de referência:** `fix/sefaz-xml-structure`  
@@ -904,7 +904,7 @@ A SEFAZ SP usa dois processadores distintos: o `PL009` valida o lote, e o `PL_00
 
 **Status de investigação:** ENCERRADA. Trata-se de limitação do ambiente HOM da SEFAZ SP. Não há ação corretiva possível no código sem violar a NT 2019.001.
 
-**Impacto em HOM:** todas as NF-e transmitidas em HOM-SP retornam cStat=225. O pedido fica com status `"REJEITADO"` ou `"AGUARDANDO"`. Para validar o fluxo técnico, inspecionar `data.soapRetorno` (retorno da SEFAZ) e verificar que a chave de acesso foi gerada (44 dígitos).
+**Impacto em HOM:** todas as NF-e transmitidas em HOM-SP retornam cStat=225. O pedido fica com status `"AGUARDANDO"` (lote aceito com cStat=104). Para validar o fluxo técnico, inspecionar `data.soapRetorno` (retorno da SEFAZ) e verificar que a chave de acesso foi gerada (44 dígitos).
 
 **Impacto em PRD:** nenhum. Não afeta produção e não afeta outros estados da federação.
 
@@ -1076,7 +1076,7 @@ Verificações de segurança:
 
 | Item                                          | Status                                                  |
 |-----------------------------------------------|---------------------------------------------------------|
-| Manual técnico PT                             | ✓ Este documento (v2.3)                                 |
+| Manual técnico PT                             | ✓ Este documento (v2.4)                                 |
 | Manual técnico EN                             | ✓ `MTF-001_motor-fiscal-nfe_EN.md`                      |
 | Contrato de integração PT-BR                  | ✓ `INTEGRATION_CONTRACT_PT-BR.md`                       |
 | Contrato de integração EN                     | ✓ `INTEGRATION_CONTRACT_EN.md`                          |
@@ -1120,8 +1120,7 @@ Verificações de segurança:
 
 ---
 
-*Documento MTF-001 — versão 2.1 — Borurio ERP Fiscal BR*  
+*Documento MTF-001 — versão 2.4 — Borurio ERP Fiscal BR*  
 *Gerado com base no estado validado em HOM em 11-05-2026*  
-*Atualizado com Sprint 3 em 12-05-2026*  
-*Revisão técnica aplicada em 15-05-2026 (v2.1)*  
+*Última atualização: 22-05-2026 (cStat=225 → AGUARDANDO confirmado em testes; seção 16 atualizada para v2.4)*  
 *Próxima revisão prevista: após deploy PRD (Fase 11)*

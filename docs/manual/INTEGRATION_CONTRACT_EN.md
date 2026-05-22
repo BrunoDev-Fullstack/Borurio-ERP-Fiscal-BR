@@ -4,9 +4,9 @@
 
 | Attribute             | Value                                   |
 |-----------------------|-----------------------------------------|
-| Version               | 1.1                                     |
+| Version               | 1.2                                     |
 | Status                | **Approved for integration**            |
-| Validation date       | 2026-05-12                              |
+| Validation date       | 2026-05-22                              |
 | Reference environment | HOM — `https://hom-api.borurio.com`     |
 | Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validated against     | Source code + HOM tests                 |
@@ -272,6 +272,59 @@ Content-Type: application/json
 
 ---
 
+### 6.2b Stock Management (Inventory)
+
+> `[CONTRACT]` The fiscal engine controls product inventory with atomic reservations tied to the NF-e issuance cycle. The OMS must verify available stock before submitting an order for issuance.
+
+#### Checking Stock Balance
+
+```
+GET /api/app/produtos/{id}/estoque
+Authorization: Bearer {token}
+```
+
+**Response — HTTP 200:**
+```json
+{
+  "code": 200,
+  "data": {
+    "produtoId":         1,
+    "estoqueTotal":      "100.0000",
+    "estoqueReservado":  "10.0000",
+    "estoqueDisponivel": "90.0000"
+  }
+}
+```
+
+> `[CONTRACT]` Use `estoqueDisponivel` to decide whether to proceed with the order. If the item quantity exceeds `estoqueDisponivel`, the `/emitir` call returns HTTP 422 and the order stays in `RASCUNHO`.
+
+#### Manual Stock Entry
+
+```
+POST /api/app/produtos/{id}/estoque/entrada
+Authorization: Bearer {token}    ← ADMIN role required
+Content-Type: application/json
+```
+
+```json
+{ "quantidade": 50.00, "observacao": "Initial stock entry" }
+```
+
+> `[CONTRACT]` This endpoint requires the ADMIN role. An OPERADOR token receives HTTP 403.
+
+#### Stock Lifecycle During NF-e Issuance
+
+| Event                         | Stock effect                                                         |
+|-------------------------------|----------------------------------------------------------------------|
+| `POST /emitir` called         | Atomic reservation — `estoqueDisponivel -= qty` per item             |
+| HTTP 422 returned             | Insufficient stock — no reservation made; order stays in `RASCUNHO` |
+| Status → `AUTORIZADO`         | Definitive write-off — `estoqueTotal -= qty`, reservation released   |
+| Status → `REJEITADO` / `ERRO` | Reservation undone — `estoqueDisponivel += qty` per item             |
+| Status → `AGUARDANDO`         | Reservation held — `estoqueDisponivel` remains blocked               |
+| Status → `CANCELADO`          | Stock reversal — `estoqueTotal += qty`                               |
+
+---
+
 ### 6.3 Creating an Order — RASCUNHO (Step 3)
 
 > `[CONTRACT]` A newly created order always starts in the `RASCUNHO` state. Fields such as `status`, `chaveNfe`, `numero`, and `cnpjEmitente` are populated automatically — **do not send them in the body**.
@@ -516,6 +569,39 @@ Content-Type: application/json
 
 ---
 
+### 6.8 DANFE — Auxiliary Document of the Electronic Invoice
+
+> `[CONTRACT]` The DANFE is the PDF companion document for an issued NF-e. It is generated from the signed XML stored in `nfe_documento`. JWT authentication required (any role).
+
+```
+GET /api/fiscal/nfe/{chaveNfe}/danfe
+Authorization: Bearer {token}
+```
+
+| Parameter  | Rule                                        |
+|------------|---------------------------------------------|
+| `chaveNfe` | Exactly 44 numeric digits (path variable)   |
+
+**Success response — HTTP 200:**
+- `Content-Type: application/pdf`
+- `Content-Disposition: attachment; filename="danfe-{chaveNfe}.pdf"`
+- Body: PDF bytes
+
+**Error responses:**
+
+| Code | Cause                                                |
+|------|------------------------------------------------------|
+| 400  | Access key is not exactly 44 digits                  |
+| 401  | Missing or invalid JWT token                         |
+| 404  | NF-e not found in `nfe_documento` table              |
+| 500  | Internal error during PDF generation                 |
+
+> `[OPERATIONAL]` In HOM (staging, `tpAmb=2`), the DANFE displays a diagonal "SEM VALOR FISCAL" (NO FISCAL VALUE) watermark in light gray. This watermark is suppressed in PRD (`tpAmb=1`).
+
+> `[OPERATIONAL]` The protocol label on the DANFE is conditional: `PROTOCOLO DE AUTORIZAÇÃO DE USO` when authorized (cStat=100 + nProt present); `RETORNO SEFAZ — HOMOLOGAÇÃO` in staging when not yet authorized (tpAmb=2, cStat≠100).
+
+---
+
 ## 7. Order State Machine
 
 > `[CONTRACT]` Valid states and allowed operations per state:
@@ -680,7 +766,7 @@ Typical result of `POST /api/app/pedidos/{id}/emitir` in HOM-SP:
 HTTP 200
 data.chaveNfe:    "35260512..." (44 digits) → transmission reached SEFAZ
 data.soapRetorno: contains cStat=225        → HOM limitation, not a system error
-pedido.status:    "REJEITADO" or "AGUARDANDO" → normal in HOM; does not occur in PRD
+pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); does not occur in PRD
 ```
 
 > `[CONTRACT]` To validate the complete flow in HOM, inspect the raw `data.soapRetorno` from `/emitir` and `data.consultaSefaz` from `/situacao` — these fields contain the actual SEFAZ response regardless of the final order status.
