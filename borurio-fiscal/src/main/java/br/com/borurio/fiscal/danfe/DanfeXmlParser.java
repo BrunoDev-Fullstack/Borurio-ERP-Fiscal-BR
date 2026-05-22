@@ -85,9 +85,33 @@ public class DanfeXmlParser {
             }
             d.itens = itens;
 
-            // TOTAIS
-            d.vProd = val(xp, doc, "//nfe:ICMSTot/nfe:vProd");
-            d.vNF   = val(xp, doc, "//nfe:ICMSTot/nfe:vNF");
+            // BLOCO E — Cálculo do Imposto
+            d.vProd  = val(xp, doc, "//nfe:ICMSTot/nfe:vProd");
+            d.vNF    = val(xp, doc, "//nfe:ICMSTot/nfe:vNF");
+            d.vBC    = val(xp, doc, "//nfe:ICMSTot/nfe:vBC");
+            d.vICMS  = val(xp, doc, "//nfe:ICMSTot/nfe:vICMS");
+            d.vBCST  = val(xp, doc, "//nfe:ICMSTot/nfe:vBCST");
+            d.vST    = val(xp, doc, "//nfe:ICMSTot/nfe:vST");
+            d.vIPI   = val(xp, doc, "//nfe:ICMSTot/nfe:vIPI");
+            d.vFrete = val(xp, doc, "//nfe:ICMSTot/nfe:vFrete");
+            d.vSeg   = val(xp, doc, "//nfe:ICMSTot/nfe:vSeg");
+            d.vDesc  = val(xp, doc, "//nfe:ICMSTot/nfe:vDesc");
+            d.vOutro = val(xp, doc, "//nfe:ICMSTot/nfe:vOutro");
+
+            // BLOCO F — Transportador
+            d.transpModFrete = val(xp, doc, "//nfe:transp/nfe:modFrete");
+            d.transpXNome    = val(xp, doc, "//nfe:transp/nfe:transporta/nfe:xNome");
+            String tCnpj     = val(xp, doc, "//nfe:transp/nfe:transporta/nfe:CNPJ");
+            String tCpf      = val(xp, doc, "//nfe:transp/nfe:transporta/nfe:CPF");
+            d.transpCnpjCpf  = tCnpj != null && !tCnpj.isBlank() ? tCnpj : tCpf;
+            d.transpIe       = val(xp, doc, "//nfe:transp/nfe:transporta/nfe:IE");
+            d.transpXEnder   = val(xp, doc, "//nfe:transp/nfe:transporta/nfe:xEnder");
+            d.transpXMun     = val(xp, doc, "//nfe:transp/nfe:transporta/nfe:xMun");
+            d.transpUf       = val(xp, doc, "//nfe:transp/nfe:transporta/nfe:UF");
+            d.volQVol        = val(xp, doc, "//nfe:transp/nfe:vol/nfe:qVol");
+            d.volEsp         = val(xp, doc, "//nfe:transp/nfe:vol/nfe:esp");
+            d.volPesoL       = val(xp, doc, "//nfe:transp/nfe:vol/nfe:pesoL");
+            d.volPesoB       = val(xp, doc, "//nfe:transp/nfe:vol/nfe:pesoB");
 
             // ADICIONAIS
             d.infCpl = val(xp, doc, "//nfe:infAdic/nfe:infCpl");

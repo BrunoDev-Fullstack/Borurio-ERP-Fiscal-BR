@@ -51,7 +51,8 @@ public class DanfePdfGenerator {
             addChaveAcesso(doc, d, cb);
             addEmitenteDestinatario(doc, d);
             addItens(doc, d);
-            addTotais(doc, d);
+            addBlocoE(doc, d);
+            addBlocoF(doc, d);
             addDadosAdicionais(doc, d);
 
             doc.close();
@@ -249,16 +250,68 @@ public class DanfePdfGenerator {
         doc.add(t);
     }
 
-    private void addTotais(Document doc, DanfeData d) throws Exception {
-        PdfPTable t = new PdfPTable(4);
+    private void addBlocoE(Document doc, DanfeData d) throws Exception {
+        DecimalFormat df = dfMoeda();
+        PdfPTable t = new PdfPTable(6);
         t.setWidthPercentage(100);
-        t.setWidths(new float[]{35, 15, 35, 15});
+        t.setWidths(new float[]{17, 17, 17, 17, 17, 15});
         t.setSpacingAfter(2);
 
-        addLabeledCell(t, "VALOR TOTAL DOS PRODUTOS", d.vProd != null ? "R$ " + formatDecimal(d.vProd, dfMoeda()) : "");
-        addLabeledCell(t, "DESCONTO", "");
-        addLabeledCell(t, "VALOR TOTAL DA NF-e",      d.vNF  != null ? "R$ " + formatDecimal(d.vNF,   dfMoeda()) : "");
+        PdfPCell hdr = new PdfPCell(new Phrase("CÁLCULO DO IMPOSTO", FONTE_LABEL));
+        hdr.setColspan(6);
+        hdr.setBackgroundColor(CINZA_HEADER);
+        hdr.setPadding(2);
+        t.addCell(hdr);
+
+        addLabeledCell(t, "BC DO ICMS",        mz(d.vBC,    df));
+        addLabeledCell(t, "VL. ICMS",          mz(d.vICMS,  df));
+        addLabeledCell(t, "BC DO ST",          mz(d.vBCST,  df));
+        addLabeledCell(t, "VL. ST",            mz(d.vST,    df));
+        addLabeledCell(t, "VL. IPI",           mz(d.vIPI,   df));
+        addLabeledCell(t, "VL. PRODUTOS",      mz(d.vProd,  df));
+
+        addLabeledCell(t, "VL. FRETE",         mz(d.vFrete, df));
+        addLabeledCell(t, "VL. SEGURO",        mz(d.vSeg,   df));
+        addLabeledCell(t, "DESCONTO",          mz(d.vDesc,  df));
+        addLabeledCell(t, "OUTRAS DESPESAS",   mz(d.vOutro, df));
+        addLabeledCell(t, "VALOR TOTAL NF-e",  mz(d.vNF,    df));
         addLabeledCell(t, "AMBIENTE", "2".equals(d.tpAmb) ? "HOMOLOGAÇÃO" : "PRODUÇÃO");
+
+        doc.add(t);
+    }
+
+    private void addBlocoF(Document doc, DanfeData d) throws Exception {
+        DecimalFormat df = dfMoeda();
+        PdfPTable t = new PdfPTable(4);
+        t.setWidthPercentage(100);
+        t.setWidths(new float[]{25, 35, 20, 20});
+        t.setSpacingAfter(2);
+
+        PdfPCell hdr = new PdfPCell(new Phrase("TRANSPORTADOR / VOLUMES TRANSPORTADOS", FONTE_LABEL));
+        hdr.setColspan(4);
+        hdr.setBackgroundColor(CINZA_HEADER);
+        hdr.setPadding(2);
+        t.addCell(hdr);
+
+        String docLbl = d.transpCnpjCpf != null && d.transpCnpjCpf.length() == 14 ? "CNPJ" : "CPF/CNPJ";
+        addLabeledCell(t, "FRETE POR CONTA",             modFreteLabel(d.transpModFrete));
+        addLabeledCell(t, "TRANSPORTADOR / RAZ. SOCIAL", safe(d.transpXNome));
+        addLabeledCell(t, docLbl,                        formatDoc(d.transpCnpjCpf));
+        addLabeledCell(t, "INSCRIÇÃO ESTADUAL",          safe(d.transpIe));
+
+        if (d.transpXEnder != null || d.transpXMun != null || d.transpUf != null) {
+            addLabeledCell(t, "ENDEREÇO",  safe(d.transpXEnder));
+            addLabeledCell(t, "MUNICÍPIO", safe(d.transpXMun));
+            addLabeledCell(t, "UF",        safe(d.transpUf));
+            addLabeledCell(t, "",          "");
+        }
+
+        if (d.volQVol != null || d.volEsp != null || d.volPesoL != null || d.volPesoB != null) {
+            addLabeledCell(t, "QTDE. VOLUMES",     safe(d.volQVol));
+            addLabeledCell(t, "ESPÉCIE",           safe(d.volEsp));
+            addLabeledCell(t, "PESO LÍQUIDO (kg)", formatDecimal(d.volPesoL, df));
+            addLabeledCell(t, "PESO BRUTO (kg)",   formatDecimal(d.volPesoB, df));
+        }
 
         doc.add(t);
     }
@@ -330,6 +383,28 @@ public class DanfePdfGenerator {
     }
 
     // -------------------------------------------------------------------------
+
+    private String mz(String val, DecimalFormat df) {
+        if (val == null || val.isBlank()) return df.format(0.0);
+        try {
+            return df.format(Double.parseDouble(val.replace(",", ".")));
+        } catch (Exception ignored) {
+            return df.format(0.0);
+        }
+    }
+
+    private String modFreteLabel(String mf) {
+        if (mf == null) return "";
+        return switch (mf) {
+            case "0" -> "0 - Emitente (CIF)";
+            case "1" -> "1 - Destinatário (FOB)";
+            case "2" -> "2 - Terceiro";
+            case "3" -> "3 - Próprio/Emit.";
+            case "4" -> "4 - Próprio/Dest.";
+            case "9" -> "9 - Sem Frete";
+            default  -> mf;
+        };
+    }
 
     private String safe(String s) {
         return s != null ? s : "";

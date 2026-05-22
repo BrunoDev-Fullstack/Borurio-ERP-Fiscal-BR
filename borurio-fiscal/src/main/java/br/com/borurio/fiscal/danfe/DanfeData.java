@@ -39,9 +39,31 @@ public class DanfeData {
     // ITENS
     public List<Item> itens;
 
-    // TOTAIS
+    // BLOCO E — Cálculo do Imposto
     public String vProd;
     public String vNF;
+    public String vBC;
+    public String vICMS;
+    public String vBCST;
+    public String vST;
+    public String vIPI;
+    public String vFrete;
+    public String vSeg;
+    public String vDesc;
+    public String vOutro;
+
+    // BLOCO F — Transportador
+    public String transpModFrete;
+    public String transpXNome;
+    public String transpCnpjCpf;
+    public String transpIe;
+    public String transpXEnder;
+    public String transpXMun;
+    public String transpUf;
+    public String volQVol;
+    public String volEsp;
+    public String volPesoL;
+    public String volPesoB;
 
     // ADICIONAIS
     public String infCpl;
