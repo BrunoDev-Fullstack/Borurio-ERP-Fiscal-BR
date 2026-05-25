@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.1                                      |
-| Data                   | 2026-05-18                               |
+| Versão                 | 1.2                                      |
+| Data                   | 2026-05-25                               |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | Pronto para execução                     |
@@ -13,6 +13,36 @@
 ## Como usar este checklist
 
 Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o próximo bloco se houver item não concluído marcado como **[BLOQUEANTE]**.
+
+---
+
+## Bloco Local — Execução local (usar enquanto HOM externo estiver pendente)
+
+> Use este bloco se o Cloudflare Tunnel (`https://hom-api.borurio.com`) ainda não estiver ativo.
+> Quando o HOM externo for liberado, pule este bloco e siga direto para o Bloco 0.
+
+- [ ] Receber credenciais DEV de Bruno via canal seguro (senha do banco, JWT secret, senha do certificado)
+- [ ] Copiar o template: `docker/env/.env.dev.template` → `docker/env/.env.dev`
+- [ ] Preencher os campos obrigatórios no `.env.dev` com os valores recebidos
+- [ ] Subir o ambiente local:
+
+```bash
+docker compose -f docker/docker-compose.dev.yml --env-file docker/env/.env.dev up -d
+```
+
+- [ ] Aguardar containers subirem (~30s) e verificar healthcheck:
+
+```
+GET http://localhost:8080/api/test/ping
+```
+
+Resposta esperada:
+```json
+{ "status": "UP" }
+```
+
+- [ ] A partir daqui, substituir `https://hom-api.borurio.com` por `http://localhost:8080` em todos os blocos seguintes
+- [ ] **Atenção:** ambiente DEV usa `tpAmb=2` (homologação SEFAZ) — nunca emite NF-e real
 
 ---
 
