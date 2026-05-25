@@ -72,7 +72,7 @@ O documento destina-se a:
 | Criptografia cert_senha AES-256-GCM                                          | ✓ Código validado; passthrough em HOM (chave não configurada) |
 | Audit log com empresa_id e usuário autenticado                               | ✓ HOM/SP — 11-05-2026                                         |
 | Swagger alinhado com todos os endpoints reais (10 tags)                      | ✓ HOM/SP — 12-05-2026                                         |
-| Postman collection end-to-end (9 pastas, 46 requests)                        | ✓ Gerada e alinhada — 12-05-2026                              |
+| Postman collection end-to-end (10 pastas, 49 requests)                       | ✓ Gerada e alinhada — 22-05-2026                              |
 | `NfeEnvioController` deprecado — endpoints legados marcados e redirecionados | ✓ Código — 12-05-2026                                         |
 | Contratos de integração PT-BR e EN gerados e validados                       | ✓ Código — 12-05-2026                                         |
 | `MyBatisConfig`: `@ConditionalOnProperty` garante boot correto em HOM        | ✓ HOM/SP — 12-05-2026                                         |
@@ -1081,7 +1081,7 @@ Verificações de segurança:
 | Contrato de integração PT-BR                  | ✓ `INTEGRATION_CONTRACT_PT-BR.md`                       |
 | Contrato de integração EN                     | ✓ `INTEGRATION_CONTRACT_EN.md`                          |
 | Swagger anotado (10 tags, deprecated marcado) | ✓ `SwaggerConfig.java` — Sprint 3                       |
-| Postman collection end-to-end (46 requests)   | ✓ `docs/postman/borurio-erp-collection.json` — Sprint 3 |
+| Postman collection end-to-end (49 requests)   | ✓ `docs/postman/borurio-erp-collection.json` — Sprint 3 |
 
 ### Fase 12-B — DANFE ✓ CONCLUÍDA (18-05-2026)
 

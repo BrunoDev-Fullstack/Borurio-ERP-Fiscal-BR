@@ -119,12 +119,12 @@
 
 | Documento                                                         | Estado                                    |
 |-------------------------------------------------------------------|-------------------------------------------|
-| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.3 — 18-05-2026 (DANFE + Fase 12-A)            |
-| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.3 — 18-05-2026 (DANFE + Fase 12-A)            |
-| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.2 — 22-05-2026 (estoque + DANFE adicionados)  |
-| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.2 — 22-05-2026 (estoque + DANFE adicionados)  |
-| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | v1.1 — 18-05-2026 (atualizado com comportamento de estoque) |
-| Postman collection (9 pastas, 46 requests)                        | Disponível em `docs/postman/` — pendente novos endpoints     |
+| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.4 — 25-05-2026 (contagem Postman corrigida)            |
+| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.4 — 25-05-2026 (contagem Postman corrigida)            |
+| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.2 — 22-05-2026 (estoque + DANFE adicionados)           |
+| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.2 — 22-05-2026 (estoque + DANFE adicionados)           |
+| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | v1.2 — 25-05-2026 (bloco execução local adicionado)       |
+| Postman collection (10 pastas, 49 requests)                       | Disponível em `docs/postman/`                             |
 | Swagger UI (10 tags, deprecated marcados)                         | Operacional em DEV e HOM                          |
 | Diagramas arquiteturais                                           | Disponíveis em `docs/architecture/`               |
 | Flyway migrations V001–V024                                       | V001–V022 aplicadas em HOM; V023–V024 pendentes HOM |

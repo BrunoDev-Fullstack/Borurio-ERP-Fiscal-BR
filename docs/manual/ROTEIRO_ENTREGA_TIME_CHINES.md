@@ -2,8 +2,8 @@
 
 | Atributo             | Valor                                         |
 |----------------------|-----------------------------------------------|
-| Versão               | 1.0                                           |
-| Data                 | 18-05-2026                                    |
+| Versão               | 1.1                                           |
+| Data                 | 25-05-2026                                    |
 | Estado do backend    | PRONTO — HOM UP, 66/66 + 33/33 testes, v024  |
 | Responsável Bruno    | Operações + Infraestrutura                    |
 | Responsável time CN  | Integração OMS                                |
@@ -97,10 +97,11 @@ Execute os blocos em ordem. Cada bloco tem um dono (**Bruno** ou **Time chinês*
   {
     "nome": "OMS Integration",
     "email": "oms@empresa-chinesa.com",
-    "password": "<senha_temporaria>",
+    "senha": "<senha_temporaria>",
     "role": "OPERADOR"
   }
   ```
+  > **Atenção:** o campo é `"senha"` (não `"password"`). Enviar `"password"` resulta em HTTP 400 com erro "Senha é obrigatória".
 - [ ] Enviar para o time chinês (canal seguro):
   - URL base HOM externa
   - E-mail do usuário OPERADOR

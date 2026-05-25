@@ -242,7 +242,7 @@ docker restart borurio-web-hom
 
 ## Integração com a OMS logística chinesa
 
-O Borurio está pronto para integração em HOM. Não há bloqueadores técnicos para início dos testes de integração com a OMS.
+O Borurio está pronto para integração em HOM. O backend e a documentação estão disponíveis no repositório. Há dois bloqueadores operacionais pendentes antes do smoke test externo: ativação do Cloudflare Tunnel (`https://hom-api.borurio.com`) e criação da credencial OPERADOR para o time de integração. Enquanto isso, o time pode executar localmente usando `docker/env/.env.dev.template` conforme documentado no `CHECKLIST_OMS_ONBOARDING.md`.
 
 **Documentos para o time chinês:**
 

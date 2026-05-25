@@ -72,7 +72,7 @@ The document is intended for:
 | AES-256-GCM cert_senha encryption                                              | ✓ Code validated; passthrough in HOM (key not configured) |
 | Audit log with empresa_id and authenticated user                               | ✓ HOM/SP — 2026-05-11                                     |
 | Swagger aligned with all real endpoints (10 tags)                              | ✓ HOM/SP — 2026-05-12                                     |
-| End-to-end Postman collection (9 folders, 46 requests)                         | ✓ Generated and aligned — 2026-05-12                      |
+| End-to-end Postman collection (10 folders, 49 requests)                        | ✓ Generated and aligned — 2026-05-22                      |
 | `NfeEnvioController` deprecated — legacy endpoints marked and redirected       | ✓ Code — 2026-05-12                                       |
 | PT-BR and EN integration contracts generated and validated                     | ✓ Code — 2026-05-12                                       |
 | `MyBatisConfig`: `@ConditionalOnProperty` ensures correct boot in HOM          | ✓ HOM/SP — 2026-05-12                                     |
@@ -1067,7 +1067,7 @@ Security checks:
 | PT-BR integration contract                     | ✓ `INTEGRATION_CONTRACT_PT-BR.md`                       |
 | EN integration contract                        | ✓ `INTEGRATION_CONTRACT_EN.md`                          |
 | Annotated Swagger (10 tags, deprecated marked) | ✓ `SwaggerConfig.java` — Sprint 3                       |
-| End-to-end Postman collection (46 requests)    | ✓ `docs/postman/borurio-erp-collection.json` — Sprint 3 |
+| End-to-end Postman collection (49 requests)    | ✓ `docs/postman/borurio-erp-collection.json` — Sprint 3 |
 
 ### Phase 11 — PRD Deployment + CI/CD (pending)
 
