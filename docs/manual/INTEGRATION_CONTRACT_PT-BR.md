@@ -4,9 +4,9 @@
 
 | Atributo               | Valor                                   |
 |------------------------|-----------------------------------------|
-| Versão                 | 1.2                                     |
+| Versão                 | 1.3                                     |
 | Status                 | **Aprovado para integração**            |
-| Data de validação      | 22-05-2026                              |
+| Data de validação      | 26-05-2026                              |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`     |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validado contra        | Código-fonte + testes em HOM            |
@@ -272,7 +272,56 @@ Content-Type: application/json
 
 ---
 
-### 6.2b Gestão de Estoque
+### 6.2b Busca de Produto por Código Interno (SKU)
+
+> `[OPERACIONAL]` Quando a OMS conhece o código interno (SKU) do produto mas não seu `id` no Borurio, utilize este endpoint para resolver o identificador antes de consultar o estoque.
+
+```
+GET /api/app/produtos/codigo/{codigo}
+Authorization: Bearer {token}
+```
+
+| Parâmetro | Regra |
+|---|---|
+| `codigo` | Código interno do produto (path variable) — mesmo valor cadastrado em `POST /api/app/produtos` |
+
+**Resposta — HTTP 200:**
+```json
+{
+  "code": 200,
+  "message": "Sucesso",
+  "data": {
+    "id":        7,
+    "empresaId": 1,
+    "codigo":    "PROD-001",
+    "descricao": "Produto de Teste Integração",
+    "ncm":       "84715011",
+    "cfop":      "5102",
+    "unidade":   "UN",
+    "preco":     100.00,
+    "origem":    0,
+    "csosn":     "102",
+    "estado":    1
+  }
+}
+```
+
+> `[CONTRATO]` Guardar `data.id` para uso no fluxo de consulta de estoque.
+
+> `[OPERACIONAL]` Fluxo em dois passos validado pelo time de integração:
+> ```
+> Passo 1 — GET /api/app/produtos/codigo/{sku}  → recupera produto + id
+> Passo 2 — GET /api/app/produtos/{id}/estoque  → consulta saldo com o id retornado
+> ```
+
+**Resposta — HTTP 404:**
+```json
+{ "code": 404, "message": "Recurso não encontrado", "data": null }
+```
+
+---
+
+### 6.2c Gestão de Estoque
 
 > `[CONTRATO]` O motor fiscal controla o estoque de produtos com reservas atômicas vinculadas ao ciclo de emissão de NF-e. A OMS deve verificar o estoque disponível antes de submeter um pedido para emissão.
 
@@ -602,6 +651,79 @@ Authorization: Bearer {token}
 
 ---
 
+### 6.9 Manifestação do Destinatário
+
+> `[OPERACIONAL]` A Manifestação do Destinatário é um conjunto de eventos fiscais enviados pelo **destinatário** de uma NF-e à SEFAZ para registrar sua posição sobre a nota recebida. Não faz parte do fluxo principal de emissão OMS → NF-e.
+
+```
+POST /api/fiscal/nfe/manifestar
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+**Payload:**
+
+| Campo | Tipo | Regra |
+|---|---|---|
+| `chaveNfe` | String | Obrigatório · Exatamente 44 dígitos numéricos |
+| `tipoEvento` | String | Obrigatório · Um dos 4 valores válidos abaixo |
+| `cnpjDestinatario` | String | Obrigatório · 14 dígitos numéricos (sem formatação) |
+| `xJust` | String | Condicional · Obrigatório somente para `210240` · Mínimo 15 / máximo 255 caracteres |
+
+**Tipos de evento suportados:**
+
+| Código | Descrição |
+|---|---|
+| `210200` | Ciência da Operação |
+| `210210` | Confirmação da Operação |
+| `210220` | Desconhecimento da Operação |
+| `210240` | Operação Não Realizada |
+
+> `[EXEMPLO]` Payload para Ciência da Operação:
+```json
+{
+  "chaveNfe":         "35260554393421000159550010000000351199116560",
+  "tipoEvento":       "210200",
+  "cnpjDestinatario": "54393421000159"
+}
+```
+
+> `[EXEMPLO]` Payload para Operação Não Realizada (xJust obrigatório):
+```json
+{
+  "chaveNfe":         "35260554393421000159550010000000351199116560",
+  "tipoEvento":       "210240",
+  "cnpjDestinatario": "54393421000159",
+  "xJust":            "Mercadoria não recebida pelo destinatário conforme acordado"
+}
+```
+
+**Resposta de sucesso — HTTP 200:**
+```json
+{
+  "code":    200,
+  "success": true,
+  "data":    "135 - Evento registrado e vinculado a NF-e"
+}
+```
+
+**Resposta de erro (dados inválidos ou rejeição SEFAZ) — HTTP 200:**
+```json
+{
+  "code":    500,
+  "success": false,
+  "message": "Falha ao registrar manifestação: <detalhe do erro>"
+}
+```
+
+> `[CONTRATO]` O campo `success: false` com `code: 500` indica rejeição pela SEFAZ ou dado inválido (chave malformada, tipo de evento incorreto, xJust ausente para 210240). O status HTTP sempre retorna 200; o código semântico está no envelope.
+
+> `[CONTRATO]` Autenticação obrigatória. Request sem token retorna HTTP 401.
+
+> `[OPERACIONAL]` **Limitação HOM:** o endpoint AN (Ambiente Nacional) da SEFAZ HOM pode retornar HTTP 403 a partir de redes residenciais/locais. Esse comportamento é de infraestrutura da SEFAZ federal, não um erro da API. O endpoint `/manifestar` funcionará normalmente em ambiente corporativo e PRD.
+
+---
+
 ## 7. Máquina de Estados do Pedido
 
 > `[CONTRATO]` Tabela de estados válidos e operações permitidas por estado:
@@ -784,3 +906,4 @@ pedido.status:    "AGUARDANDO" → normal em HOM (lote aceito, cStat=104); não 
 | 5 | CC-e e cancelamento exigem `nProt` disponível              | Consultar `/situacao` antes de cancelar após AGUARDANDO |
 | 6 | Produto com `estado=0` é rejeitado no pedido               | Verificar `estado` antes de referenciar produto         |
 | 7 | Estado `ERRO` é terminal via API                           | Acionar suporte para recuperação manual                 |
+| 8 | Endpoint AN HOM pode retornar HTTP 403 em redes locais     | Limitação da SEFAZ federal — não afeta PRD nem fluxo OMS principal |

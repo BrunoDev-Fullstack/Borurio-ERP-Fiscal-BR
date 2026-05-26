@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.2                                      |
-| Data                   | 2026-05-25                               |
+| Versão                 | 1.3                                      |
+| Data                   | 2026-05-26                               |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | Pronto para execução                     |
@@ -136,6 +136,32 @@ POST /api/app/produtos/{id}/estoque/entrada
 Body: {"quantidade": 50.00, "observacao": "Entrada inicial OMS"}
 ```
 
+**Busca de produto por código interno (SKU) — fluxo em dois passos:**
+
+Quando a OMS conhece o SKU do produto mas não o `id` interno do Borurio, use o fluxo em dois passos:
+
+```
+Passo 1 — GET /api/app/produtos/codigo/{sku}   → recupera produto completo + id
+Passo 2 — GET /api/app/produtos/{id}/estoque   → consulta saldo com o id retornado
+```
+
+Exemplo (Passo 1):
+```
+GET /api/app/produtos/codigo/SKU-001
+Authorization: Bearer {token}
+```
+Resposta (campo relevante):
+```json
+{
+  "code": 200,
+  "data": {
+    "id": 3,
+    "codigo": "SKU-001",
+    ...
+  }
+}
+```
+
 ---
 
 ## Bloco 4 — Criação de pedido
@@ -214,6 +240,34 @@ Estes itens só são executáveis quando `status = "AUTORIZADO"`. Em HOM/SP o st
 
 - [ ] `POST /api/app/pedidos/{id}/cancelar` com `{"justificativa": "<texto mínimo 15 chars>"}`
 - [ ] `POST /api/app/pedidos/{id}/cce` com `{"correcao": "<texto mínimo 15 chars>"}`
+
+---
+
+## Bloco 7B — Manifestação do Destinatário (opcional — quando a OMS recebe NF-e de terceiros)
+
+> Este bloco é independente do fluxo de emissão OMS→Borurio. Use quando a empresa precisar se posicionar perante a SEFAZ sobre uma NF-e recebida.
+
+- [ ] `POST /api/fiscal/nfe/manifestar` com body:
+
+```json
+{
+  "chaveNfe":         "<44 dígitos>",
+  "tipoEvento":       "210200",
+  "cnpjDestinatario": "<14 dígitos sem formatação>"
+}
+```
+
+| Evento | Nome                        | `xJust` obrigatório |
+|--------|-----------------------------|---------------------|
+| 210200 | Ciência da Operação         | Não                 |
+| 210210 | Confirmação da Operação     | Não                 |
+| 210220 | Desconhecimento da Operação | Não                 |
+| 210240 | Operação Não Realizada      | Sim (mín 15 chars)  |
+
+- [ ] Confirmar resposta `HTTP 200`, `"success": true`
+- [ ] Confirmar que `nfe_log` registra o evento com status `SUCCESS`
+
+**Nota HOM:** O endpoint AN HOM (`hom.nfe.fazenda.gov.br`) retorna HTTP 403 de IPs residenciais/locais — limitação da infraestrutura federal. A funcionalidade estará disponível em ambiente corporativo ou PRD.
 
 ---
 

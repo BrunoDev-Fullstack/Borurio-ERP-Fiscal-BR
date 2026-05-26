@@ -4,9 +4,9 @@
 ---
 
 **Documento:** MTF-001  
-**Versão:** 2.4  
+**Versão:** 2.5  
 **Data de emissão:** 11-05-2026  
-**Última atualização:** 22-05-2026  
+**Última atualização:** 26-05-2026  
 **Autor:** Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps  
 **Status:** VALIDADO EM HOMOLOGAÇÃO  
 **Branch de referência:** `fix/sefaz-xml-structure`  
@@ -18,6 +18,7 @@
 > - v2.2 (18-05-2026): Fase 12-A — estoque mínimo fiscal implementado; reserva atômica antes da SEFAZ; baixa definitiva em AUTORIZADO; estorno em CANCELADO; tabela `estoque_movimento`; 61/61 testes; V023–V024 aplicados
 > - v2.3 (18-05-2026): DANFE implementado — `DanfeXmlParser`, `DanfePdfGenerator`, `DanfeService`, `GET /api/fiscal/nfe/{chave}/danfe`; OpenPDF 1.3.30; watermark "SEM VALOR FISCAL" em HOM; 66/66 testes; V023–V024 aplicados em HOM
 > - v2.4 (21-05-2026): 3 bugs corrigidos em `DanfePdfGenerator` — formatação monetária pt_BR nos totais, `DecimalFormat` thread-safe por chamada, label de protocolo condicional; testes borurio-web 66 → 75 (9 novos — estados fiscais, RBAC estoque, UsuarioController)
+> - v2.5 (26-05-2026): Manifestação do Destinatário implementada (210200/210210/210220/210240); cOrgao=91 (AN); validação de cStat na resposta SEFAZ; xml_retorno capturado em erro; seção 12.5 adicionada; contrato de integração v1.3; testes borurio-web 75 → 82 (7 novos — NfeManifestacaoController)
 
 ---
 
@@ -96,6 +97,10 @@ O documento destina-se a:
 | DANFE — formatação monetária pt_BR nos totais (`R$ 91,80` com vírgula decimal)                    | ✓ Código + HOM — 20-05-2026                                   |
 | DANFE — label de protocolo condicional (`RETORNO SEFAZ — HOMOLOGAÇÃO` quando `cStat≠100`)         | ✓ Código + HOM — 20-05-2026                                   |
 | 75/75 testes passando (borurio-web — 9 novos testes em 20-05-2026)                                | ✓ Código — 20-05-2026                                         |
+| Manifestação do Destinatário (eventos 210200/210210/210220/210240) — `POST /api/fiscal/nfe/manifestar` | ✓ Código — 26-05-2026                               |
+| Validação de cStat na resposta SEFAZ — rejeição correta quando cStat≠128/135                       | ✓ Código — 26-05-2026                                         |
+| xml_retorno persistido em `nfe_log` mesmo em caso de erro de transmissão                           | ✓ Código — 26-05-2026                                         |
+| 82/82 testes passando (borurio-web — +7 NfeManifestacaoController)                                 | ✓ Código — 26-05-2026                                         |
 
 ### 1.2 O que está PENDENTE
 
@@ -879,6 +884,51 @@ Retorna o PDF do DANFE correspondente à chave informada. Autenticação JWT obr
 | `static final DecimalFormat` — não thread-safe em singleton Spring | `dfMoeda()` / `dfQtde()` retornam nova instância por chamada |
 | Totais formatados via `BigDecimal.toString()` — ignorava Locale pt_BR | Passados por `formatDecimal()` com `dfMoeda()` — resultado: `R$ 91,80` |
 | Label de protocolo fixo mesmo para `cStat≠100` | Condicional: `PROTOCOLO DE AUTORIZAÇÃO DE USO` (cStat=100 + nProt presente); `RETORNO SEFAZ — HOMOLOGAÇÃO` (tpAmb=2, cStat≠100); `PROTOCOLO NÃO DISPONÍVEL` (outros) |
+
+### 12.5 Manifestação do Destinatário (eventos 210200 / 210210 / 210220 / 210240)
+
+```
+POST /api/fiscal/nfe/manifestar
+    │
+    └─ NfeManifestacaoController.manifestar()
+           └─ NfeManifestacaoServiceImpl.manifestar()
+                  ├─ validar()                          → regras: 44 dígitos, tipo válido, CNPJ 14 dígitos, xJust p/ 210240
+                  ├─ montarEnvEvento()                  → cOrgao=91 (AN), CNPJ destinatário, estrutura NT 2012.004
+                  ├─ AssinaturaXmlService.assinarEvento() → RSA-SHA256 + C14N
+                  ├─ montarSoap()                       → SOAP 1.2 NFeRecepcaoEvento4
+                  ├─ enviarSoap()                       → endpoint AN (sefaz.urls.manifestacao-evento)
+                  ├─ verificarERetornarResultado()       → valida cStat=128 (lote) + cStat=135/136 (evento)
+                  └─ registrarLog()                     → nfe_log | tipoEvento=MANIFESTACAO_210200 | xml_retorno capturado
+```
+
+**Eventos suportados:**
+
+| Código | Descrição | xJust |
+|---|---|---|
+| `210200` | Ciência da Operação | Não requerido |
+| `210210` | Confirmação da Operação | Não requerido |
+| `210220` | Desconhecimento da Operação | Não requerido |
+| `210240` | Operação Não Realizada | **Obrigatório** · mín 15 / máx 255 chars |
+
+**Regras arquiteturais:**
+
+- `cOrgao` = **91** (Ambiente Nacional — obrigatório pela NT 2012.004 para todos os eventos de Manifestação)
+- URL = `sefaz.urls.manifestacao-evento` (separada de `recepcao-evento` que é usada pelo CC-e)
+- CNPJ no `<CNPJ>` = `cnpjDestinatario` (não o CNPJ do emitente — diferença fundamental em relação ao CC-e)
+- `nSeqEvento` = `"01"` fixo (Manifestação não acumula sequências por NF-e)
+- `idEvento` = `"ID"` + `tpEvento` (6) + `chNFe` (44) + `nSeqEvento` (2) = 54 caracteres
+
+**Validação de cStat (implementada em `verificarERetornarResultado`):**
+
+| cStat lote | cStat evento | Resultado |
+|---|---|---|
+| 128 | 135 ou 136 | Sucesso — retorna `"cStat - xMotivo"` |
+| 128 | outro | Exceção: "SEFAZ rejeitou evento: cStat=X - Y" |
+| outro (ex: 225) | — | Exceção: "SEFAZ rejeitou lote: cStat=X - Y" |
+
+**Limitação HOM — endpoint AN:**
+
+O endpoint AN HOM (`hom.nfe.fazenda.gov.br`) retorna HTTP 403 para requests de IPs residenciais/locais. Trata-se de controle de acesso da SEFAZ federal, não de erro no código. A implementação está arquiteturalmente correta conforme NT 2012.004.
 
 ---
 

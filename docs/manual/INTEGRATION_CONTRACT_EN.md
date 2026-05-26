@@ -4,9 +4,9 @@
 
 | Attribute             | Value                                   |
 |-----------------------|-----------------------------------------|
-| Version               | 1.2                                     |
+| Version               | 1.3                                     |
 | Status                | **Approved for integration**            |
-| Validation date       | 2026-05-22                              |
+| Validation date       | 2026-05-26                              |
 | Reference environment | HOM — `https://hom-api.borurio.com`     |
 | Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validated against     | Source code + HOM tests                 |
@@ -45,7 +45,7 @@ This document describes the integration contract between the external logistics 
 
 > `[CONTRACT]` All integration tests must be executed in HOM before any operation in PRD.
 
-> `[OPERATIONAL]` The HOM environment is currently validated locally at `http://localhost:8081`. External access is planned through `https://hom-api.borurio.com` (Cloudflare Tunnel, HTTPS, TLS 1.3) — no VPN or SSH tunnel will be required on the integration team's side once the tunnel is active. **This setup is pending** and will be completed by Bruno/Ops according to `ROTEIRO_ENTREGA_TIME_CHINES.md` — Block 1. Until confirmed, do not expect the external URL to respond; use the documentation and Postman collection for review in the meantime. Bruno will notify when `GET https://hom-api.borurio.com/api/test/ping` returns `"status": "UP"`.
+> `[OPERATIONAL]` The HOM environment is exposed externally via Cloudflare Quick Tunnel (HTTPS, TLS 1.3) — no VPN or SSH tunnel required on the integration team's side. **The tunnel URL is temporary and changes on each restart.** Bruno will provide the active URL directly via secure channel before each test session. Verify availability with `GET <tunnel-url>/api/test/ping` before starting the smoke test sequence.
 
 ---
 
@@ -274,7 +274,56 @@ Content-Type: application/json
 
 ---
 
-### 6.2b Stock Management (Inventory)
+### 6.2b Product Lookup by Internal Code (SKU)
+
+> `[OPERATIONAL]` When the OMS knows the product's internal code (SKU) but not its `id` in Borurio, use this endpoint to resolve the identifier before querying stock.
+
+```
+GET /api/app/produtos/codigo/{codigo}
+Authorization: Bearer {token}
+```
+
+| Parameter | Rule |
+|---|---|
+| `codigo` | Product's internal code (path variable) — the same value registered in `POST /api/app/produtos` |
+
+**Response — HTTP 200:**
+```json
+{
+  "code": 200,
+  "message": "Sucesso",
+  "data": {
+    "id":        7,
+    "empresaId": 1,
+    "codigo":    "PROD-001",
+    "descricao": "Test Integration Product",
+    "ncm":       "84715011",
+    "cfop":      "5102",
+    "unidade":   "UN",
+    "preco":     100.00,
+    "origem":    0,
+    "csosn":     "102",
+    "estado":    1
+  }
+}
+```
+
+> `[CONTRACT]` Save `data.id` for use in the stock query flow.
+
+> `[OPERATIONAL]` Two-step flow validated by the integration team:
+> ```
+> Step 1 — GET /api/app/produtos/codigo/{sku}  → retrieves product + id
+> Step 2 — GET /api/app/produtos/{id}/estoque  → queries stock balance using the returned id
+> ```
+
+**Response — HTTP 404:**
+```json
+{ "code": 404, "message": "Recurso não encontrado", "data": null }
+```
+
+---
+
+### 6.2c Stock Management (Inventory)
 
 > `[CONTRACT]` The fiscal engine controls product inventory with atomic reservations tied to the NF-e issuance cycle. The OMS must verify available stock before submitting an order for issuance.
 
@@ -604,6 +653,79 @@ Authorization: Bearer {token}
 
 ---
 
+### 6.9 Recipient Manifestation (Manifestação do Destinatário)
+
+> `[OPERATIONAL]` Recipient Manifestation is a set of fiscal events sent by the **recipient** of an NF-e to SEFAZ to formally register their position on a received invoice. It is not part of the main OMS → NF-e issuance flow.
+
+```
+POST /api/fiscal/nfe/manifestar
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+**Payload:**
+
+| Field | Type | Rule |
+|---|---|---|
+| `chaveNfe` | String | Required · Exactly 44 numeric digits |
+| `tipoEvento` | String | Required · One of the 4 valid event codes below |
+| `cnpjDestinatario` | String | Required · 14 numeric digits (no formatting) |
+| `xJust` | String | Conditional · Required only for `210240` · Minimum 15 / maximum 255 characters |
+
+**Supported event types:**
+
+| Code | Description |
+|---|---|
+| `210200` | Acknowledgement of the Transaction (Ciência da Operação) |
+| `210210` | Confirmation of the Transaction (Confirmação da Operação) |
+| `210220` | Disclaimer of the Transaction (Desconhecimento da Operação) |
+| `210240` | Transaction Not Completed (Operação Não Realizada) |
+
+> `[EXAMPLE]` Payload for Acknowledgement of Transaction:
+```json
+{
+  "chaveNfe":         "35260554393421000159550010000000351199116560",
+  "tipoEvento":       "210200",
+  "cnpjDestinatario": "54393421000159"
+}
+```
+
+> `[EXAMPLE]` Payload for Transaction Not Completed (xJust required):
+```json
+{
+  "chaveNfe":         "35260554393421000159550010000000351199116560",
+  "tipoEvento":       "210240",
+  "cnpjDestinatario": "54393421000159",
+  "xJust":            "Goods not received by recipient as agreed"
+}
+```
+
+**Success response — HTTP 200:**
+```json
+{
+  "code":    200,
+  "success": true,
+  "data":    "135 - Evento registrado e vinculado a NF-e"
+}
+```
+
+**Error response (invalid data or SEFAZ rejection) — HTTP 200:**
+```json
+{
+  "code":    500,
+  "success": false,
+  "message": "Falha ao registrar manifestação: <error detail>"
+}
+```
+
+> `[CONTRACT]` The `success: false` with `code: 500` indicates SEFAZ rejection or invalid input (malformed key, invalid event type, missing xJust for 210240). The HTTP status always returns 200; the semantic code is in the envelope.
+
+> `[CONTRACT]` Authentication is required. A request without a token returns HTTP 401.
+
+> `[OPERATIONAL]` **HOM Limitation:** the SEFAZ national environment (AN) endpoint may return HTTP 403 from residential/local networks. This is a SEFAZ federal infrastructure behavior, not an API error. The `/manifestar` endpoint will work normally in corporate environments and PRD.
+
+---
+
 ## 7. Order State Machine
 
 > `[CONTRACT]` Valid states and allowed operations per state:
@@ -786,3 +908,4 @@ pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); do
 | 5 | CC-e and cancellation require `nProt` to be available    | Call `/situacao` before cancelling after AGUARDANDO |
 | 6 | Product with `estado=0` is rejected in orders            | Verify `estado` before referencing a product        |
 | 7 | The `ERRO` state is terminal via API                     | Contact support for manual recovery                 |
+| 8 | AN HOM endpoint may return HTTP 403 on local networks    | SEFAZ federal infrastructure limitation — does not affect PRD or the main OMS flow |

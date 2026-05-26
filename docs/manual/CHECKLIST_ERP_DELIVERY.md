@@ -2,8 +2,8 @@
 
 | Atributo          | Valor                         |
 |-------------------|-------------------------------|
-| Versão            | 1.0                           |
-| Data              | 2026-05-18                    |
+| Versão            | 1.1                           |
+| Data              | 2026-05-26                    |
 | Sprint            | 3 (final)                     |
 | Ambiente validado | HOM — `https://hom-api.borurio.com` |
 
@@ -23,6 +23,7 @@
 | Cancelamento NF-e (evento 110111)                                                          | Entregue e validado em HOM |
 | Carta de Correção — CC-e (evento 110110)                                                   | Entregue e validado em HOM |
 | Consulta de situação live (`consSitNFe`)                                                   | Entregue e validado em HOM |
+| Manifestação do Destinatário (eventos 210200/210210/210220/210240 — NT 2012.004)           | Entregue — 26-05-2026 (Fase pós-DANFE) |
 
 ---
 
@@ -41,6 +42,7 @@
 | Logs fiscais             | `/api/fiscal/nfe/logs`                  | Entregue e validado em HOM               |
 | NCM                      | `/api/fiscal/ncm`                       | Entregue e validado em HOM               |
 | DANFE (PDF)              | `/api/fiscal/nfe/{chave}/danfe`         | Entregue — 18-05-2026 (Fase 12-B)        |
+| Manifestação Destinatário| `POST /api/fiscal/nfe/manifestar`       | Entregue — 26-05-2026                    |
 | NF-e legado (deprecated) | `/api/fiscal/nfe`                       | Deprecated — mantido por compatibilidade |
 
 ---
@@ -109,8 +111,8 @@
 
 | Item                                | Estado                           |
 |-------------------------------------|----------------------------------|
-| 75/75 testes passando (borurio-web — 13 controllers cobertos)                 | Passando (20-05-2026) |
-| 33/33 testes passando borurio-fiscal (+ 1 skip esperado: TesteSefazSSL)       | Passando (18-05-2026) |
+| 82/82 testes passando (borurio-web — 14 controllers cobertos; +7 NfeManifestacaoController) | Passando (26-05-2026) |
+| 39/39 testes passando borurio-fiscal (+ 1 skip esperado: TesteSefazSSL)       | Passando (26-05-2026) |
 | Contexto WebMvc isolado por módulo — MockitoExtension para serviços           | Entregue               |
 
 ---
@@ -119,11 +121,11 @@
 
 | Documento                                                         | Estado                                    |
 |-------------------------------------------------------------------|-------------------------------------------|
-| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.4 — 25-05-2026 (contagem Postman corrigida)            |
-| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.4 — 25-05-2026 (contagem Postman corrigida)            |
-| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.2 — 22-05-2026 (estoque + DANFE adicionados)           |
-| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.2 — 22-05-2026 (estoque + DANFE adicionados)           |
-| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | v1.2 — 25-05-2026 (bloco execução local adicionado)       |
+| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.5 — 26-05-2026 (Manifestação + seção 12.5)             |
+| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.5 — 26-05-2026 (Manifestação + seção 12.5)             |
+| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.3 — 26-05-2026 (Manifestação + GET /codigo/{sku})      |
+| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.3 — 26-05-2026 (Manifestação + GET /codigo/{sku})      |
+| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | v1.3 — 26-05-2026 (SKU lookup + Bloco 7B Manifestação)    |
 | Postman collection (10 pastas, 49 requests)                       | Disponível em `docs/postman/`                             |
 | Swagger UI (10 tags, deprecated marcados)                         | Operacional em DEV e HOM                          |
 | Diagramas arquiteturais                                           | Disponíveis em `docs/architecture/`               |

@@ -54,6 +54,12 @@ public class SefazProperties {
      */
     private String recepcaoEvento;
 
+    /**
+     * Endpoint AN (Ambiente Nacional) para Manifestação do Destinatário.
+     * Manifestação sempre vai para o AN independente da UF do emitente.
+     */
+    private String manifestacaoEvento;
+
     public String getAutorizacao() {
         return autorizacao;
     }
@@ -100,5 +106,13 @@ public class SefazProperties {
 
     public void setRecepcaoEvento(String recepcaoEvento) {
         this.recepcaoEvento = recepcaoEvento;
+    }
+
+    public String getManifestacaoEvento() {
+        return manifestacaoEvento;
+    }
+
+    public void setManifestacaoEvento(String manifestacaoEvento) {
+        this.manifestacaoEvento = manifestacaoEvento;
     }
 }

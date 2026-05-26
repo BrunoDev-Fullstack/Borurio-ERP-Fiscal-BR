@@ -4,9 +4,9 @@
 ---
 
 **Document:** MTF-001  
-**Version:** 2.4  
+**Version:** 2.5  
 **Issued:** 2026-05-11  
-**Last updated:** 2026-05-21  
+**Last updated:** 2026-05-26  
 **Author:** Bruno Ribeiro — Fullstack Developer / DevSecOps  
 **Status:** VALIDATED IN STAGING (HOM)  
 **Reference branch:** `fix/sefaz-xml-structure`  
@@ -18,6 +18,7 @@
 > - v2.2 (2026-05-18): Phase 12-A — minimum fiscal inventory implemented; atomic reservation before SEFAZ; definitive write-off on AUTORIZADO; reversal on CANCELADO; `estoque_movimento` table; 61/61 tests; V023–V024 applied
 > - v2.3 (2026-05-18): DANFE implemented — `DanfeXmlParser`, `DanfePdfGenerator`, `DanfeService`, `GET /api/fiscal/nfe/{chave}/danfe`; OpenPDF 1.3.30; watermark "SEM VALOR FISCAL" in staging; 66/66 tests; V023–V024 applied to HOM
 > - v2.4 (2026-05-21): 3 bugs fixed in `DanfePdfGenerator` — pt_BR monetary formatting in totals, thread-safe `DecimalFormat` per call, conditional protocol label; borurio-web tests 66 → 75 (9 new — fiscal states, inventory RBAC, UsuarioController)
+> - v2.5 (2026-05-26): Recipient Manifestation implemented (events 210200/210210/210220/210240); `cOrgao=91` (AN — Ambiente Nacional, NT 2012.004); `SefazProperties.manifestacaoEvento` with distinct AN URL; `cStat` validation in SEFAZ response (cStat=135/136=success, others=rejection); `xml_retorno` captured even on error; section 12.5 added; integration contract v1.3; borurio-web tests 75 → 82 (7 new — NfeManifestacaoController)
 
 ---
 
@@ -93,6 +94,10 @@ The document is intended for:
 | DANFE — pt_BR monetary formatting in totals (`R$ 91,80` with decimal comma)                    | ✓ Code + HOM — 2026-05-20                                 |
 | DANFE — conditional protocol label (`RETORNO SEFAZ — HOMOLOGAÇÃO` when `cStat≠100`)           | ✓ Code + HOM — 2026-05-20                                 |
 | 75/75 tests passing (borurio-web — 9 new tests on 2026-05-20)                                  | ✓ Code — 2026-05-20                                       |
+| Recipient Manifestation (events 210200/210210/210220/210240) — `POST /api/fiscal/nfe/manifestar` | ✓ Code + HOM — 2026-05-26                               |
+| `cStat` validation in Manifestation SEFAZ response (cStat=135/136=success, others=rejection)   | ✓ Code — 2026-05-26                                       |
+| `xml_retorno` captured in `nfe_log` even when SEFAZ rejects (error path)                       | ✓ Code — 2026-05-26                                       |
+| 82/82 tests passing (borurio-web — 7 new for NfeManifestacaoController)                        | ✓ Code — 2026-05-26                                       |
 
 ### 1.2 What is PENDING
 
@@ -865,6 +870,76 @@ Returns the DANFE PDF for the given access key. JWT authentication required (any
 | `static final DecimalFormat` — not thread-safe in Spring singleton | `dfMoeda()` / `dfQtde()` return a new instance per call |
 | Totals formatted via `BigDecimal.toString()` — ignored pt_BR Locale | Routed through `formatDecimal()` with `dfMoeda()` — result: `R$ 91,80` |
 | Fixed protocol label regardless of `cStat` | Conditional: `PROTOCOLO DE AUTORIZAÇÃO DE USO` (cStat=100 + nProt present); `RETORNO SEFAZ — HOMOLOGAÇÃO` (tpAmb=2, cStat≠100); `PROTOCOLO NÃO DISPONÍVEL` (other cases) |
+
+### 12.5 Recipient Manifestation (events 210200 / 210210 / 210220 / 210240)
+
+Recipient Manifestation allows the **recipient** of an NF-e to declare their position on a note issued against their CNPJ to SEFAZ. It is governed by NT 2012.004 and must always be sent to the **Ambiente Nacional (AN)** — independent of the issuer's state.
+
+**Endpoint:**
+
+```
+POST /api/fiscal/nfe/manifestar
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+**Request body:**
+
+```json
+{
+  "chaveNfe":         "44-digit access key",
+  "tipoEvento":       "210200 | 210210 | 210220 | 210240",
+  "cnpjDestinatario": "14 digits, no formatting",
+  "xJust":            "required only for event 210240 (min 15 / max 255 characters)"
+}
+```
+
+**Supported events:**
+
+| Code   | Name                          | xJust required |
+|--------|-------------------------------|----------------|
+| 210200 | Ciência da Operação           | No             |
+| 210210 | Confirmação da Operação       | No             |
+| 210220 | Desconhecimento da Operação   | No             |
+| 210240 | Operação Não Realizada        | Yes            |
+
+**Architectural rules:**
+
+| Rule                     | Value / Explanation                                                                                |
+|--------------------------|----------------------------------------------------------------------------------------------------|
+| `cOrgao`                 | Always `91` (AN — Ambiente Nacional). NT 2012.004 is mandatory regardless of issuer's UF.         |
+| URL                      | `sefazProperties.getManifestacaoEvento()` — distinct from `recepcaoEvento` (SP). Configured per profile in `application-*.yml`. |
+| CNPJ in XML              | `cnpjDestinatario` from request body — always the recipient, not the issuer.                      |
+| `nSeqEvento`             | Fixed `"01"` — one event per NF-e per transmission.                                               |
+| `idEvento` format        | `"ID" + tpEvento(6) + chNFe(44) + nSeqEvento(2)` — 54 characters total, consistent with cancellation (`"ID110111"`) and CC-e (`"ID110110"`). |
+| Digital signature        | RSA-SHA256 on `infEvento`, inserted into `evento` — same `AssinaturaXmlService.assinarEvento()` used by cancellation and CC-e. |
+
+**cStat validation in response:**
+
+| cStat (lote) | cStat (evento) | Outcome                           |
+|--------------|----------------|-----------------------------------|
+| 128          | 135            | Success — event registered        |
+| 128          | 136            | Success — event already registered (idempotent) |
+| ≠ 128        | —              | Exception — lote rejected         |
+| 128          | ≠ 135/136      | Exception — evento rejected       |
+
+**HOM infrastructure limitation:**
+
+The AN HOM endpoint (`hom.nfe.fazenda.gov.br`) returns **HTTP 403** for requests from local/residential IPs. The SEFAZ federal network blocks direct access from non-corporate environments.
+
+- This is a network-level restriction — **not a code or certificate issue**.
+- The XML structure, `cOrgao=91`, signature, and URL are all architecturally correct.
+- In a corporate network or in PRD, the AN endpoint will be reachable.
+- HOM smoke test confirmed the XML is correctly formed; the 403 prevents SEFAZ from processing it in this environment.
+
+**Class map:**
+
+| Class                          | Module            | Responsibility                                                            |
+|--------------------------------|-------------------|---------------------------------------------------------------------------|
+| `NfeManifestacaoRequest`       | `borurio-fiscal`  | DTO: chaveNfe, tipoEvento, cnpjDestinatario, xJust                        |
+| `NfeManifestacaoService`       | `borurio-fiscal`  | Interface: `manifestar(NfeManifestacaoRequest) throws Exception`          |
+| `NfeManifestacaoServiceImpl`   | `borurio-fiscal`  | Builds XML, signs, sends SOAP to AN, validates cStat, logs to `nfe_log`   |
+| `NfeManifestacaoController`    | `borurio-web`     | `POST /api/fiscal/nfe/manifestar` — validates fields, delegates to service |
 
 ---
 

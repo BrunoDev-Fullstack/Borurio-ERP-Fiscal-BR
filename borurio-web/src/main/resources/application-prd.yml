@@ -75,6 +75,7 @@ sefaz:
     status: https://nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx
     inutilizacao: https://nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx
     recepcao-evento: https://nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
+    manifestacao-evento: https://www.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx
 
 fiscal:
   certificate:
