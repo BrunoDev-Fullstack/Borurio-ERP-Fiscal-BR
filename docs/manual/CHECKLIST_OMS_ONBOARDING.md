@@ -104,6 +104,7 @@ Resposta esperada:
 
 | Campo     | Default   |
 |-----------|-----------|
+| `cfop`    | `"5102"`  |
 | `csosn`   | `"400"`   |
 | `estoque` | `0`       |
 

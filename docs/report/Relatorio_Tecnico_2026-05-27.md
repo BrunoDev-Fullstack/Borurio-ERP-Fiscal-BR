@@ -25,7 +25,7 @@ Sessão com quatro eixos:
 3. **Integração CC/Xiao Li:** Quatro dúvidas técnicas respondidas com precisão. Limitação de CFOP no cadastro do produto identificada e imediatamente resolvida (M1).
 4. **Código entregue — M1 + PingFix:** `cfop` tornado opcional no cadastro de produto com default `"5102"`. `PingController` corrigido para retornar `env=hom` corretamente. Rebuild e redeploy HOM executados. 82/82 testes passando.
 
-Commit pendente.
+Commit realizado: `9becd5c fix(produto): torna cfop opcional com default 5102`. Working tree clean.
 
 ---
 
@@ -33,8 +33,8 @@ Commit pendente.
 
 ```
 Branch: fix/sefaz-xml-structure
-Último commit: effe483 — feat(fiscal): adiciona manifestacao do destinatario
-Working tree: 6 arquivos modificados + 1 não rastreado — commit pendente
+Último commit: 9becd5c — fix(produto): torna cfop opcional com default 5102
+Working tree: clean
 ```
 
 Arquivos alterados nesta sessão:
@@ -162,6 +162,8 @@ Registrado em memória persistente (`project_melhorias_backlog.md`):
 | M1 | `cfop` opcional no produto — default `"5102"` | Alta | ~2 linhas | **ENTREGUE** |
 | M2 | `cfop` por item no pedido (override interestadual) | Essencial fase 2 | 2–3h | Pendente |
 | M3 | Rotação de senha do banco HOM | Segurança urgente | 10min | **ENTREGUE** |
+| P4 | Manifestação Destinatário T1/T2/T3/T4 + DANFE visual | Validação HOM | — | **FECHADO** |
+| PingFix | `PingController` — `/api/test/ping` retornando `env=hom` corretamente | Correção | ~2 linhas | **ENTREGUE** |
 | M4 | Invalidação de cache de certificado no `EmpresaController` | Alto | Pequeno | Pendente |
 | M5 | Rate limiting em `POST /api/app/pedidos/{id}/emitir` | Médio | Médio | Pendente |
 | M6 | CI/CD GitHub Actions | Médio | Grande | Pendente |
@@ -189,7 +191,7 @@ Durante execução de `docker exec borurio-web-hom env | Select-String SPRING_DA
 | PRD não alterado | ✓ |
 | Certificado não alterado | ✓ |
 | Nenhuma chamada SEFAZ real executada | ✓ |
-| Commit não executado | ✓ |
+| Commit realizado manualmente pelo responsável técnico | ✓ |
 | Push não executado | ✓ |
 | Incidente de exposição de senha DB documentado | ✓ |
 
@@ -200,8 +202,8 @@ Durante execução de `docker exec borurio-web-hom env | Select-String SPRING_DA
 | Campo | Valor |
 |---|---|
 | Branch | `fix/sefaz-xml-structure` |
-| Último commit | `effe483` — feat(fiscal): adiciona manifestacao do destinatario |
-| Working tree | 6 arquivos modificados + relatório — commit pendente |
+| Último commit | `9becd5c` — fix(produto): torna cfop opcional com default 5102 |
+| Working tree | clean |
 | HOM | UP — JAR com M1 + PingFix + Manifestação em produção — `env=hom` confirmado |
 | Cloudflare tunnel | URL temporária — nova a cada sessão (decisão mantida) |
 | Xiao Li | Confirmou entendimento. Aguardando URL HOM quando for testar. |
@@ -210,8 +212,7 @@ Durante execução de `docker exec borurio-web-hom env | Select-String SPRING_DA
 
 | Prioridade | Ação |
 |---|---|
-| Imediato | Commit das mudanças desta sessão |
-| P2 | Quando CC iniciar testes: gerar URL do tunnel temporário e passar para ele |
+| P1 | Quando CC iniciar testes: gerar URL do tunnel temporário e passar para ele |
 | Backlog | M4: invalidação de cache de certificado no `EmpresaController` |
 | Backlog | M2: `cfop` por item no pedido — necessário apenas para fase 2 (interestadual) |
 
