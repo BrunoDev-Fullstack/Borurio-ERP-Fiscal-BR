@@ -220,7 +220,7 @@ Content-Type: application/json
 | `codigo`    | String  | Required · Max 60 chars · Unique per company             |
 | `descricao` | String  | Required · Max 120 chars                                 |
 | `ncm`       | String  | Required · Exactly 8 numeric digits                      |
-| `cfop`      | String  | Required · Exactly 4 numeric digits                      |
+| `cfop`      | String  | Optional · 4 numeric digits · defaults to `"5102"` (intra-state) if omitted |
 | `unidade`   | String  | Required · E.g.: `UN`, `KG`, `PC`, `CX`                  |
 | `preco`     | Decimal | Required · Value > 0.01                                  |
 | `origem`    | Integer | Required · `0`=Domestic · `1` to `8`=Imported            |

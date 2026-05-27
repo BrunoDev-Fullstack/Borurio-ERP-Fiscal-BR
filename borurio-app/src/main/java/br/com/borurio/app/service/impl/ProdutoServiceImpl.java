@@ -68,6 +68,7 @@ public class ProdutoServiceImpl implements ProdutoService {
 
     @Override
     public Produto salvar(Produto produto) {
+        aplicarDefaultsFiscais(produto);
         validar(produto);
         Produto existenteCodigo = produto.getEmpresaId() != null
                 ? produtoMapper.buscarPorCodigoEEmpresa(produto.getCodigo(), produto.getEmpresaId())
@@ -76,7 +77,6 @@ public class ProdutoServiceImpl implements ProdutoService {
             throw new IllegalArgumentException("Já existe um produto com o código: " + produto.getCodigo());
         }
         produto.setEstado(1);
-        aplicarDefaultsFiscais(produto);
         produtoMapper.inserir(produto);
         return produto;
     }
@@ -92,11 +92,11 @@ public class ProdutoServiceImpl implements ProdutoService {
                 throw new IllegalArgumentException("Já existe outro produto com o código: " + produto.getCodigo());
             }
         }
+        aplicarDefaultsFiscais(produto);
         validar(produto);
         produto.setId(id);
         produto.setEmpresaId(existente.getEmpresaId());
         produto.setEstado(existente.getEstado());
-        aplicarDefaultsFiscais(produto);
         produtoMapper.atualizar(produto);
         return produtoMapper.buscarPorId(id);
     }
@@ -125,6 +125,7 @@ public class ProdutoServiceImpl implements ProdutoService {
     private void aplicarDefaultsFiscais(Produto p) {
         if (p.getOrigem() == null) p.setOrigem(0);
         if (p.getCsosn() == null || p.getCsosn().isBlank()) p.setCsosn("400");
+        if (p.getCfop() == null || p.getCfop().isBlank()) p.setCfop("5102");
         if (p.getEstoque() == null) p.setEstoque(java.math.BigDecimal.ZERO);
     }
 

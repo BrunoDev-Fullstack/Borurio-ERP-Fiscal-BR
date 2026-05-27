@@ -91,7 +91,7 @@ Resposta esperada:
 | `codigo`    | string  | obrigatório, não vazio            |
 | `descricao` | string  | obrigatório, não vazio            |
 | `ncm`       | string  | obrigatório, exatamente 8 dígitos |
-| `cfop`      | string  | obrigatório, exatamente 4 dígitos |
+| `cfop`      | string  | opcional · default `"5102"` se omitido |
 | `unidade`   | string  | obrigatório, não vazio            |
 | `preco`     | decimal | obrigatório, mínimo 0.01          |
 | `origem`    | integer | obrigatório                       |

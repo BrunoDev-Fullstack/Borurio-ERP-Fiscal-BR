@@ -27,8 +27,7 @@ public class Produto {
     @Size(min = 8, max = 8, message = "NCM deve conter 8 dígitos")
     private String ncm;
 
-    @NotBlank(message = "CFOP é obrigatório")
-    @Size(min = 4, max = 4, message = "CFOP deve conter 4 dígitos")
+    // cfop é opcional no cadastro — default "5102" (intra-estado) aplicado em ProdutoServiceImpl
     private String cfop;
 
     @NotBlank(message = "Unidade comercial é obrigatória")

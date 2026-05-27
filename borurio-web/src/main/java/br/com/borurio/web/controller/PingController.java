@@ -38,7 +38,7 @@ import java.util.Map;
 @Tag(name = "Utilitários", description = "Healthcheck e endpoints auxiliares de diagnóstico")
 public class PingController {
 
-    @Value("${spring.profiles.active:default}")
+    @Value("${app.profile:dev}")
     private String activeProfile;
 
     /**

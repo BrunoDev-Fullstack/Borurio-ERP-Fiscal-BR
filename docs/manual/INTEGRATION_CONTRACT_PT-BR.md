@@ -218,7 +218,7 @@ Content-Type: application/json
 | `codigo` | String | Obrigatório · Máx 60 chars · Único por empresa |
 | `descricao` | String | Obrigatório · Máx 120 chars |
 | `ncm` | String | Obrigatório · Exatamente 8 dígitos numéricos |
-| `cfop` | String | Obrigatório · Exatamente 4 dígitos numéricos |
+| `cfop` | String | Opcional · 4 dígitos numéricos · default `"5102"` (intra-estado) se omitido |
 | `unidade` | String | Obrigatório · Ex: `UN`, `KG`, `PC`, `CX` |
 | `preco` | Decimal | Obrigatório · Valor > 0.01 |
 | `origem` | Inteiro | Obrigatório · `0`=Nacional · `1` a `8`=Importada |
