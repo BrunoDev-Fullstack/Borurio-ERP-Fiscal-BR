@@ -2,7 +2,7 @@
 
 | Atributo               | Valor                              |
 |------------------------|------------------------------------|
-| Versão                 | 1.1                                |
+| Versão                 | 1.2                                |
 | Data                   | 2026-06-01                         |
 | Ambiente de referência | HOM — URL temporária por sessão (Cloudflare Tunnel) |
 | Relacionado a          | `CHECKLIST_OMS_ONBOARDING.md`      |
@@ -147,6 +147,108 @@ Formato de resposta de erro de negócio:
 ```
 
 **Atenção:** Respostas de sucesso não contêm o campo `errorCode`. Apenas verifique esse campo quando o HTTP status for 4xx.
+
+---
+
+---
+
+**10. O endpoint `/batch` retornou HTTP 207. É normal mesmo que todos os itens tenham sido criados com sucesso?**
+
+Sim. O endpoint `POST /api/app/produtos/batch` retorna **sempre HTTP 207 Multi-Status**, independentemente do resultado. Isso inclui os casos em que todos os itens foram criados, todos atualizados, ou todos rejeitados. Não trate HTTP 207 como erro — verifique o resultado de cada item em `resultados[].status`.
+
+O critério correto de PASS para o smoke test é:
+- HTTP 207 recebido ✓
+- `criados` e/ou `atualizados` > 0 ✓
+- `resultados[n].produtoId` preenchido para itens CRIADO/ATUALIZADO ✓
+
+---
+
+**11. Um item do lote foi rejeitado com `status: "REJEITADO"`. Os outros itens ainda foram processados?**
+
+Sim. O batch processa cada item de forma independente. Um item rejeitado não bloqueia os demais. O campo `rejeitados` na raiz da resposta indica quantos itens foram rejeitados, e cada entrada em `resultados[]` mostra o resultado individual.
+
+Para identificar o motivo da rejeição, use `resultados[n].errorCode`:
+
+| `errorCode`                  | Causa                                                      | Ação sugerida                                 |
+|------------------------------|------------------------------------------------------------|-----------------------------------------------|
+| `VALIDATION_ERROR`           | NCM inválido, campo obrigatório vazio, preço ≤ 0           | Corrigir o item e reenviar somente ele        |
+| `DUPLICATE_CODIGO_IN_BATCH`  | O mesmo `codigo` apareceu mais de uma vez no mesmo payload | Remover duplicata e reenviar                  |
+
+---
+
+**12. O que acontece se o mesmo `codigo` aparecer duas vezes no mesmo payload do batch?**
+
+A primeira ocorrência é processada normalmente (CRIADO ou ATUALIZADO). A segunda ocorrência é imediatamente rejeitada com `errorCode: "DUPLICATE_CODIGO_IN_BATCH"`, sem nenhuma tentativa de processamento.
+
+Exemplo de resposta:
+```json
+{
+  "total": 2, "criados": 1, "atualizados": 0, "rejeitados": 1,
+  "resultados": [
+    { "codigo": "SKU-001", "status": "CRIADO",    "produtoId": 42 },
+    { "codigo": "SKU-001", "status": "REJEITADO", "produtoId": null, "errorCode": "DUPLICATE_CODIGO_IN_BATCH", "message": "Código duplicado no mesmo lote." }
+  ]
+}
+```
+
+---
+
+**13. O batch upsert altera o estoque do produto quando atualiza um produto existente?**
+
+Não. O upsert via batch nunca toca em `estoque`, `estoque_reservado` ou `estado`. Somente os campos de catálogo são atualizados: `descricao`, `ncm`, `cfop`, `unidade`, `preco`, `origem` e `csosn`.
+
+Para gerenciar estoque, use:
+```
+POST /api/app/produtos/{id}/estoque/entrada    ← requer role ADMIN
+GET  /api/app/produtos/{id}/estoque            ← consulta saldo atual
+```
+
+---
+
+**14. O que é o header `X-Request-Id` e como usá-lo para diagnóstico?**
+
+Toda resposta da API inclui o header `X-Request-Id` com um UUID que identifica unicamente a requisição nos logs do servidor. Ele pode ser usado para correlacionar logs do OMS com logs do servidor ao investigar um problema.
+
+**Dois modos de uso:**
+
+1. **Gerado automaticamente:** Se a OMS não enviar o header, o servidor gera um UUID e o retorna na resposta. Guarde esse valor ao reportar um problema.
+
+2. **Fornecido pela OMS:** A OMS pode enviar seu próprio ID de correlação:
+   ```
+   POST /api/app/produtos/batch
+   X-Request-Id: oms-batch-20260601-001
+   ```
+   O mesmo valor será retornado no header de resposta e aparecerá em todos os logs do servidor para aquela requisição.
+
+**Atenção:** O `X-Request-Id` está presente inclusive em respostas HTTP 401 — permitindo correlacionar tentativas de autenticação falhas com os logs do servidor.
+
+Respostas de erro de negócio também incluem `requestId` no corpo JSON:
+```json
+{
+  "code":      422,
+  "errorCode": "BATCH_LIMIT_EXCEEDED",
+  "requestId": "oms-batch-20260601-001"
+}
+```
+
+---
+
+**15. O batch retornou HTTP 422 com `errorCode: "BATCH_LIMIT_EXCEEDED"`. O que fazer?**
+
+O limite máximo é de **200 produtos por requisição**. Quando excedido, o servidor retorna HTTP 422 antes de processar qualquer item.
+
+Resposta de erro:
+```json
+{
+  "code":      422,
+  "message":   "O lote excede o limite máximo de 200 produtos por requisição.",
+  "data":      null,
+  "errorCode": "BATCH_LIMIT_EXCEEDED",
+  "requestId": "<uuid>"
+}
+```
+
+Para contornar: dividir o catálogo em lotes de até 200 itens e enviar cada lote em uma requisição separada. Não há exigência de delay entre requisições, mas é recomendável processar os lotes sequencialmente para simplificar o tratamento de erros.
 
 ---
 

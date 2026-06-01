@@ -10,21 +10,23 @@ Bruno Ribeiro
 `fix/sefaz-xml-structure`
 
 ## Ambiente de validação
-- HOM: UP — Flyway `v024` — MySQL UP — porta 8081
-- Acesso externo: Cloudflare Quick Tunnel temporário (`trycloudflare.com`) — URL regenerada no início da sessão
+- HOM: UP — Flyway `v026` — MySQL UP — porta 8081
+- Acesso externo: `https://hom-api.borurio.com` (Cloudflare Tunnel)
 - DEV: UP (porta 8080, não tocado nesta sessão)
 
 ---
 
 ## 1. Resumo executivo
 
-Sessão com dois eixos principais:
+Sessão com três entregas principais, todas validadas em HOM:
 
-1. **Integração CC/Xiao Li — Quatro dúvidas técnicas:** Respondidas com precisão antes de qualquer implementação. Temas: campos presentes no DANFE, idempotência no `POST /pedidos`, estabilidade da URL HOM, batch de emissões e distinção de `errorCode` por cenário de erro 422. Confirmação de segurança do ambiente local CC (`tpAmb`, `.env`, certificado gitignoreados).
+1. **Fase 2 — Observabilidade e resiliência:** Implementação de `RequestIdFilter` com rastreamento por `X-Request-Id` em todas as respostas (incluindo HTTP 401). Melhoria de logging MDC com `requestId` nos padrões `logback-dev`, `logback-hom` e `logback-prd`. Testes: 87/87. Commit: `e9dac4e`.
 
-2. **Fase 1 — `externalOrderId` + `errorCode`:** Implementação completa de idempotência por `externalOrderId` (MySQL UNIQUE KEY por empresa) e de `errorCode` padronizado para erros de negócio (`PRODUCT_NOT_FOUND`, `PRODUCT_INACTIVE`, `INSUFFICIENT_STOCK`, `INVALID_ORDER_STATUS`). Cobertura de testes: 87/87 passando (borurio-web: 20/20, borurio-fiscal: 33/33, outros módulos: 34/34). Documentação atualizada: contratos PT-BR e EN, checklist onboarding e FAQ smoke test. Relatório técnico criado.
+2. **P0 + Batch de Produtos — Endpoint de upsert em lote:** Correção da chave única de produto (V026 migration: `UNIQUE KEY (empresa_id, codigo)` substituindo `UNIQUE KEY (codigo)` global). Implementação do endpoint `POST /api/app/produtos/batch` com resposta HTTP 207 Multi-Status, suporte a CRIADO/ATUALIZADO/REJEITADO por item e 9 novos testes unitários. Testes: 96/96. Commit: `0abd08b`.
 
-Commit pendente: será realizado manualmente pelo responsável técnico ao finalizar a revisão.
+3. **Deploy e smoke test em HOM:** V026 aplicada pelo Flyway com sucesso. Smoke test de 10 itens concluído — todos PASS.
+
+4. **Documentação:** Contratos EN e PT-BR atualizados para v1.4, checklist para v1.5, FAQ para v1.2 e relatório técnico consolidado.
 
 ---
 
@@ -32,115 +34,233 @@ Commit pendente: será realizado manualmente pelo responsável técnico ao final
 
 ```
 Branch: fix/sefaz-xml-structure
-Último commit: 9becd5c — fix(produto): torna cfop opcional com default 5102
-Working tree: arquivos alterados não commitados (Fase 1 completa)
+Commits locais (não publicados): bfaca56, e9dac4e, 0abd08b
+Último commit commitado por Bruno: 0abd08b — feat(produto): adiciona batch upsert para integracao oms
+Working tree: documentação atualizada — commit pendente (a ser realizado manualmente pelo responsável técnico)
 ```
 
-Arquivos alterados nesta sessão:
+### Commits desta sessão
+
+| Commit    | Descrição                                                   | Autor  |
+|-----------|-------------------------------------------------------------|--------|
+| `e9dac4e` | feat(observability): adiciona requestId e melhora resiliencia de pedidos | Bruno |
+| `0abd08b` | feat(produto): adiciona batch upsert para integracao oms    | Bruno  |
+
+### Arquivos alterados na sessão (por commit)
+
+**Commit `e9dac4e` — Fase 2 (Observabilidade):**
 
 | Arquivo | Motivo |
 |---|---|
-| `borurio-web/src/main/resources/sql/migration/V025__pedido_add_external_order_id.sql` | Fase 1 — nova coluna e UNIQUE KEY `(empresa_id, external_order_id)` |
-| `borurio-app/.../exception/BusinessException.java` | Fase 1 — nova exceção com `errorCode` e `httpStatus`; factory methods |
-| `borurio-app/.../entity/Pedido.java` | Fase 1 — campo `externalOrderId` |
-| `borurio-app/.../mapper/PedidoMapper.java` | Fase 1 — SELECT, INSERT e query por `externalOrderId` |
-| `borurio-app/.../service/impl/PedidoServiceImpl.java` | Fase 1 — idempotência no `criar()` e `BusinessException` em `resolverProduto()` |
-| `borurio-app/.../service/impl/EstoqueServiceImpl.java` | Fase 1 — `BusinessException` substituindo `IllegalStateException` em `reservarItens()` |
-| `borurio-web/.../service/PedidoEmissaoService.java` | Fase 1 — `BusinessException.invalidOrderStatus()` no estado RASCUNHO |
-| `borurio-web/.../service/PedidoOperacaoService.java` | Fase 1 — `BusinessException.invalidOrderStatus()` em `cancelar()` e `emitirCce()` |
-| `borurio-web/.../exception/GlobalExceptionHandler.java` | Fase 1 — handler `BusinessException` retornando `errorCode` no envelope |
-| `borurio-web/.../dto/PedidoResponse.java` | Fase 1 — campo `externalOrderId` |
-| `borurio-web/.../controller/PedidoControllerTest.java` | Fase 1 — 5 novos testes (total: 20); todos passando |
-| `docs/manual/INTEGRATION_CONTRACT_EN.md` | v1.3 → v1.4 — `externalOrderId`, idempotência, seção 8.2a `errorCode` |
-| `docs/manual/INTEGRATION_CONTRACT_PT-BR.md` | v1.3 → v1.4 — mesmas mudanças em português |
-| `docs/manual/CHECKLIST_OMS_ONBOARDING.md` | v1.3 → v1.4 — `externalOrderId` no Bloco 4, testes de idempotência e `errorCode` |
-| `docs/manual/FAQ_SMOKE_TEST_OMS.md` | v1.0 → v1.1 — FAQ 8 (`externalOrderId`) e FAQ 9 (`errorCode`) |
-| `docs/report/Relatorio_Tecnico_2026-06-01.md` | Relatório técnico desta sessão |
+| `borurio-web/src/main/java/.../filter/RequestIdFilter.java` | Novo — `OncePerRequestFilter` com `@Order(HIGHEST_PRECEDENCE)`; gera ou reutiliza `X-Request-Id`; popula MDC com `requestId` |
+| `borurio-web/src/main/java/.../exception/GlobalExceptionHandler.java` | Melhorado — handler `IllegalArgumentException` (HTTP 400); `requestId` no envelope de erro lido do MDC |
+| `borurio-web/src/main/java/.../service/PedidoOperacaoService.java` | Melhorado — `BusinessException.invalidOrderStatus()` com `errorCode` em `cancelar()` e `emitirCce()` |
+| `borurio-app/src/main/java/.../service/impl/PedidoServiceImpl.java` | Melhorado — resiliência na camada de serviço |
+| `borurio-web/src/main/resources/logback-dev.xml` | Atualizado — padrão MDC: `[%X{requestId:-no-rid}]` |
+| `borurio-web/src/main/resources/logback-hom.xml` | Atualizado — padrão MDC: `[%X{requestId:-no-rid}]` |
+| `borurio-web/src/main/resources/logback-prd.xml` | Atualizado — padrão MDC: `[%X{requestId:-no-rid}]` |
+
+**Commit `0abd08b` — P0 + Batch de Produtos:**
+
+| Arquivo | Motivo |
+|---|---|
+| `borurio-web/src/main/resources/sql/migration/V026__produto_unique_key_empresa_codigo.sql` | Migração P0 — `DROP INDEX uq_produto_codigo` + `ADD UNIQUE KEY uq_produto_codigo_empresa (empresa_id, codigo)` |
+| `borurio-app/src/main/java/.../entity/ProdutoBatchItemResultado.java` | Nova entidade — enum Status (CRIADO/ATUALIZADO/REJEITADO) + factory methods |
+| `borurio-web/src/main/java/.../dto/ProdutoBatchRequest.java` | Novo DTO — sem `@Valid` nos itens (validação por item no service) |
+| `borurio-web/src/main/java/.../dto/ProdutoBatchResponse.java` | Novo DTO — `total`, `criados`, `atualizados`, `rejeitados`, `resultados[]`; factory `from()` |
+| `borurio-app/src/main/java/.../exception/BusinessException.java` | Modificado — adicionado factory method `batchLimitExceeded()` (HTTP 422) |
+| `borurio-app/src/main/java/.../mapper/ProdutoMapper.java` | Modificado — adicionado `atualizarBatch()` (não atualiza: `codigo`, `estoque`, `estoque_reservado`, `estado`) |
+| `borurio-app/src/main/java/.../service/ProdutoService.java` | Modificado — adicionado `batchUpsert()` na interface |
+| `borurio-app/src/main/java/.../service/impl/ProdutoServiceImpl.java` | Modificado — implementação `batchUpsert()` com `LinkedHashSet` para detecção de duplicatas |
+| `borurio-web/src/main/java/.../controller/app/ProdutoController.java` | Modificado — `POST /api/app/produtos/batch` → HTTP 207 Multi-Status |
+| `borurio-web/src/test/java/.../controller/ProdutoBatchControllerTest.java` | Novo — 9 testes unitários; todos passando |
 
 ---
 
-## 3. Integração CC/Xiao Li — Dúvidas do dia
+## 3. Análise da mensagem do CC/Xiao Li
 
-### 3.1 Dúvida 1 — Campos presentes no DANFE
-
-CC perguntou quais campos do payload do pedido aparecem no PDF do DANFE. Resposta: o DANFE é gerado a partir da NF-e autorizada pela SEFAZ, não diretamente do payload da API. O conteúdo relevante são: dados do emitente (configurados no sistema), dados do destinatário (`destCnpjCpf`, `destRazaoSocial`, `destUf`, campos de endereço), itens (snapshot fiscal com NCM, CFOP, CSOSN, unidade, descrição, quantidade, valor), totais fiscais calculados pelo motor (vBC, vICMS, vNF, etc.) e dados de transporte (`modFrete`, dados da transportadora se enviados).
-
-### 3.2 Dúvida 2 — Idempotência no `POST /pedidos`
-
-CC identificou ausência de proteção contra duplicação de pedidos em caso de retry por timeout de rede. Solução discutida: campo `externalOrderId` opcional no payload — a OMS envia seu ID interno; o Borurio retorna o pedido existente se o mesmo `(empresa_id, external_order_id)` já existir. Implementado na Fase 1 desta sessão.
-
-### 3.3 Dúvida 3 — URL permanente do HOM e batch de emissões
-
-CC perguntou sobre a URL permanente do HOM (atualmente Cloudflare Quick Tunnel temporário por sessão) e sobre suporte a batch de emissões. Respostas: (a) URL permanente é decisão de infraestrutura pendente de Bruno/Bless — não é responsabilidade do time de integração; (b) não existe endpoint de batch — o fluxo correto é `POST /emitir` por pedido, paralelizável no lado do OMS com controle de concorrência.
-
-### 3.4 Dúvida 4 — `errorCode` distinto por cenário 422
-
-CC solicitou distinção programática entre os diferentes cenários que retornam HTTP 422, para que o OMS possa tratar cada caso separadamente sem depender de parse de mensagem em português. Implementado na Fase 1 com o padrão `BusinessException` + campo `errorCode` no envelope de erro.
-
-### 3.5 Confirmação de segurança do ambiente local CC
-
-Verificado que `.env.dev`, `.env.hom` e `certificado-jcho.pfx` estão no `.gitignore` — CC não pode obter credenciais do repositório. Solicitado a CC que confirme: `NFE_TPAMB=2` no `.env` local (nunca emitir em modo `tpAmb=1` fora de PRD), uso do template `docker/env/.env.dev.template` para preencher variáveis.
+CC confirmou que a semântica de upsert era a esperada (produto novo → inserir; existente → atualizar) e encerrou a sessão. Nenhuma pendência aberta pelo time chinês. Próxima comunicação: informar que `POST /api/app/produtos/batch` está disponível em HOM após documentação finalizada.
 
 ---
 
-## 4. Fase 1 — Implementação técnica
+## 4. Fase 2 — Observabilidade e resiliência
 
-### 4.1 `externalOrderId` — Idempotência
+### 4.1 RequestIdFilter
 
-**Mecanismo:** MySQL UNIQUE KEY `uq_pedido_external_order (empresa_id, external_order_id)`. MySQL 8.x trata múltiplos `NULL` como valores distintos em índice UNIQUE — pedidos sem `externalOrderId` nunca colidem entre si.
+**Mecanismo:** `OncePerRequestFilter` com `@Order(Ordered.HIGHEST_PRECEDENCE)` — executa antes do filtro Spring Security (order -100). Lê `X-Request-Id` do header da requisição; se ausente ou em branco, gera `UUID.randomUUID()`. Popula `MDC.put("requestId", value)` e escreve `response.setHeader("X-Request-Id", value)`. Remove do MDC no bloco `finally` (garantia mesmo em exceção).
 
-**Fluxo no `criar()`:**
-1. Se `externalOrderId` não nulo/blank e `empresaId` não nulo → consulta `PedidoMapper.buscarPorExternalOrderIdEEmpresa()`.
-2. Se encontrado: carrega itens e retorna pedido existente (sem inserção).
-3. Se não encontrado: fluxo normal de criação.
+**Resultado:** `X-Request-Id` presente em **todas** as respostas, incluindo HTTP 401 — permitindo à OMS correlacionar tentativas de autenticação com logs do servidor.
 
-**Migração:** `V025__pedido_add_external_order_id.sql` — `ADD COLUMN external_order_id VARCHAR(100) NULL` + `ADD UNIQUE KEY`. Sintaxe MySQL 8.x pura (sem `IF NOT EXISTS`).
+**Confirmado em HOM:** Header presente na resposta HTTP 401 de endpoint sem token.
 
-### 4.2 `errorCode` — Distinção de erros de negócio
+### 4.2 Logging MDC
 
-**Padrão:** `BusinessException extends RuntimeException` com campos `errorCode: String` e `httpStatus: int`. Factory methods estáticos para cada cenário.
+Padrão de log atualizado nos três perfis:
+```
+%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{requestId:-no-rid}] %-5level %logger{36} - %msg%n
+```
 
-**Handler:** `GlobalExceptionHandler.handleBusiness()` retorna `Map<String, Object>` (não `Result<T>`) para garantir que o campo `errorCode` apareça apenas nas respostas de erro — respostas de sucesso nunca recebem `errorCode`.
+O marcador `no-rid` aparece apenas em logs gerados fora do ciclo HTTP (ex: startup). Logs de requisições sempre terão o UUID.
 
-**Decisão de módulo:** `BusinessException` reside em `borurio-app.exception` — acessível por `borurio-app` (serviços) e `borurio-web` (handler e services da camada web) sem criar dependência circular.
+### 4.3 GlobalExceptionHandler
 
-| `errorCode`            | Lançado por                                     | Cenário                                |
-|------------------------|-------------------------------------------------|----------------------------------------|
-| `PRODUCT_NOT_FOUND`    | `PedidoServiceImpl.resolverProduto()`           | `produtoId` não existe no banco        |
-| `PRODUCT_INACTIVE`     | `PedidoServiceImpl.resolverProduto()`           | Produto com `estado=0`                 |
-| `INSUFFICIENT_STOCK`   | `EstoqueServiceImpl.reservarItens()`            | `qtd > estoqueDisponivel`              |
-| `INVALID_ORDER_STATUS` | `PedidoEmissaoService`, `PedidoOperacaoService` | Operação não permitida no status atual |
+- `IllegalArgumentException` → HTTP 400 (handler `handleBadRequest`) — novo
+- `BusinessException` → httpStatus da exceção + `errorCode` no envelope
+- `MethodArgumentNotValidException` → HTTP 422 com mapa de erros em `data`
+- Todos os handlers lêem `MDC.get("requestId")` e incluem `requestId` no corpo do erro de negócio
 
-### 4.3 Cobertura de testes
+---
+
+## 5. P0 — Correção da chave única de produto
+
+### 5.1 Problema
+
+`V009` criou `UNIQUE KEY uq_produto_codigo (codigo)` globalmente — sem partição por empresa. `V017` adicionou `empresa_id` à tabela mas não corrigiu a chave. O resultado: duas empresas distintas não poderiam ter o mesmo código de produto, violando o modelo multiempresa.
+
+### 5.2 Solução
+
+`V026__produto_unique_key_empresa_codigo.sql`:
+```sql
+ALTER TABLE produto DROP INDEX uq_produto_codigo;
+ALTER TABLE produto ADD UNIQUE KEY uq_produto_codigo_empresa (empresa_id, codigo);
+```
+
+Verificado antes da aplicação: 4 produtos em HOM, todos `empresa_id=1`, sem duplicatas de `codigo` — sem risco de conflito.
+
+### 5.3 Aplicação em HOM
+
+Flyway aplicou V026 com sucesso: `Successfully applied 1 migration to schema 'borurio_fiscal_hom', now at version v026`.
+
+---
+
+## 6. Batch de Produtos — Implementação técnica
+
+### 6.1 Endpoint
+
+```
+POST /api/app/produtos/batch
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+Sempre retorna HTTP 207 Multi-Status. Nunca HTTP 200 por item individual.
+
+### 6.2 Validação sem `@Valid`
+
+A escolha deliberada de não usar `@Valid` nos itens de `ProdutoBatchRequest` garante sucesso parcial: um item com `ncm` inválido é rejeitado sem bloquear os demais. A validação acontece por item no `ProdutoServiceImpl.batchUpsert()`, com `try/catch` que mapeia `IllegalArgumentException` → `VALIDATION_ERROR` e `Exception` → `INTERNAL_ERROR`.
+
+### 6.3 Detecção de duplicatas no payload
+
+`LinkedHashSet<String> processados` rastreia códigos já vistos. Primeira ocorrência: `processados.add(codigo)` retorna `true` → processamento normal. Segunda+ ocorrência: retorna `false` → `REJEITADO / DUPLICATE_CODIGO_IN_BATCH` imediatamente, sem consulta ao banco.
+
+### 6.4 Campos preservados no upsert
+
+`atualizarBatch()` só toca campos de catálogo: `descricao`, `ncm`, `cfop`, `unidade`, `preco`, `origem`, `csosn`. Preserva: `codigo`, `estoque`, `estoque_reservado`, `estado`.
+
+### 6.5 Defaults aplicados (service layer)
+
+| Campo   | Default  | Condição                        |
+|---------|----------|---------------------------------|
+| `cfop`  | `"5102"` | `null` ou em branco             |
+| `csosn` | `"400"`  | `null` ou em branco             |
+| `origem`| `0`      | `null`                          |
+| `estoque`| `0`     | `null` (apenas no INSERT)       |
+
+### 6.6 ErrorCodes adicionados
+
+| `errorCode`                  | HTTP   | Trigger                                                             |
+|------------------------------|--------|---------------------------------------------------------------------|
+| `VALIDATION_ERROR`           | 207    | Item com dado inválido no batch                                     |
+| `BATCH_LIMIT_EXCEEDED`       | 422    | Mais de 200 itens na requisição                                     |
+| `DUPLICATE_CODIGO_IN_BATCH`  | 207    | Mesmo `codigo` aparece mais de uma vez no payload                   |
+
+### 6.7 Cobertura de testes
 
 | Módulo | Testes | Status |
 |---|---|---|
-| `borurio-web` (`PedidoControllerTest`) | 20/20 (eram 15) | Todos passando |
+| `borurio-web` (`ProdutoBatchControllerTest`) | 9 (novos) | Todos passando |
+| `borurio-web` (total incluindo anteriores) | 29/29 | Todos passando |
 | `borurio-fiscal` | 33/33 | Todos passando |
 | Demais módulos | 34/34 | Todos passando |
-| **Total** | **87/87** | **Todos passando** |
+| **Total** | **96/96** | **Todos passando** |
 
-Novos testes adicionados:
-- `criar_comExternalOrderId_retornaExternalOrderIdNaResposta`
-- `criar_estoqueInsuficiente_returns422ComErrorCode`
-- `criar_produtoInativo_returns422ComErrorCode`
-- `criar_produtoNaoEncontrado_returns422ComErrorCode`
-- `emitir_pedidoNaoRascunho_returns422ComErrorCode`
+Testes adicionados:
+- `batchUpsert_listaVazia_returns400`
+- `batchUpsert_limiteExcedido_returns422`
+- `batchUpsert_produtoNovo_returns207Criado`
+- `batchUpsert_produtoExistente_returns207Atualizado`
+- `batchUpsert_produtoInvalido_returns207Rejeitado`
+- `batchUpsert_loteMisto_returns207ComContagens`
+- `batchUpsert_codigoDuplicadoNoBatch_returns207ComRejeicao`
+- `batchUpsert_semToken_returns401`
+- `batchUpsert_update_preservaEstoqueEEstado`
 
 ---
 
-## 5. Documentação atualizada
+## 7. Deploy HOM
+
+### 7.1 Sequência executada
+
+1. `mvn clean package -DskipTests` (build do JAR)
+2. `docker compose ... up -d --no-deps --build borurio-web-hom` (apenas o container web, sem recriar dependências)
+3. Healthcheck até `healthy` via `docker inspect`
+4. Verificação Flyway: `v026` aplicada com sucesso
+
+### 7.2 Resultado
+
+```
+Flyway: Successfully applied 1 migration to schema 'borurio_fiscal_hom', now at version v026
+Container: borurio-web-hom → status healthy
+Environment: hom — porta 8081 — Cloudflare Tunnel ativo
+```
+
+---
+
+## 8. Smoke Test HOM — 01/06/2026
+
+### 8.1 Sequência de validação executada
+
+| # | Requisição | Resultado | Status |
+|---|---|---|---|
+| 1 | `GET /api/test/ping` | HTTP 200 · `status="UP"` · `environment="hom"` | PASS |
+| 2 | `POST /auth/login` | HTTP 200 · `token` presente | PASS |
+| 3 | `POST /api/app/produtos` (produto individual) | HTTP 200 · `data.id` retornado | PASS |
+| 4 | `GET /api/app/produtos?page=0&size=5` | HTTP 200 · `totalElements ≥ 1` | PASS |
+| 5 | `POST /api/app/pedidos` | HTTP 200 · `data.status="RASCUNHO"` | PASS |
+| 6 | `POST /api/app/pedidos/{id}/emitir` | HTTP 200 · `data.soapRetorno` não vazio · `chaveNfe` 44 dígitos | PASS |
+| 7 | `GET /api/app/pedidos/{id}/situacao` | HTTP 200 · `data.chaveNfe` preenchida | PASS |
+| 8 | `GET /api/app/pedidos/{id}` | HTTP 200 · `data.itens` com snapshot fiscal | PASS |
+| 9 | `POST /api/app/produtos/batch` (produto novo) | HTTP 207 · `criados=1` · `status="CRIADO"` | PASS |
+| 10 | `POST /api/app/produtos/batch` (mesmo produto) | HTTP 207 · `atualizados=1` · `status="ATUALIZADO"` | PASS |
+
+### 8.2 Validações de segurança
+
+| Verificação | Resultado | Status |
+|---|---|---|
+| Request sem token → HTTP 401 com `X-Request-Id` no header | Confirmado | PASS |
+| `X-Request-Id` presente em todas as respostas | Confirmado | PASS |
+| Produto existente: batch não altera `estoque` nem `estado` | Confirmado | PASS |
+| Lista vazia → HTTP 400 | Confirmado | PASS |
+
+### 8.3 Comportamento HOM-SP
+
+`cStat=225` no `soapRetorno` do `/emitir` — comportamento normal do schema `SP_NFE_PL_008i2`. Pedido em `AGUARDANDO`. Não ocorrerá em PRD.
+
+---
+
+## 9. Documentação atualizada
 
 | Documento | Versão antes | Versão após | Mudanças |
 |---|---|---|---|
-| `INTEGRATION_CONTRACT_EN.md` | 1.3 | 1.4 | `externalOrderId` na tabela de campos, notas de idempotência, seção 8.2a `errorCode` |
-| `INTEGRATION_CONTRACT_PT-BR.md` | 1.3 | 1.4 | Idem, em português |
-| `CHECKLIST_OMS_ONBOARDING.md` | 1.3 | 1.4 | `externalOrderId` no Bloco 4, testes de idempotência, cenários negativos `errorCode` |
-| `FAQ_SMOKE_TEST_OMS.md` | 1.0 | 1.1 | FAQ 8 (`externalOrderId`) e FAQ 9 (`errorCode`) |
+| `INTEGRATION_CONTRACT_EN.md` | 1.3 | 1.4 | Seção 6.2d (batch), 3 novos `errorCode` em 8.2a, seção 8.5 (X-Request-Id), itens 9–11 no smoke test, observações 9–10 |
+| `INTEGRATION_CONTRACT_PT-BR.md` | 1.3 | 1.4 | Idem em português |
+| `CHECKLIST_OMS_ONBOARDING.md` | 1.4 | 1.5 | Bloco 3B (batch upsert), checks X-Request-Id no Bloco 8 |
+| `FAQ_SMOKE_TEST_OMS.md` | 1.1 | 1.2 | FAQs 10–15 (batch HTTP 207, rejeição parcial, duplicatas, estoque, X-Request-Id, limite 200) |
+| `Relatorio_Tecnico_2026-06-01.md` | Apenas Fase 1 | Completo | Incorpora Fase 2, P0, batch, deploy HOM, smoke test |
 
 ---
 
-## 6. Segurança e cuidados respeitados
+## 10. Segurança e cuidados respeitados
 
 | Regra | Status |
 |---|---|
@@ -148,32 +268,34 @@ Novos testes adicionados:
 | Senha do certificado não exposta | ✓ |
 | PRD não alterado | ✓ |
 | Nenhuma chamada SEFAZ real executada | ✓ |
-| Commit pendente — a ser realizado manualmente pelo responsável técnico | ✓ |
+| Commits realizados manualmente pelo responsável técnico | ✓ |
 | Push não executado | ✓ |
-| `.gitignore` verificado — credenciais CC fora do repositório | ✓ |
+| Documentação atualizada — commit pendente | ✓ |
 
 ---
 
-## 7. Ponto de retomada para a próxima sessão
+## 11. Ponto de retomada para a próxima sessão
 
 | Campo | Valor |
 |---|---|
 | Branch | `fix/sefaz-xml-structure` |
-| Último commit (antes desta sessão) | `9becd5c` — fix(produto): torna cfop opcional com default 5102 |
-| Working tree | Fase 1 completa — commit pendente (manualmente pelo responsável técnico) |
-| HOM | UP — JAR com v024 — `env=hom` confirmado |
-| Cloudflare tunnel | URL temporária — nova a cada sessão |
-| CC/Xiao Li | Dúvidas respondidas. Aguardando commit + comunicação do responsável técnico para iniciar testes de integração. |
+| Último commit de código | `0abd08b` — feat(produto): adiciona batch upsert para integracao oms |
+| Working tree | Documentação atualizada — commit pendente (manualmente pelo responsável técnico) |
+| HOM | UP — Flyway v026 — `env=hom` confirmado |
+| Cloudflare Tunnel | `https://hom-api.borurio.com` ativo |
+| CC/Xiao Li | Aguardando comunicação: batch disponível em HOM, URL e credenciais |
 
 ### Próximas ações por prioridade
 
-| Prioridade | Ação |
-|---|---|
-| P1 | Responsável técnico faz commit e push da Fase 1 e informa CC que `externalOrderId` e `errorCode` estão disponíveis |
-| P1 | CC executa smoke test com `externalOrderId` e valida `errorCode` nos cenários negativos |
-| P2 | Fase 2: análise de robustez da camada de exceções — `GlobalExceptionHandler`, padrões de `try/catch`, logging com MDC/`requestId` |
-| Backlog | M2: `cfop` por item no pedido (apenas para fase 2 — interestadual) |
-| Backlog | M4: invalidação de cache de certificado no `EmpresaController` |
+| Prioridade | Ação | Responsável |
+|---|---|---|
+| P1 | Commit da documentação e informar CC que `POST /batch` está disponível em HOM | Bruno |
+| P1 | CC executa smoke test do batch e valida CRIADO/ATUALIZADO/REJEITADO | CC/Xiao Li |
+| P2 | Avaliar CORS: adicionar `X-Request-Id` a `allowedHeaders` se OMS tiver componente browser | Bruno |
+| Backlog | M2: `cfop` por item no pedido (para operações interestaduais) | Bruno |
+| Backlog | M5: Rate limiting em `POST /api/app/pedidos/{id}/emitir` | Bruno |
+| Backlog | M6: CI/CD GitHub Actions | Bruno |
+| Backlog | Remover `NfeAuthorizeService` (mock legado, sem uso) | Bruno |
 
 ---
 

@@ -4,9 +4,9 @@
 
 | Atributo               | Valor                                   |
 |------------------------|-----------------------------------------|
-| Versão                 | 1.3                                     |
+| Versão                 | 1.4                                     |
 | Status                 | **Aprovado para integração**            |
-| Data de validação      | 26-05-2026                              |
+| Data de validação      | 01-06-2026                              |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`     |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validado contra        | Código-fonte + testes em HOM            |
@@ -371,6 +371,77 @@ Content-Type: application/json
 | Status → `REJEITADO` / `ERRO` | Reserva desfeita — `estoqueDisponivel += qtd` por item                 |
 | Status → `AGUARDANDO`         | Reserva mantida — `estoqueDisponivel` permanece bloqueado              |
 | Status → `CANCELADO`          | Estorno — `estoqueTotal += qtd`                                        |
+
+---
+
+### 6.2d Upsert em Lote de Produtos — Batch
+
+> `[OPERACIONAL]` Use este endpoint para sincronização de catálogo OMS quando precisar importar múltiplos produtos de uma vez. Para cadastro individual, use `POST /api/app/produtos` (seção 6.2).
+
+```
+POST /api/app/produtos/batch
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+**Comportamento por item:**
+- Produto novo (código + empresa não encontrado): status **CRIADO**
+- Produto existente (mesmo código na mesma empresa): status **ATUALIZADO** — apenas campos de catálogo são atualizados; `estoque`, `estoque_reservado` e `estado` são preservados
+- Item com dados inválidos: status **REJEITADO** — o processamento continua para os próximos itens
+- Código duplicado no mesmo payload: **REJEITADO** com `DUPLICATE_CODIGO_IN_BATCH` — a segunda ocorrência é rejeitada; a primeira é processada normalmente
+
+> `[CONTRATO]` A resposta é sempre **HTTP 207 Multi-Status** — mesmo que todos os itens tenham sucesso ou todos falhem. Nunca espere HTTP 200 nem HTTP 422 por resultado individual de item.
+
+> `[CONTRATO]` Máximo de **200 produtos por requisição**. Exceder esse limite retorna HTTP 422 com `errorCode: "BATCH_LIMIT_EXCEEDED"` antes de qualquer item ser processado.
+
+> `[CONTRATO]` Uma lista `produtos` vazia retorna HTTP 400.
+
+**Campos por item (`produtos[]`):**
+
+| Campo       | Tipo    | Regra                                                          |
+|-------------|---------|----------------------------------------------------------------|
+| `codigo`    | String  | Obrigatório · Chave de upsert por empresa                     |
+| `descricao` | String  | Obrigatório                                                   |
+| `ncm`       | String  | Obrigatório · Exatamente 8 dígitos numéricos                  |
+| `cfop`      | String  | Opcional · 4 dígitos numéricos · default `"5102"` se omitido  |
+| `unidade`   | String  | Obrigatório                                                   |
+| `preco`     | Decimal | Obrigatório · Valor > 0                                       |
+| `origem`    | Inteiro | Opcional · default `0` (nacional) se omitido                  |
+| `csosn`     | String  | Opcional · default `"400"` se omitido                         |
+
+**Campos NÃO atualizados no upsert (produto existente):** `codigo`, `estoque`, `estoque_reservado`, `estado`
+
+> `[EXEMPLO]` Requisição com 3 itens — 1 novo, 1 existente, 1 inválido:
+```json
+{
+  "produtos": [
+    { "codigo": "SKU-001", "descricao": "Produto A", "ncm": "84715011", "unidade": "UN", "preco": 100.00 },
+    { "codigo": "SKU-002", "descricao": "Produto B", "ncm": "84715011", "unidade": "UN", "preco": 50.00 },
+    { "codigo": "SKU-BAD", "descricao": "Invalido",  "ncm": "123",      "unidade": "UN", "preco": 10.00 }
+  ]
+}
+```
+
+**Resposta — HTTP 207 Multi-Status:**
+```json
+{
+  "total":       3,
+  "criados":     1,
+  "atualizados": 1,
+  "rejeitados":  1,
+  "resultados": [
+    { "codigo": "SKU-001", "status": "CRIADO",     "produtoId": 101 },
+    { "codigo": "SKU-002", "status": "ATUALIZADO", "produtoId": 87  },
+    { "codigo": "SKU-BAD", "status": "REJEITADO",  "produtoId": null, "errorCode": "VALIDATION_ERROR", "message": "NCM deve ter exatamente 8 dígitos numéricos." }
+  ]
+}
+```
+
+> `[CONTRATO]` Cada entrada em `resultados` corresponde 1:1 ao `produtos[]` de entrada por posição e `codigo`. Um item `REJEITADO` nunca bloqueia o processamento dos itens seguintes.
+
+> `[CONTRATO]` Use `resultados[].status` (`CRIADO` / `ATUALIZADO` / `REJEITADO`) para o resultado por item. Use `resultados[].errorCode` (quando presente) para tratamento programático de itens rejeitados.
+
+> `[CONTRATO]` `resultados[].produtoId` contém o ID do banco para itens `CRIADO` e `ATUALIZADO`, e é `null` para `REJEITADO`.
 
 ---
 
@@ -825,7 +896,10 @@ Content-Type: application/json
 | `INVALID_ORDER_STATUS` | 422  | Pedido não está no estado esperado para a operação (ex: não é `RASCUNHO` para `/emitir`; não é `AUTORIZADO` para `/cancelar` ou `/cce`) |
 | `INSUFFICIENT_STOCK`   | 422  | Estoque disponível (`estoqueDisponivel`) é inferior à quantidade solicitada para o item        |
 | `PRODUCT_NOT_FOUND`    | 422  | Um item referencia `produtoId` que não existe para a empresa autenticada                      |
-| `PRODUCT_INACTIVE`     | 422  | Um item referencia produto com `estado = 0` (inativo)                                        |
+| `PRODUCT_INACTIVE`          | 422                          | Um item referencia produto com `estado = 0` (inativo)                                                                               |
+| `VALIDATION_ERROR`          | 207 `resultados[].errorCode` | Item do batch falhou na validação de campos — NCM inválido, campo obrigatório vazio ou preço ≤ 0                                     |
+| `BATCH_LIMIT_EXCEEDED`      | 422                          | A requisição batch contém mais de 200 produtos — retornado antes de qualquer item ser processado                                     |
+| `DUPLICATE_CODIGO_IN_BATCH` | 207 `resultados[].errorCode` | O mesmo `codigo` aparece mais de uma vez no mesmo payload batch — a segunda ocorrência é rejeitada; a primeira é processada normalmente |
 
 > `[OPERACIONAL]` O OMS deve usar `errorCode` para toda lógica condicional. O campo `message` é destinado a logs legíveis por humanos. O HTTP status isolado não é suficiente para distinguir `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND` e `PRODUCT_INACTIVE`, que todos retornam HTTP 422.
 
@@ -887,6 +961,37 @@ GET /api/app/produtos?page=0&size=20
 
 ---
 
+### 8.5 Rastreamento de Requisições — `X-Request-Id`
+
+> `[OPERACIONAL]` Toda resposta da API inclui um header `X-Request-Id` com UUID que identifica unicamente a requisição nos logs do servidor.
+
+**Comportamento:**
+- Se a OMS enviar um header `X-Request-Id` na requisição, o sistema usa esse valor e o retorna no header de resposta
+- Se o header estiver ausente ou em branco, o sistema gera um UUID aleatório automaticamente
+- O valor aparece em todas as linhas de log do servidor para aquela requisição — habilitando correlação ponta a ponta
+
+> `[OPERACIONAL]` Para correlacionar logs da OMS com logs do servidor da API, inclua um ID de correlação na requisição:
+```
+POST /api/app/produtos/batch
+X-Request-Id: oms-batch-20260601-001
+```
+O header de resposta conterá: `X-Request-Id: oms-batch-20260601-001`
+
+> `[OPERACIONAL]` Respostas de erro de negócio também incluem `requestId` no corpo JSON:
+```json
+{
+  "code":      422,
+  "message":   "O lote excede o limite máximo de 200 produtos por requisição.",
+  "data":      null,
+  "errorCode": "BATCH_LIMIT_EXCEEDED",
+  "requestId": "oms-batch-20260601-001"
+}
+```
+
+> `[OPERACIONAL]` Respostas HTTP 401 incluem `X-Request-Id` no header de resposta mesmo antes da autenticação ser resolvida — permitindo à OMS correlacionar tentativas de autenticação falhas com os logs do servidor.
+
+---
+
 ## 9. Smoke Test — Ambiente HOM
 
 > `[CONTRATO]` A sequência abaixo deve ser executada e validada em HOM antes da integração em PRD.
@@ -902,7 +1007,10 @@ GET /api/app/produtos?page=0&size=20
 | 5 | `POST /api/app/pedidos` (com `produtoId` do passo 3) | HTTP 200 · `data.status = "RASCUNHO"`          |
 | 6 | `POST /api/app/pedidos/{id}/emitir`                  | HTTP 200 · `data.soapRetorno` não vazio        |
 | 7 | `GET /api/app/pedidos/{id}/situacao`                 | HTTP 200 · `data.chaveNfe` preenchida          |
-| 8 | `GET /api/app/pedidos/{id}`                          | HTTP 200 · `data.itens` com campos de snapshot |
+| 8  | `GET /api/app/pedidos/{id}`                                            | HTTP 200 · `data.itens` com campos de snapshot                       |
+| 9  | `POST /api/app/produtos/batch` (1 produto novo, `codigo: "BATCH-001"`) | HTTP 207 · `criados=1` · `resultados[0].status = "CRIADO"`          |
+| 10 | `POST /api/app/produtos/batch` (mesmo produto novamente)               | HTTP 207 · `atualizados=1` · `resultados[0].status = "ATUALIZADO"`  |
+| 11 | Inspecionar headers de resposta de qualquer requisição                 | Header `X-Request-Id` presente · formato UUID                        |
 
 ### 9.2 Verificações de Segurança
 
@@ -942,4 +1050,6 @@ pedido.status:    "AGUARDANDO" → normal em HOM (lote aceito, cStat=104); não 
 | 5 | CC-e e cancelamento exigem `nProt` disponível              | Consultar `/situacao` antes de cancelar após AGUARDANDO |
 | 6 | Produto com `estado=0` é rejeitado no pedido               | Verificar `estado` antes de referenciar produto         |
 | 7 | Estado `ERRO` é terminal via API                           | Acionar suporte para recuperação manual                 |
-| 8 | Endpoint AN HOM pode retornar HTTP 403 em redes locais     | Limitação da SEFAZ federal — não afeta PRD nem fluxo OMS principal |
+| 8  | Endpoint AN HOM pode retornar HTTP 403 em redes locais      | Limitação da SEFAZ federal — não afeta PRD nem fluxo OMS principal          |
+| 9  | `POST /batch` sempre retorna HTTP 207 — mesmo com todos os itens com sucesso | Não tratar HTTP 207 como erro — inspecionar `resultados[].status` por item |
+| 10 | Toda resposta inclui `X-Request-Id` no header de resposta   | Usar para correlacionar requisições OMS com logs do servidor para diagnóstico |

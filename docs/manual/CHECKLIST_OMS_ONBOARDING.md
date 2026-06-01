@@ -2,7 +2,7 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.4                                      |
+| Versão                 | 1.5                                      |
 | Data                   | 2026-06-01                               |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
@@ -165,6 +165,55 @@ Resposta (campo relevante):
 
 ---
 
+## Bloco 3B — Cadastro em lote de produtos (Batch Upsert)
+
+> Use este bloco quando a OMS precisar sincronizar o catálogo de produtos em lote. O endpoint aceita até 200 produtos por requisição e processa cada um de forma independente — itens inválidos são rejeitados sem bloquear os demais.
+
+- [ ] `POST /api/app/produtos/batch` com payload:
+
+```json
+{
+  "produtos": [
+    { "codigo": "SKU-B01", "descricao": "Produto Batch Novo", "ncm": "84715011", "unidade": "UN", "preco": 99.00 },
+    { "codigo": "SKU-B01", "descricao": "Produto Batch Novo", "ncm": "84715011", "unidade": "UN", "preco": 99.00 }
+  ]
+}
+```
+
+- [ ] Confirmar que a resposta é **HTTP 207** (não HTTP 200)
+- [ ] Confirmar campos obrigatórios na resposta: `total`, `criados`, `atualizados`, `rejeitados`, `resultados[]`
+- [ ] Confirmar `resultados[0].status = "CRIADO"` e `resultados[0].produtoId` não nulo
+- [ ] Confirmar `resultados[1].status = "REJEITADO"` com `errorCode = "DUPLICATE_CODIGO_IN_BATCH"` (segundo item com mesmo `codigo`)
+
+**Validar upsert (atualização de produto existente):**
+
+- [ ] Repetir `POST /api/app/produtos/batch` com o mesmo `codigo` (`SKU-B01`) e preço diferente
+- [ ] Confirmar `resultados[0].status = "ATUALIZADO"` e `resultados[0].produtoId` igual ao anterior
+- [ ] Confirmar que `estoque`, `estoque_reservado` e `estado` do produto não foram alterados
+
+**Validar rejeição por dado inválido:**
+
+- [ ] Enviar item com `ncm: "123"` (menos de 8 dígitos)
+- [ ] Confirmar `resultados[n].status = "REJEITADO"` com `errorCode = "VALIDATION_ERROR"`
+- [ ] Confirmar que outros itens válidos no mesmo lote foram processados normalmente
+
+**Validar limite do lote:**
+
+- [ ] Enviar `POST /api/app/produtos/batch` com lista vazia (`"produtos": []`) → confirmar **HTTP 400**
+- [ ] (Opcional) Enviar mais de 200 itens → confirmar **HTTP 422** com `errorCode = "BATCH_LIMIT_EXCEEDED"`
+
+**Campos NOT atualizados em upsert:** `codigo`, `estoque`, `estoque_reservado`, `estado`
+
+**Defaults aplicados se não enviados:**
+
+| Campo   | Default  |
+|---------|----------|
+| `cfop`  | `"5102"` |
+| `csosn` | `"400"`  |
+| `origem`| `0`      |
+
+---
+
 ## Bloco 4 — Criação de pedido
 
 - [ ] **[BLOQUEANTE]** `POST /api/app/pedidos` com campos obrigatórios:
@@ -308,6 +357,8 @@ Estes itens só são executáveis quando `status = "AUTORIZADO"`. Em HOM/SP o st
 - [ ] Confirmar que request sem token retorna `HTTP 401` com `{"code": 401, "message": "Autenticação necessária", "success": false}`
 - [ ] Confirmar que usuário `OPERADOR` acessando `/api/app/usuarios` retorna `HTTP 403`
 - [ ] Confirmar que `empresa_id` NÃO é enviado no body de nenhuma requisição — é extraído automaticamente do JWT
+- [ ] Confirmar que toda resposta contém o header `X-Request-Id` (UUID) — presente mesmo em respostas HTTP 401
+- [ ] (Opcional) Enviar `X-Request-Id: oms-teste-001` na requisição e confirmar que o mesmo valor é retornado no header de resposta
 
 ---
 
