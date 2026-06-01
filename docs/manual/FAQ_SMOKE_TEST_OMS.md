@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                              |
 |------------------------|------------------------------------|
-| Versão                 | 1.0                                |
-| Data                   | 2026-05-27                         |
+| Versão                 | 1.1                                |
+| Data                   | 2026-06-01                         |
 | Ambiente de referência | HOM — URL temporária por sessão (Cloudflare Tunnel) |
 | Relacionado a          | `CHECKLIST_OMS_ONBOARDING.md`      |
 
@@ -95,6 +95,58 @@ Resposta esperada:
 ```
 
 Se o campo `"environment"` retornar `"hom"`, o ambiente está correto e os testes podem começar.
+
+---
+
+**8. O que é `externalOrderId` e quando devo usá-lo?**
+
+`externalOrderId` é um identificador externo enviado pela OMS no corpo do `POST /api/app/pedidos`. Ele permite que a OMS crie pedidos de forma idempotente: se o mesmo `externalOrderId` for enviado mais de uma vez (ex: retry após timeout de rede), o Borurio retorna o pedido já existente sem criar duplicata.
+
+Regras:
+- O campo é **opcional**. Se omitido, cada POST cria um pedido distinto.
+- A unicidade é por empresa: dois clientes diferentes podem usar o mesmo valor sem conflito.
+- Máximo 100 caracteres.
+- Se enviado, o valor é retornado no campo `data.externalOrderId` de todos os endpoints que retornam pedido.
+
+Exemplo de payload com idempotência:
+```json
+{
+  "externalOrderId":   "OMS-20260601-0001",
+  "destCnpjCpf":       "12345678000195",
+  "destRazaoSocial":   "Cliente Exemplo",
+  "destUf":            "SP",
+  "itens": [
+    { "produtoId": 1, "quantidade": 2, "valorUnitario": 50.00 }
+  ]
+}
+```
+
+---
+
+**9. O endpoint retornou HTTP 422 com campo `errorCode`. Como devo tratar isso?**
+
+Erros de negócio retornam `HTTP 422` com um campo `errorCode` padronizado no corpo da resposta. A OMS deve usar `errorCode` para decidir a ação programática — não o campo `message`, que é legível por humanos e pode mudar entre versões.
+
+Códigos disponíveis:
+
+| `errorCode`            | Situação                                              | Ação sugerida para a OMS                          |
+|------------------------|-------------------------------------------------------|---------------------------------------------------|
+| `PRODUCT_NOT_FOUND`    | `produtoId` não existe no Borurio                     | Sincronizar catálogo de produtos                  |
+| `PRODUCT_INACTIVE`     | Produto existe, mas está inativo (`estado=0`)         | Reativar produto ou remover do pedido             |
+| `INSUFFICIENT_STOCK`   | Quantidade solicitada excede `estoqueDisponivel`      | Consultar `/api/app/produtos/{id}/estoque` e ajustar |
+| `INVALID_ORDER_STATUS` | Operação não permitida no status atual do pedido      | Verificar `status` via `/api/app/pedidos/{id}/situacao` |
+
+Formato de resposta de erro de negócio:
+```json
+{
+  "code":      422,
+  "message":   "Estoque insuficiente para \"Produto A\" (disponível: 5.00, solicitado: 10.00)",
+  "data":      null,
+  "errorCode": "INSUFFICIENT_STOCK"
+}
+```
+
+**Atenção:** Respostas de sucesso não contêm o campo `errorCode`. Apenas verifique esse campo quando o HTTP status for 4xx.
 
 ---
 

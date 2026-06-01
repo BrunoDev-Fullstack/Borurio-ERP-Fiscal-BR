@@ -33,6 +33,7 @@ public class Pedido {
     private String status;
     private String chaveNfe;
     private BigDecimal valorTotal;
+    private String externalOrderId;
     private String observacao;
     private LocalDateTime dataPedido;
     private LocalDateTime dataAtualizacao;

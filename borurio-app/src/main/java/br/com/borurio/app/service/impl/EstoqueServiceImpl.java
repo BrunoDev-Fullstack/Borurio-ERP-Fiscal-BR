@@ -6,6 +6,7 @@ import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.entity.Produto;
 import br.com.borurio.app.mapper.EstoqueMovimentoMapper;
 import br.com.borurio.app.mapper.ProdutoMapper;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.service.EstoqueService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,11 +34,10 @@ public class EstoqueServiceImpl implements EstoqueService {
             int linhas = produtoMapper.reservarEstoque(item.getProdutoId(), item.getQuantidade(), empresaId);
             if (linhas == 0) {
                 Produto p = produtoMapper.buscarPorIdEEmpresa(item.getProdutoId(), empresaId);
-                String msg = p == null
-                        ? "Produto não encontrado: id=" + item.getProdutoId()
-                        : "Estoque insuficiente para \"" + p.getDescricao() + "\""
-                          + " (disponível: " + disponivel(p) + ", solicitado: " + item.getQuantidade() + ")";
-                throw new IllegalStateException(msg);
+                if (p == null) {
+                    throw BusinessException.productNotFound(item.getProdutoId());
+                }
+                throw BusinessException.insufficientStock(p.getDescricao(), disponivel(p), item.getQuantidade());
             }
             movimentoMapper.inserir(novoMovimento("RESERVA", item, empresaId, pedidoId, criadoPor));
         }

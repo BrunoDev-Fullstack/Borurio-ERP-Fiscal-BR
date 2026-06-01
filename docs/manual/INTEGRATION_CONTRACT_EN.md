@@ -400,6 +400,11 @@ Content-Type: application/json
 | `destMunicipio`       | String | Recommended                                                  |
 | `destCep`             | String | Recommended                                                  |
 | `naturezaOperacao`    | String | Optional · Server-side default: `"VENDA DE MERCADORIA"`      |
+| `externalOrderId`     | String | Recommended · Max 100 chars · Unique per company · Enables idempotent retry |
+
+> `[CONTRACT]` **Idempotency:** If `externalOrderId` is provided and an order already exists for the same company with that identifier, the system returns the existing order unchanged — no duplicate is created. This protects against duplicate NF-e issuance caused by OMS timeout or network retry. If omitted, each call always creates a new order.
+
+> `[CONTRACT]` The `externalOrderId` scope is per company: the same value used by company A does not conflict with company B.
 
 **Per-item fields (`itens[]`):**
 
@@ -411,9 +416,10 @@ Content-Type: application/json
 
 > `[CONTRACT]` Each item's `valorTotal` is calculated automatically as `quantidade × valorUnitario`. The order total is the sum of all items. Do not send these fields.
 
-> `[EXAMPLE]` Minimum valid payload:
+> `[EXAMPLE]` Minimum valid payload (with `externalOrderId` for idempotency — recommended):
 ```json
 {
+  "externalOrderId":     "OMS-20260601-0001",
   "destCnpjCpf":         "12345678000195",
   "destRazaoSocial":     "Destination Company Ltd",
   "destUf":              "SP",
@@ -434,6 +440,7 @@ Content-Type: application/json
     "id":              42,
     "empresaId":       1,
     "numero":          "PED-00000042",
+    "externalOrderId": "OMS-20260601-0001",
     "cnpjEmitente":    "12000000000195",
     "destCnpjCpf":     "12345678000195",
     "destRazaoSocial": "Destination Company Ltd",
@@ -796,6 +803,35 @@ Content-Type: application/json
 | 422 @Valid | Invalid entity field                                   | `{ "field": "message" }`             |
 | 422 state  | Operation not allowed in current state                 | `null`                               |
 | 500        | Unhandled failure (including SEFAZ transmission error) | `null`                               |
+
+### 8.2a Business Error Codes (`errorCode`)
+
+> `[CONTRACT]` Business errors include an `errorCode` field alongside the standard `code` and `message` fields. Use `errorCode` as the stable programmatic identifier — **do not parse the `message` field**, which is in Brazilian Portuguese and may change.
+
+**Error response with `errorCode`:**
+```json
+{
+  "code":      422,
+  "message":   "Estoque insuficiente para \"Product A\" (disponível: 0.0000, solicitado: 5.00)",
+  "data":      null,
+  "errorCode": "INSUFFICIENT_STOCK"
+}
+```
+
+> `[CONTRACT]` The `errorCode` field is present **only in business error responses**. Successful responses (`code: 200`) do not include it.
+
+**Defined error codes:**
+
+| `errorCode`            | HTTP | Trigger                                                                               |
+|------------------------|------|---------------------------------------------------------------------------------------|
+| `INVALID_ORDER_STATUS` | 422  | Order is not in the expected state for the operation (e.g., not `RASCUNHO` for `/emitir`, not `AUTORIZADO` for `/cancelar` or `/cce`) |
+| `INSUFFICIENT_STOCK`   | 422  | Available stock (`estoqueDisponivel`) is less than the requested quantity for an item |
+| `PRODUCT_NOT_FOUND`    | 422  | An item references a `produtoId` that does not exist for the authenticated company    |
+| `PRODUCT_INACTIVE`     | 422  | An item references a product with `estado = 0` (inactive)                            |
+
+> `[OPERATIONAL]` The OMS must use `errorCode` for all conditional logic. The `message` field is intended for human-readable logs only. The HTTP status alone is not sufficient to distinguish between `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND`, and `PRODUCT_INACTIVE`, all of which return HTTP 422.
+
+---
 
 ### 8.3 Portuguese Message Translation Reference
 

@@ -1,6 +1,7 @@
 package br.com.borurio.web.service;
 
 import br.com.borurio.app.entity.Pedido;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.config.EmitenteProperties;
@@ -102,7 +103,7 @@ public class PedidoOperacaoService {
 
         Pedido pedido = pedidoService.buscarComItens(pedidoId);
         if (!"AUTORIZADO".equals(pedido.getStatus())) {
-            throw new IllegalStateException(
+            throw BusinessException.invalidOrderStatus(
                     "Cancelamento só é permitido para pedidos com status AUTORIZADO. " +
                     "Status atual: " + pedido.getStatus());
         }
@@ -158,7 +159,7 @@ public class PedidoOperacaoService {
 
         Pedido pedido = pedidoService.buscarPorId(pedidoId);
         if (!"AUTORIZADO".equals(pedido.getStatus())) {
-            throw new IllegalStateException(
+            throw BusinessException.invalidOrderStatus(
                     "CC-e só é permitida para pedidos com status AUTORIZADO. " +
                     "Status atual: " + pedido.getStatus());
         }

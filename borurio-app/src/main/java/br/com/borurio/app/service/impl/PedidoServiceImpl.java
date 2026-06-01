@@ -6,6 +6,7 @@ import br.com.borurio.app.entity.Produto;
 import br.com.borurio.app.mapper.PedidoItemMapper;
 import br.com.borurio.app.mapper.PedidoMapper;
 import br.com.borurio.app.mapper.ProdutoMapper;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.core.mvc.api.PageResponse;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,16 @@ public class PedidoServiceImpl implements PedidoService {
     @Transactional
     public Pedido criar(Pedido pedido, List<PedidoItem> itens) {
         validarCabecalho(pedido, itens);
+
+        if (pedido.getExternalOrderId() != null && !pedido.getExternalOrderId().isBlank()
+                && pedido.getEmpresaId() != null) {
+            Pedido existente = pedidoMapper.buscarPorExternalOrderIdEEmpresa(
+                    pedido.getExternalOrderId(), pedido.getEmpresaId());
+            if (existente != null) {
+                existente.setItens(pedidoItemMapper.listarPorPedido(existente.getId()));
+                return existente;
+            }
+        }
 
         if (pedido.getSerieNfe() == null || pedido.getSerieNfe().isBlank()) pedido.setSerieNfe("1");
         if (pedido.getNaturezaOperacao() == null || pedido.getNaturezaOperacao().isBlank()) {
@@ -132,12 +143,10 @@ public class PedidoServiceImpl implements PedidoService {
                 ? produtoMapper.buscarPorIdEEmpresa(item.getProdutoId(), empresaId)
                 : produtoMapper.buscarPorId(item.getProdutoId());
         if (produto == null) {
-            throw new IllegalArgumentException("Produto não encontrado: id=" + item.getProdutoId());
+            throw BusinessException.productNotFound(item.getProdutoId());
         }
         if (Integer.valueOf(0).equals(produto.getEstado())) {
-            throw new IllegalArgumentException(
-                    "Produto inativo não pode ser adicionado ao pedido: id=" + item.getProdutoId()
-                    + " código=" + produto.getCodigo());
+            throw BusinessException.productInactive(item.getProdutoId(), produto.getCodigo());
         }
         return produto;
     }

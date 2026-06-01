@@ -2,6 +2,7 @@ package br.com.borurio.web.service;
 
 import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Empresa;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.mapper.EmpresaMapper;
@@ -56,7 +57,7 @@ public class PedidoEmissaoService {
         Pedido pedido = pedidoService.buscarComItens(pedidoId);
 
         if (!"RASCUNHO".equals(pedido.getStatus())) {
-            throw new IllegalStateException(
+            throw BusinessException.invalidOrderStatus(
                     "Pedido não está em RASCUNHO. Status atual: " + pedido.getStatus());
         }
         if (pedido.getItens() == null || pedido.getItens().isEmpty()) {

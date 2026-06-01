@@ -29,6 +29,7 @@ public class PedidoResponse {
     private String status;
     private String chaveNfe;
     private BigDecimal valorTotal;
+    private String externalOrderId;
     private String observacao;
     private LocalDateTime dataPedido;
     private LocalDateTime dataAtualizacao;
@@ -54,6 +55,7 @@ public class PedidoResponse {
         r.setStatus(p.getStatus());
         r.setChaveNfe(p.getChaveNfe());
         r.setValorTotal(p.getValorTotal());
+        r.setExternalOrderId(p.getExternalOrderId());
         r.setObservacao(p.getObservacao());
         r.setDataPedido(p.getDataPedido());
         r.setDataAtualizacao(p.getDataAtualizacao());

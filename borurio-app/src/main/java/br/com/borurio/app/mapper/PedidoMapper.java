@@ -27,6 +27,7 @@ public interface PedidoMapper {
                    status,
                    chave_nfe               AS chaveNfe,
                    valor_total             AS valorTotal,
+                   external_order_id       AS externalOrderId,
                    observacao,
                    data_pedido             AS dataPedido,
                    data_atualizacao        AS dataAtualizacao
@@ -38,6 +39,10 @@ public interface PedidoMapper {
 
     @Select(SELECT_COLUMNS + "WHERE id = #{id} AND empresa_id = #{empresaId}")
     Pedido buscarPorIdEEmpresa(@Param("id") Long id, @Param("empresaId") Long empresaId);
+
+    @Select(SELECT_COLUMNS + "WHERE empresa_id = #{empresaId} AND external_order_id = #{externalOrderId}")
+    Pedido buscarPorExternalOrderIdEEmpresa(@Param("externalOrderId") String externalOrderId,
+                                            @Param("empresaId") Long empresaId);
 
     @Select(SELECT_COLUMNS + "WHERE empresa_id = #{empresaId} ORDER BY data_pedido DESC")
     List<Pedido> listarPorEmpresa(@Param("empresaId") Long empresaId);
@@ -68,7 +73,7 @@ public interface PedidoMapper {
                 dest_uf, dest_logradouro, dest_numero, dest_bairro,
                 dest_codigo_municipio, dest_municipio, dest_cep,
                 natureza_operacao, serie_nfe, status,
-                chave_nfe, valor_total, observacao,
+                chave_nfe, valor_total, external_order_id, observacao,
                 data_pedido, data_atualizacao
             ) VALUES (
                 #{empresaId, jdbcType=BIGINT},
@@ -80,7 +85,7 @@ public interface PedidoMapper {
                 #{destCep, jdbcType=VARCHAR},
                 #{naturezaOperacao}, #{serieNfe}, #{status},
                 #{chaveNfe, jdbcType=VARCHAR}, #{valorTotal, jdbcType=DECIMAL},
-                #{observacao, jdbcType=VARCHAR},
+                #{externalOrderId, jdbcType=VARCHAR}, #{observacao, jdbcType=VARCHAR},
                 NOW(), NOW()
             )
             """)

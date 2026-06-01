@@ -398,6 +398,11 @@ Content-Type: application/json
 | `destMunicipio`       | String              | Recomendado                                                           |
 | `destCep`             | String              | Recomendado                                                           |
 | `naturezaOperacao`    | String              | Opcional · Default server-side: `"VENDA DE MERCADORIA"`               |
+| `externalOrderId`     | String              | Recomendado · Máx 100 chars · Único por empresa · Habilita retry idempotente |
+
+> `[CONTRATO]` **Idempotência:** se `externalOrderId` for informado e já existir um pedido com esse identificador para a mesma empresa, o sistema retorna o pedido existente sem criar duplicata. Protege contra emissão dupla de NF-e por timeout ou retry do OMS. Se omitido, cada chamada cria um novo pedido.
+
+> `[CONTRATO]` O escopo do `externalOrderId` é por empresa: o mesmo valor usado pela empresa A não conflita com a empresa B.
 
 **Campos de cada item (`itens[]`):**
 
@@ -409,9 +414,10 @@ Content-Type: application/json
 
 > `[CONTRATO]` `valorTotal` de cada item é calculado automaticamente como `quantidade × valorUnitario`. O total do pedido é a soma dos itens. Não enviar esses campos.
 
-> `[EXEMPLO]` Payload mínimo válido:
+> `[EXEMPLO]` Payload mínimo válido (com `externalOrderId` para idempotência — recomendado):
 ```json
 {
+  "externalOrderId":     "OMS-20260601-0001",
   "destCnpjCpf":         "12345678000195",
   "destRazaoSocial":     "Empresa Destinatária Ltda",
   "destUf":              "SP",
@@ -432,6 +438,7 @@ Content-Type: application/json
     "id":              42,
     "empresaId":       1,
     "numero":          "PED-00000042",
+    "externalOrderId": "OMS-20260601-0001",
     "cnpjEmitente":    "12000000000195",
     "destCnpjCpf":     "12345678000195",
     "destRazaoSocial": "Empresa Destinatária Ltda",
@@ -794,6 +801,35 @@ Content-Type: application/json
 | 422 @Valid | Campo inválido na entidade                              | `{ "campo": "mensagem" }`             |
 | 422 estado | Operação não permitida no estado atual                  | `null`                                |
 | 500        | Falha não tratada (incluindo erro de transmissão SEFAZ) | `null`                                |
+
+### 8.2a Códigos de Erro de Negócio (`errorCode`)
+
+> `[CONTRATO]` Erros de negócio incluem o campo `errorCode` além dos campos padrão `code` e `message`. Use `errorCode` como identificador estável para tratamento programático — **não faça parse do campo `message`**, que está em português e pode mudar.
+
+**Resposta de erro com `errorCode`:**
+```json
+{
+  "code":      422,
+  "message":   "Estoque insuficiente para \"Produto A\" (disponível: 0.0000, solicitado: 5.00)",
+  "data":      null,
+  "errorCode": "INSUFFICIENT_STOCK"
+}
+```
+
+> `[CONTRATO]` O campo `errorCode` está presente **somente em respostas de erro de negócio**. Respostas de sucesso (`code: 200`) não o incluem.
+
+**Códigos de erro definidos:**
+
+| `errorCode`            | HTTP | Gatilho                                                                                        |
+|------------------------|------|------------------------------------------------------------------------------------------------|
+| `INVALID_ORDER_STATUS` | 422  | Pedido não está no estado esperado para a operação (ex: não é `RASCUNHO` para `/emitir`; não é `AUTORIZADO` para `/cancelar` ou `/cce`) |
+| `INSUFFICIENT_STOCK`   | 422  | Estoque disponível (`estoqueDisponivel`) é inferior à quantidade solicitada para o item        |
+| `PRODUCT_NOT_FOUND`    | 422  | Um item referencia `produtoId` que não existe para a empresa autenticada                      |
+| `PRODUCT_INACTIVE`     | 422  | Um item referencia produto com `estado = 0` (inativo)                                        |
+
+> `[OPERACIONAL]` O OMS deve usar `errorCode` para toda lógica condicional. O campo `message` é destinado a logs legíveis por humanos. O HTTP status isolado não é suficiente para distinguir `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND` e `PRODUCT_INACTIVE`, que todos retornam HTTP 422.
+
+---
 
 ### 8.3 Referência de Mensagens da API
 

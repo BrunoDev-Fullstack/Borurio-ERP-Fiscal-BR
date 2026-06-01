@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.3                                      |
-| Data                   | 2026-05-26                               |
+| Versão                 | 1.4                                      |
+| Data                   | 2026-06-01                               |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | Pronto para execução                     |
@@ -169,20 +169,49 @@ Resposta (campo relevante):
 
 - [ ] **[BLOQUEANTE]** `POST /api/app/pedidos` com campos obrigatórios:
 
-| Campo                   | Tipo    | Restrição                  |
-|-------------------------|---------|----------------------------|
-| `destCnpjCpf`           | string  | obrigatório, não vazio     |
-| `destRazaoSocial`       | string  | obrigatório, não vazio     |
-| `itens`                 | array   | obrigatório, mínimo 1 item |
-| `itens[].produtoId`     | long    | obrigatório                |
-| `itens[].quantidade`    | decimal | obrigatório, maior que 0   |
-| `itens[].valorUnitario` | decimal | obrigatório, maior que 0   |
+| Campo                   | Tipo    | Restrição                                            |
+|-------------------------|---------|------------------------------------------------------|
+| `destCnpjCpf`           | string  | obrigatório, não vazio                               |
+| `destRazaoSocial`       | string  | obrigatório, não vazio                               |
+| `externalOrderId`       | string  | opcional — ID externo OMS para idempotência (máx 100 chars) |
+| `itens`                 | array   | obrigatório, mínimo 1 item                           |
+| `itens[].produtoId`     | long    | obrigatório                                          |
+| `itens[].quantidade`    | decimal | obrigatório, maior que 0                             |
+| `itens[].valorUnitario` | decimal | obrigatório, maior que 0                             |
 
 - [ ] Confirmar `data.status` = `"RASCUNHO"` na resposta
 - [ ] Confirmar `data.id` retornado — guardar o `id` do pedido
 - [ ] Confirmar que os itens têm snapshot fiscal preenchido: `ncm`, `cfop`, `unidade`, `csosn`, `origem`
 
 **Nota:** `naturezaOperacao` é definido automaticamente como `"VENDA DE MERCADORIA"` se não enviado. `serieNfe` padrão é `"1"`.
+
+**Idempotência via `externalOrderId`:**
+
+Quando `externalOrderId` é enviado, um segundo POST com o mesmo valor retorna o pedido já criado — sem criar duplicata.
+
+- [ ] Criar pedido com `"externalOrderId": "OMS-TEST-IDEM-001"` → guardar `data.id` retornado (ex: `42`)
+- [ ] Repetir exatamente o mesmo POST com `"externalOrderId": "OMS-TEST-IDEM-001"` → confirmar `data.id` igual a `42`
+- [ ] Confirmar que nenhum segundo pedido foi criado no sistema para esse `externalOrderId`
+
+**Nota:** Pedidos enviados sem `externalOrderId` nunca são deduplicados — cada POST cria um pedido distinto.
+
+**Cenários negativos — `errorCode`:**
+
+Erros de negócio retornam `HTTP 422` com campo `errorCode` identificável pela OMS. Não dependa do campo `message` para lógica de integração — ele pode mudar entre versões.
+
+- [ ] Tentar criar pedido com `produtoId` inexistente → confirmar `HTTP 422` com `"errorCode": "PRODUCT_NOT_FOUND"`
+- [ ] Tentar criar pedido com produto com `estado=0` (inativo) → confirmar `HTTP 422` com `"errorCode": "PRODUCT_INACTIVE"`
+- [ ] Tentar criar pedido com `quantidade` maior que o estoque disponível → confirmar `HTTP 422` com `"errorCode": "INSUFFICIENT_STOCK"`
+
+Formato de resposta de erro de negócio:
+```json
+{
+  "code": 422,
+  "message": "<descrição legível — não usar em lógica>",
+  "data": null,
+  "errorCode": "INSUFFICIENT_STOCK"
+}
+```
 
 ---
 
@@ -211,8 +240,10 @@ Resposta (campo relevante):
 | Lote aceito pela SEFAZ       | `chaveNfe` com 44 dígitos                                                                  |
 | `cStat=225` no `soapRetorno` | **Normal em HOM/SP** — limitação do processador `SP_NFE_PL_008i2`. Não é falha do sistema. |
 | `cStat=100` no `soapRetorno` | AUTORIZADO — será validado em PRD com infraestrutura pronta, usando o A1 real da Jcho Factory Ltda (`tpAmb=1`) |
-| `HTTP 422`                   | Pedido não está em `RASCUNHO`                                                              |
-| `HTTP 500`                   | Exceção durante transmissão — pedido vai para `ERRO`                                       |
+| `HTTP 422` + `errorCode: "INVALID_ORDER_STATUS"` | Pedido não está em `RASCUNHO` — verificar `status` antes de tentar novamente |
+| `HTTP 500`                                        | Exceção durante transmissão — pedido vai para `ERRO`                         |
+
+- [ ] Tentar emitir pedido com `status != "RASCUNHO"` → confirmar `HTTP 422` com `"errorCode": "INVALID_ORDER_STATUS"`
 
 ---
 

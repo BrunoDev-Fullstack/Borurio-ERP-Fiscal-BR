@@ -1,5 +1,6 @@
 package br.com.borurio.web.exception;
 
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
 import jakarta.validation.ConstraintViolationException;
@@ -21,6 +22,18 @@ import java.util.NoSuchElementException;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /** Erro de negócio com errorCode identificável pelo OMS. */
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<Map<String, Object>> handleBusiness(BusinessException e) {
+        log.warn("[API] Business error: errorCode={} | {}", e.getErrorCode(), e.getMessage());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code",      e.getHttpStatus());
+        body.put("message",   e.getMessage());
+        body.put("data",      null);
+        body.put("errorCode", e.getErrorCode());
+        return ResponseEntity.status(e.getHttpStatus()).body(body);
+    }
 
     /** Bean Validation (@Valid em @RequestBody) — retorna campo a campo. */
     @ExceptionHandler(MethodArgumentNotValidException.class)

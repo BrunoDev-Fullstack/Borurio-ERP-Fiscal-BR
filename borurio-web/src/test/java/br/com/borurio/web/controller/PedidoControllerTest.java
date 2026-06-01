@@ -1,6 +1,7 @@
 package br.com.borurio.web.controller;
 
 import br.com.borurio.app.entity.Pedido;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.service.EmpresaService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.core.mvc.api.PageResponse;
@@ -214,6 +215,126 @@ class PedidoControllerTest {
                         .content("{\"correcao\": \"curta\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
+    }
+
+    // -------------------------------------------------------------------------
+    // externalOrderId — idempotência
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser
+    void criar_comExternalOrderId_retornaExternalOrderIdNaResposta() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+
+        Pedido pedido = new Pedido();
+        pedido.setId(42L);
+        pedido.setExternalOrderId("ORDER-XLI-2026-001");
+        pedido.setDestCnpjCpf("12345678000195");
+        pedido.setDestRazaoSocial("Cliente Teste");
+        pedido.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(pedido);
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "externalOrderId": "ORDER-XLI-2026-001",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.externalOrderId").value("ORDER-XLI-2026-001"))
+                .andExpect(jsonPath("$.data.status").value("RASCUNHO"));
+    }
+
+    // -------------------------------------------------------------------------
+    // errorCode — BusinessException
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser
+    void criar_estoqueInsuficiente_returns422ComErrorCode() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+        when(pedidoService.criar(any(), any())).thenThrow(
+                new BusinessException("INSUFFICIENT_STOCK",
+                        "Estoque insuficiente para \"Prod A\" (disponível: 0.00, solicitado: 5.00)", 422));
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente",
+                                  "itens": [{ "produtoId": 1, "quantidade": 5, "valorUnitario": 10.00 }]
+                                }
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value(422))
+                .andExpect(jsonPath("$.errorCode").value("INSUFFICIENT_STOCK"));
+    }
+
+    @Test
+    @WithMockUser
+    void criar_produtoInativo_returns422ComErrorCode() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+        when(pedidoService.criar(any(), any())).thenThrow(
+                new BusinessException("PRODUCT_INACTIVE",
+                        "Produto inativo não pode ser adicionado ao pedido: id=3 código=PROD-003", 422));
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente",
+                                  "itens": [{ "produtoId": 3, "quantidade": 1, "valorUnitario": 10.00 }]
+                                }
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value(422))
+                .andExpect(jsonPath("$.errorCode").value("PRODUCT_INACTIVE"));
+    }
+
+    @Test
+    @WithMockUser
+    void criar_produtoNaoEncontrado_returns422ComErrorCode() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+        when(pedidoService.criar(any(), any())).thenThrow(
+                new BusinessException("PRODUCT_NOT_FOUND",
+                        "Produto não encontrado: id=99", 422));
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente",
+                                  "itens": [{ "produtoId": 99, "quantidade": 1, "valorUnitario": 10.00 }]
+                                }
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value(422))
+                .andExpect(jsonPath("$.errorCode").value("PRODUCT_NOT_FOUND"));
+    }
+
+    @Test
+    @WithMockUser
+    void emitir_pedidoNaoRascunho_returns422ComErrorCode() throws Exception {
+        when(pedidoEmissaoService.emitir(1L)).thenThrow(
+                new BusinessException("INVALID_ORDER_STATUS",
+                        "Pedido não está em RASCUNHO. Status atual: AUTORIZADO", 422));
+
+        mockMvc.perform(post("/api/app/pedidos/1/emitir")
+                        .with(csrf()))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value(422))
+                .andExpect(jsonPath("$.errorCode").value("INVALID_ORDER_STATUS"));
     }
 
     @Test
