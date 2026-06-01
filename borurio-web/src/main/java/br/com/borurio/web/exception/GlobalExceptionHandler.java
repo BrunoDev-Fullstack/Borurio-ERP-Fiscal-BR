@@ -1,11 +1,10 @@
 package br.com.borurio.web.exception;
 
 import br.com.borurio.app.exception.BusinessException;
-import br.com.borurio.core.mvc.api.Result;
-import br.com.borurio.core.mvc.api.ResultUtil;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -27,78 +26,89 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Map<String, Object>> handleBusiness(BusinessException e) {
         log.warn("[API] Business error: errorCode={} | {}", e.getErrorCode(), e.getMessage());
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("code",      e.getHttpStatus());
-        body.put("message",   e.getMessage());
-        body.put("data",      null);
+        Map<String, Object> body = errorBody(e.getHttpStatus(), e.getMessage(), null);
         body.put("errorCode", e.getErrorCode());
         return ResponseEntity.status(e.getHttpStatus()).body(body);
     }
 
     /** Bean Validation (@Valid em @RequestBody) — retorna campo a campo. */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Result<?>> handleValidation(MethodArgumentNotValidException e) {
+    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException e) {
         Map<String, String> errors = new LinkedHashMap<>();
         e.getBindingResult().getFieldErrors()
                 .forEach(fe -> errors.putIfAbsent(fe.getField(), fe.getDefaultMessage()));
         log.warn("[API] Validation: {}", errors);
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(new Result<>(422, "Dados inválidos", errors));
+                .body(errorBody(422, "Dados inválidos", errors));
     }
 
     /** Bean Validation em @PathVariable / @RequestParam (@Validated na classe). */
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<Result<?>> handleConstraint(ConstraintViolationException e) {
+    public ResponseEntity<Map<String, Object>> handleConstraint(ConstraintViolationException e) {
         log.warn("[API] Constraint violation: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(ResultUtil.error(422, e.getMessage()));
+                .body(errorBody(422, e.getMessage(), null));
     }
 
     /** JSON malformado ou tipo incompatível no corpo da requisição. */
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<Result<?>> handleUnreadable(HttpMessageNotReadableException e) {
+    public ResponseEntity<Map<String, Object>> handleUnreadable(HttpMessageNotReadableException e) {
         log.warn("[API] Unreadable body: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ResultUtil.error(400, "Corpo da requisição inválido ou malformado"));
+                .body(errorBody(400, "Corpo da requisição inválido ou malformado", null));
     }
 
     /** Regras de negócio inválidas — parâmetros inconsistentes fornecidos pelo cliente. */
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Result<?>> handleBadRequest(IllegalArgumentException e) {
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException e) {
         log.warn("[API] Bad request: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ResultUtil.error(400, e.getMessage()));
+                .body(errorBody(400, e.getMessage(), null));
     }
 
-    /** Violação de estado — operação não permitida no estado atual (ex: cancelar NF-e não autorizada). */
+    /** Violação de estado — operação não permitida no estado atual. */
     @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<Result<?>> handleUnprocessable(IllegalStateException e) {
+    public ResponseEntity<Map<String, Object>> handleUnprocessable(IllegalStateException e) {
         log.warn("[API] Unprocessable: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(ResultUtil.error(422, e.getMessage()));
+                .body(errorBody(422, e.getMessage(), null));
     }
 
     /** Recurso não encontrado. */
     @ExceptionHandler(NoSuchElementException.class)
-    public ResponseEntity<Result<?>> handleNotFound(NoSuchElementException e) {
+    public ResponseEntity<Map<String, Object>> handleNotFound(NoSuchElementException e) {
         log.warn("[API] Not found: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ResultUtil.error(404, e.getMessage()));
+                .body(errorBody(404, e.getMessage(), null));
     }
 
     /** Acesso negado — ROLE insuficiente. */
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Result<?>> handleForbidden(AccessDeniedException e) {
+    public ResponseEntity<Map<String, Object>> handleForbidden(AccessDeniedException e) {
         log.warn("[API] Access denied: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(ResultUtil.error(403, "Acesso negado"));
+                .body(errorBody(403, "Acesso negado", null));
     }
 
     /** Fallback — erros não mapeados. */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Result<?>> handleGeneric(Exception e) {
+    public ResponseEntity<Map<String, Object>> handleGeneric(Exception e) {
         log.error("[API] Unhandled error", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ResultUtil.error(500, "Erro interno do servidor"));
+                .body(errorBody(500, "Erro interno do servidor", null));
+    }
+
+    // -------------------------------------------------------------------------
+    // Helper
+    // -------------------------------------------------------------------------
+
+    private Map<String, Object> errorBody(int code, String message, Object data) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code",    code);
+        body.put("message", message);
+        body.put("data",    data);
+        String rid = MDC.get("requestId");
+        if (rid != null) body.put("requestId", rid);
+        return body;
     }
 }

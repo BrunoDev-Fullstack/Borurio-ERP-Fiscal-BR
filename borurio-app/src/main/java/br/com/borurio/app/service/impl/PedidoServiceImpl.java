@@ -9,6 +9,8 @@ import br.com.borurio.app.mapper.ProdutoMapper;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.core.mvc.api.PageResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +20,8 @@ import java.util.NoSuchElementException;
 
 @Service
 public class PedidoServiceImpl implements PedidoService {
+
+    private static final Logger log = LoggerFactory.getLogger(PedidoServiceImpl.class);
 
     private final PedidoMapper pedidoMapper;
     private final PedidoItemMapper pedidoItemMapper;
@@ -36,11 +40,17 @@ public class PedidoServiceImpl implements PedidoService {
     public Pedido criar(Pedido pedido, List<PedidoItem> itens) {
         validarCabecalho(pedido, itens);
 
+        log.info("[PedidoService] Criando pedido | empresaId={} | externalOrderId={} | itens={}",
+                pedido.getEmpresaId(), pedido.getExternalOrderId(),
+                itens != null ? itens.size() : 0);
+
         if (pedido.getExternalOrderId() != null && !pedido.getExternalOrderId().isBlank()
                 && pedido.getEmpresaId() != null) {
             Pedido existente = pedidoMapper.buscarPorExternalOrderIdEEmpresa(
                     pedido.getExternalOrderId(), pedido.getEmpresaId());
             if (existente != null) {
+                log.info("[PedidoService] Idempotência — pedido existente retornado | externalOrderId={} | id={}",
+                        pedido.getExternalOrderId(), existente.getId());
                 existente.setItens(pedidoItemMapper.listarPorPedido(existente.getId()));
                 return existente;
             }
@@ -74,6 +84,9 @@ public class PedidoServiceImpl implements PedidoService {
         pedido.setNumero(numero);
         pedido.setValorTotal(total);
         pedido.setItens(itens);
+
+        log.info("[PedidoService] Pedido criado | id={} | numero={} | empresaId={} | total={}",
+                pedido.getId(), numero, pedido.getEmpresaId(), total);
 
         return pedido;
     }

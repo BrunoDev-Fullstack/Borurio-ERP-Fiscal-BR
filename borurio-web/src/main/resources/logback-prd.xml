@@ -12,7 +12,7 @@
     <property name="APP_NAME" value="${APP_NAME:-borurio-erp-prd}"/>
 
     <property name="LOG_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread][%X{requestId:-no-rid}] %logger{36} - %msg%n"/>
 
     <!-- =============================================================================
          APPENDER: LOG PRINCIPAL

@@ -24,14 +24,14 @@
          PADRÃO DE LOG
          ============================================================================= -->
     <property name="LOG_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread][%X{requestId:-no-rid}] %logger{36} - %msg%n"/>
 
     <!-- =============================================================================
          APPENDER: CONSOLE
          ============================================================================= -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} %-5level [%X{requestId:-no-rid}] %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 

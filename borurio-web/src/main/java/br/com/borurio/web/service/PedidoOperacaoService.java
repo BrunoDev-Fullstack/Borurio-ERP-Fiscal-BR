@@ -84,7 +84,13 @@ public class PedidoOperacaoService {
         });
 
         String uf = emitente.getUf() != null ? emitente.getUf() : "SP";
-        resp.put("consultaSefaz", transmitService.consultarNfe(chave, uf, tpAmb));
+        try {
+            resp.put("consultaSefaz", transmitService.consultarNfe(chave, uf, tpAmb));
+        } catch (Exception e) {
+            log.warn("[PedidoOperacao] Consulta SEFAZ indisponível — dados locais retornados | pedidoId={} | erro={}",
+                    pedidoId, e.getMessage());
+            resp.put("consultaSefaz", null);
+        }
 
         log.info("[PedidoOperacao] Situação consultada | pedidoId={} | chave={}", pedidoId, chave);
         return resp;
