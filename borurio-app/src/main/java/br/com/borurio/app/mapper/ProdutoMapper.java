@@ -131,6 +131,20 @@ public interface ProdutoMapper {
                       @Param("qtd") java.math.BigDecimal qtd,
                       @Param("empresaId") Long empresaId);
 
+    @Update("""
+            UPDATE produto SET
+                descricao     = #{descricao},
+                ncm           = #{ncm},
+                cfop          = #{cfop},
+                unidade       = #{unidade},
+                preco         = #{preco},
+                origem        = #{origem, jdbcType=INTEGER},
+                csosn         = #{csosn, jdbcType=VARCHAR},
+                atualizado_em = NOW()
+            WHERE id = #{id}
+            """)
+    int atualizarBatch(Produto produto);
+
     @Update("UPDATE produto SET estado = 0, atualizado_em = NOW() WHERE id = #{id}")
     int desativar(Long id);
 }

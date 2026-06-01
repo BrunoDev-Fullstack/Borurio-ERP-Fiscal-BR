@@ -4,20 +4,26 @@ import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.EstoqueMovimento;
 import br.com.borurio.app.entity.EstoqueSaldo;
 import br.com.borurio.app.entity.Produto;
+import br.com.borurio.app.entity.ProdutoBatchItemResultado;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.ProdutoService;
 import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
 import br.com.borurio.web.dto.EstoqueEntradaRequest;
+import br.com.borurio.web.dto.ProdutoBatchRequest;
+import br.com.borurio.web.dto.ProdutoBatchResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+
 
 @RestController
 @RequestMapping("/api/app/produtos")
@@ -79,6 +85,16 @@ public class ProdutoController {
         return ResultUtil.success(produtoService.atualizar(id, produto));
     }
 
+    @PostMapping("/batch")
+    @Operation(summary = "Upsert em lote de produtos — limite 200 por requisição")
+    public ResponseEntity<ProdutoBatchResponse> batchUpsert(@RequestBody ProdutoBatchRequest req) {
+        Long empresaId = EmpresaContextHolder.get();
+        List<Produto> produtos = req.getProdutos() == null ? List.of()
+                : req.getProdutos().stream().map(this::toEntity).toList();
+        List<ProdutoBatchItemResultado> resultados = produtoService.batchUpsert(produtos, empresaId);
+        return ResponseEntity.status(HttpStatus.MULTI_STATUS).body(ProdutoBatchResponse.from(resultados));
+    }
+
     @DeleteMapping("/{id}")
     @Operation(summary = "Desativa produto (soft-delete)")
     public Result<String> desativar(@PathVariable Long id) {
@@ -102,5 +118,18 @@ public class ProdutoController {
         String criadoPor = auth != null ? auth.getName() : "sistema";
         return ResultUtil.success(
                 estoqueService.entrada(id, empresaId, req.getQuantidade(), criadoPor, req.getObservacao()));
+    }
+
+    private Produto toEntity(ProdutoBatchRequest.ProdutoItemRequest r) {
+        Produto p = new Produto();
+        p.setCodigo(r.getCodigo());
+        p.setDescricao(r.getDescricao());
+        p.setNcm(r.getNcm());
+        p.setCfop(r.getCfop());
+        p.setUnidade(r.getUnidade());
+        p.setPreco(r.getPreco());
+        p.setOrigem(r.getOrigem());
+        p.setCsosn(r.getCsosn());
+        return p;
     }
 }

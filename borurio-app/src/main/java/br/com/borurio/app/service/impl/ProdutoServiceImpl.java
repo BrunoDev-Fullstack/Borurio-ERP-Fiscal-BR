@@ -1,14 +1,19 @@
 package br.com.borurio.app.service.impl;
 
 import br.com.borurio.app.entity.Produto;
+import br.com.borurio.app.entity.ProdutoBatchItemResultado;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.ProdutoMapper;
 import br.com.borurio.app.service.ProdutoService;
 import br.com.borurio.core.mvc.api.PageResponse;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 @Service
 public class ProdutoServiceImpl implements ProdutoService {
@@ -120,6 +125,54 @@ public class ProdutoServiceImpl implements ProdutoService {
     public void desativar(Long id) {
         buscarPorId(id);
         produtoMapper.desativar(id);
+    }
+
+    @Override
+    public List<ProdutoBatchItemResultado> batchUpsert(List<Produto> produtos, Long empresaId) {
+        if (produtos == null || produtos.isEmpty()) {
+            throw new IllegalArgumentException("A lista de produtos não pode ser vazia.");
+        }
+        if (produtos.size() > 200) {
+            throw BusinessException.batchLimitExceeded();
+        }
+
+        Set<String> processados = new LinkedHashSet<>();
+        List<ProdutoBatchItemResultado> resultados = new ArrayList<>(produtos.size());
+
+        for (Produto produto : produtos) {
+            String codigo = produto.getCodigo();
+
+            if (codigo != null && !processados.add(codigo)) {
+                resultados.add(ProdutoBatchItemResultado.rejeitado(
+                        codigo, "DUPLICATE_CODIGO_IN_BATCH", "Código duplicado no mesmo lote."));
+                continue;
+            }
+
+            try {
+                produto.setEmpresaId(empresaId);
+                aplicarDefaultsFiscais(produto);
+                validar(produto);
+
+                Produto existente = produtoMapper.buscarPorCodigoEEmpresa(codigo, empresaId);
+                if (existente == null) {
+                    produto.setEstado(1);
+                    produtoMapper.inserir(produto);
+                    resultados.add(ProdutoBatchItemResultado.criado(codigo, produto.getId()));
+                } else {
+                    produto.setId(existente.getId());
+                    produtoMapper.atualizarBatch(produto);
+                    resultados.add(ProdutoBatchItemResultado.atualizado(codigo, existente.getId()));
+                }
+            } catch (IllegalArgumentException e) {
+                resultados.add(ProdutoBatchItemResultado.rejeitado(
+                        codigo, "VALIDATION_ERROR", e.getMessage()));
+            } catch (Exception e) {
+                resultados.add(ProdutoBatchItemResultado.rejeitado(
+                        codigo, "INTERNAL_ERROR", e.getMessage()));
+            }
+        }
+
+        return resultados;
     }
 
     private void aplicarDefaultsFiscais(Produto p) {

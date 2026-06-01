@@ -1,6 +1,7 @@
 package br.com.borurio.app.service;
 
 import br.com.borurio.app.entity.Produto;
+import br.com.borurio.app.entity.ProdutoBatchItemResultado;
 import br.com.borurio.core.mvc.api.PageResponse;
 
 import java.util.List;
@@ -28,4 +29,6 @@ public interface ProdutoService {
     void desativar(Long id);
 
     PageResponse<Produto> listarPaginado(Long empresaId, int page, int size);
+
+    List<ProdutoBatchItemResultado> batchUpsert(List<Produto> produtos, Long empresaId);
 }

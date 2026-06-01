@@ -49,4 +49,11 @@ public class BusinessException extends RuntimeException {
     public static BusinessException invalidOrderStatus(String message) {
         return new BusinessException("INVALID_ORDER_STATUS", message, 422);
     }
+
+    public static BusinessException batchLimitExceeded() {
+        return new BusinessException(
+                "BATCH_LIMIT_EXCEEDED",
+                "O lote excede o limite máximo de 200 produtos por requisição.",
+                422);
+    }
 }
