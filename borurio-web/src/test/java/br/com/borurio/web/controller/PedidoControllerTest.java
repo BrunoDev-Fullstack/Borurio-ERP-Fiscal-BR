@@ -323,6 +323,142 @@ class PedidoControllerTest {
                 .andExpect(jsonPath("$.errorCode").value("PRODUCT_NOT_FOUND"));
     }
 
+    // -------------------------------------------------------------------------
+    // Override fiscal por item — dados fiscais vêm do OMS no payload do pedido
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser
+    void criar_comCamposFiscaisNoItem_returns200() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+
+        Pedido pedido = new Pedido();
+        pedido.setId(10L);
+        pedido.setDestCnpjCpf("12345678000195");
+        pedido.setDestRazaoSocial("Cliente Fiscal");
+        pedido.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(pedido);
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Fiscal",
+                                  "destUf": "SP",
+                                  "itens": [{
+                                    "produtoId": 1,
+                                    "quantidade": 2,
+                                    "valorUnitario": 50.00,
+                                    "codigoProduto": "SKU-OMS-001",
+                                    "descricao": "Produto OMS",
+                                    "ncm": "84715011",
+                                    "cfop": "6102",
+                                    "unidade": "UN",
+                                    "origem": 0,
+                                    "csosn": "102"
+                                  }]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(10))
+                .andExpect(jsonPath("$.data.status").value("RASCUNHO"));
+    }
+
+    @Test
+    @WithMockUser
+    void criar_cfopAusenteNoItem_returns400() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+        when(pedidoService.criar(any(), any()))
+                .thenThrow(new IllegalArgumentException("cfop é obrigatório no item produtoId=1"));
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente",
+                                  "itens": [{
+                                    "produtoId": 1,
+                                    "quantidade": 1,
+                                    "valorUnitario": 10.00,
+                                    "codigoProduto": "SKU-001",
+                                    "descricao": "Produto",
+                                    "ncm": "84715011",
+                                    "unidade": "UN",
+                                    "origem": 0,
+                                    "csosn": "400"
+                                  }]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    @WithMockUser
+    void criar_ncmAusenteNoItem_returns400() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+        when(pedidoService.criar(any(), any()))
+                .thenThrow(new IllegalArgumentException("ncm é obrigatório no item produtoId=1"));
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente",
+                                  "itens": [{
+                                    "produtoId": 1,
+                                    "quantidade": 1,
+                                    "valorUnitario": 10.00,
+                                    "codigoProduto": "SKU-001",
+                                    "descricao": "Produto",
+                                    "cfop": "5102",
+                                    "unidade": "UN",
+                                    "origem": 0,
+                                    "csosn": "400"
+                                  }]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    @WithMockUser
+    void criar_codigoProdutoAusenteNoItem_returns400() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+        when(pedidoService.criar(any(), any()))
+                .thenThrow(new IllegalArgumentException("codigoProduto é obrigatório no item produtoId=1"));
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente",
+                                  "itens": [{
+                                    "produtoId": 1,
+                                    "quantidade": 1,
+                                    "valorUnitario": 10.00,
+                                    "descricao": "Produto",
+                                    "ncm": "84715011",
+                                    "cfop": "5102",
+                                    "unidade": "UN",
+                                    "origem": 0,
+                                    "csosn": "400"
+                                  }]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
     @Test
     @WithMockUser
     void emitir_pedidoNaoRascunho_returns422ComErrorCode() throws Exception {

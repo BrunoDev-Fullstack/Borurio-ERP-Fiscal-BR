@@ -70,8 +70,8 @@ public class PedidoServiceImpl implements PedidoService {
         BigDecimal total  = BigDecimal.ZERO;
 
         for (PedidoItem item : itens) {
-            Produto produto = resolverProduto(item, pedido.getEmpresaId());
-            preencherSnapshot(item, produto);
+            resolverProduto(item, pedido.getEmpresaId());
+            validarSnapshotFiscal(item);
 
             item.setPedidoId(pedido.getId());
             item.setValorTotal(item.getQuantidade().multiply(item.getValorUnitario()));
@@ -164,15 +164,23 @@ public class PedidoServiceImpl implements PedidoService {
         return produto;
     }
 
-    /** Congela os dados fiscais do produto no item. Imutável após criação do pedido. */
-    private void preencherSnapshot(PedidoItem item, Produto produto) {
-        item.setCodigoProduto(produto.getCodigo());
-        item.setDescricao(produto.getDescricao());
-        item.setNcm(produto.getNcm());
-        item.setCfop(produto.getCfop());
-        item.setUnidade(produto.getUnidade());
-        item.setOrigem(produto.getOrigem() != null ? produto.getOrigem() : 0);
-        item.setCsosn(produto.getCsosn() != null ? produto.getCsosn() : "400");
+    /** Valida que o OMS enviou todos os campos fiscais obrigatórios no item. */
+    private void validarSnapshotFiscal(PedidoItem item) {
+        String ref = "produtoId=" + item.getProdutoId();
+        if (item.getCodigoProduto() == null || item.getCodigoProduto().isBlank())
+            throw new IllegalArgumentException("codigoProduto é obrigatório no item " + ref);
+        if (item.getDescricao() == null || item.getDescricao().isBlank())
+            throw new IllegalArgumentException("descricao é obrigatória no item " + ref);
+        if (item.getNcm() == null || item.getNcm().isBlank())
+            throw new IllegalArgumentException("ncm é obrigatório no item " + ref);
+        if (item.getCfop() == null || item.getCfop().isBlank())
+            throw new IllegalArgumentException("cfop é obrigatório no item " + ref);
+        if (item.getUnidade() == null || item.getUnidade().isBlank())
+            throw new IllegalArgumentException("unidade é obrigatória no item " + ref);
+        if (item.getOrigem() == null)
+            throw new IllegalArgumentException("origem é obrigatória no item " + ref);
+        if (item.getCsosn() == null || item.getCsosn().isBlank())
+            throw new IllegalArgumentException("csosn é obrigatório no item " + ref);
     }
 
     private void validarCabecalho(Pedido pedido, List<PedidoItem> itens) {

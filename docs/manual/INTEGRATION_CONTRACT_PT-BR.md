@@ -477,15 +477,24 @@ Content-Type: application/json
 
 **Campos de cada item (`itens[]`):**
 
-| Campo           | Tipo    | Regra                                            |
-|-----------------|---------|--------------------------------------------------|
-| `produtoId`     | Long    | Obrigatório · Produto deve existir e estar ativo |
-| `quantidade`    | Decimal | Obrigatório · Valor > 0                          |
-| `valorUnitario` | Decimal | Obrigatório · Valor > 0                          |
+> `[CONTRATO]` Todos os campos fiscais abaixo são **obrigatórios** e devem ser enviados pelo OMS em cada item. O sistema **não** copia dados fiscais do produto cadastrado — o que o OMS enviar é exatamente o que vai para o XML da NF-e. Se algum campo fiscal obrigatório estiver ausente, o pedido é rejeitado com HTTP 400.
+
+| Campo            | Tipo    | Regra                                                              |
+|------------------|---------|--------------------------------------------------------------------|
+| `produtoId`      | Long    | Obrigatório · Produto deve existir e estar ativo                   |
+| `quantidade`     | Decimal | Obrigatório · Valor > 0                                            |
+| `valorUnitario`  | Decimal | Obrigatório · Valor > 0                                            |
+| `codigoProduto`  | String  | Obrigatório · Código do produto na NF-e (`cProd`)                  |
+| `descricao`      | String  | Obrigatório · Descrição do produto na NF-e (`xProd`)               |
+| `ncm`            | String  | Obrigatório · Exatamente 8 dígitos numéricos                       |
+| `cfop`           | String  | Obrigatório · 4 dígitos (ex: `"5102"` dentro do estado, `"6102"` interestadual) |
+| `unidade`        | String  | Obrigatório · Ex: `UN`, `KG`, `PC`, `CX`                          |
+| `origem`         | Integer | Obrigatório · `0`=Nacional · `1`–`8`=Importada                    |
+| `csosn`          | String  | Obrigatório · Simples Nacional (ex: `"102"`, `"400"`, `"500"`, `"900"`) |
 
 > `[CONTRATO]` `valorTotal` de cada item é calculado automaticamente como `quantidade × valorUnitario`. O total do pedido é a soma dos itens. Não enviar esses campos.
 
-> `[EXEMPLO]` Payload mínimo válido (com `externalOrderId` para idempotência — recomendado):
+> `[EXEMPLO]` Payload válido com campos fiscais por item:
 ```json
 {
   "externalOrderId":     "OMS-20260601-0001",
@@ -495,7 +504,18 @@ Content-Type: application/json
   "destCodigoMunicipio": "3550308",
   "destMunicipio":       "São Paulo",
   "itens": [
-    { "produtoId": 7, "quantidade": 2, "valorUnitario": 100.00 }
+    {
+      "produtoId":     7,
+      "quantidade":    2,
+      "valorUnitario": 100.00,
+      "codigoProduto": "SKU-OMS-001",
+      "descricao":     "Produto Teste Integração",
+      "ncm":           "84715011",
+      "cfop":          "6102",
+      "unidade":       "UN",
+      "origem":        0,
+      "csosn":         "102"
+    }
   ]
 }
 ```

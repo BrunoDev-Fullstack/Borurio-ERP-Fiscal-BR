@@ -479,15 +479,24 @@ Content-Type: application/json
 
 **Per-item fields (`itens[]`):**
 
-| Field           | Type    | Rule                                        |
-|-----------------|---------|---------------------------------------------|
-| `produtoId`     | Long    | Required · Product must exist and be active |
-| `quantidade`    | Decimal | Required · Value > 0                        |
-| `valorUnitario` | Decimal | Required · Value > 0                        |
+> `[CONTRACT]` All fiscal fields below are **required** and must be sent by the OMS on every item. The system does **not** copy fiscal data from the product catalog — what the OMS sends is exactly what goes into the NF-e XML. If any required fiscal field is missing, the order is rejected with HTTP 400.
+
+| Field            | Type    | Rule                                                      |
+|------------------|---------|-----------------------------------------------------------|
+| `produtoId`      | Long    | Required · Product must exist and be active               |
+| `quantidade`     | Decimal | Required · Value > 0                                      |
+| `valorUnitario`  | Decimal | Required · Value > 0                                      |
+| `codigoProduto`  | String  | Required · Product code as it appears in the NF-e (`cProd`) |
+| `descricao`      | String  | Required · Product description as it appears in the NF-e (`xProd`) |
+| `ncm`            | String  | Required · Exactly 8 numeric digits                       |
+| `cfop`           | String  | Required · 4 numeric digits (e.g. `"5102"` intra-state, `"6102"` interstate) |
+| `unidade`        | String  | Required · E.g.: `UN`, `KG`, `PC`, `CX`                  |
+| `origem`         | Integer | Required · `0`=Domestic · `1`–`8`=Imported               |
+| `csosn`          | String  | Required · Simples Nacional code (e.g. `"102"`, `"400"`, `"500"`, `"900"`) |
 
 > `[CONTRACT]` Each item's `valorTotal` is calculated automatically as `quantidade × valorUnitario`. The order total is the sum of all items. Do not send these fields.
 
-> `[EXAMPLE]` Minimum valid payload (with `externalOrderId` for idempotency — recommended):
+> `[EXAMPLE]` Valid payload with fiscal fields per item:
 ```json
 {
   "externalOrderId":     "OMS-20260601-0001",
@@ -497,7 +506,18 @@ Content-Type: application/json
   "destCodigoMunicipio": "3550308",
   "destMunicipio":       "São Paulo",
   "itens": [
-    { "produtoId": 7, "quantidade": 2, "valorUnitario": 100.00 }
+    {
+      "produtoId":     7,
+      "quantidade":    2,
+      "valorUnitario": 100.00,
+      "codigoProduto": "SKU-OMS-001",
+      "descricao":     "Test Integration Product",
+      "ncm":           "84715011",
+      "cfop":          "6102",
+      "unidade":       "UN",
+      "origem":        0,
+      "csosn":         "102"
+    }
   ]
 }
 ```
