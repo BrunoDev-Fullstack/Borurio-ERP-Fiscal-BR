@@ -218,19 +218,28 @@ Resposta (campo relevante):
 
 - [ ] **[BLOQUEANTE]** `POST /api/app/pedidos` com campos obrigatórios:
 
-| Campo                   | Tipo    | Restrição                                            |
-|-------------------------|---------|------------------------------------------------------|
-| `destCnpjCpf`           | string  | obrigatório, não vazio                               |
-| `destRazaoSocial`       | string  | obrigatório, não vazio                               |
-| `externalOrderId`       | string  | opcional — ID externo OMS para idempotência (máx 100 chars) |
-| `itens`                 | array   | obrigatório, mínimo 1 item                           |
-| `itens[].produtoId`     | long    | obrigatório                                          |
-| `itens[].quantidade`    | decimal | obrigatório, maior que 0                             |
-| `itens[].valorUnitario` | decimal | obrigatório, maior que 0                             |
+| Campo                        | Tipo    | Restrição                                                   |
+|------------------------------|---------|-------------------------------------------------------------|
+| `destCnpjCpf`                | string  | obrigatório, não vazio                                      |
+| `destRazaoSocial`            | string  | obrigatório, não vazio                                      |
+| `externalOrderId`            | string  | opcional — ID externo OMS para idempotência (máx 100 chars) |
+| `itens`                      | array   | obrigatório, mínimo 1 item                                  |
+| `itens[].produtoId`          | long    | obrigatório                                                 |
+| `itens[].quantidade`         | decimal | obrigatório, maior que 0                                    |
+| `itens[].valorUnitario`      | decimal | obrigatório, maior que 0                                    |
+| `itens[].codigoProduto`      | string  | **obrigatório** — código do produto na NF-e (`cProd`)       |
+| `itens[].descricao`          | string  | **obrigatório** — descrição na NF-e (`xProd`)               |
+| `itens[].ncm`                | string  | **obrigatório** — exatamente 8 dígitos                      |
+| `itens[].cfop`               | string  | **obrigatório** — 4 dígitos (ex: `"5102"`, `"6102"`)        |
+| `itens[].unidade`            | string  | **obrigatório** — ex: `UN`, `KG`, `PC`, `CX`               |
+| `itens[].origem`             | integer | **obrigatório** — `0`=Nacional · `1`–`8`=Importada          |
+| `itens[].csosn`              | string  | **obrigatório** — ex: `"102"`, `"400"`, `"500"`, `"900"`    |
+
+> **Atenção:** Os campos fiscais acima são obrigatórios e devem ser enviados pelo OMS em cada item. O sistema **não** copia dados fiscais do produto cadastrado. Se algum campo estiver ausente, o pedido é rejeitado com **HTTP 400**.
 
 - [ ] Confirmar `data.status` = `"RASCUNHO"` na resposta
 - [ ] Confirmar `data.id` retornado — guardar o `id` do pedido
-- [ ] Confirmar que os itens têm snapshot fiscal preenchido: `ncm`, `cfop`, `unidade`, `csosn`, `origem`
+- [ ] Confirmar que os itens na resposta refletem os dados fiscais enviados pelo OMS: `codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`
 
 **Nota:** `naturezaOperacao` é definido automaticamente como `"VENDA DE MERCADORIA"` se não enviado. `serieNfe` padrão é `"1"`.
 
@@ -251,6 +260,9 @@ Erros de negócio retornam `HTTP 422` com campo `errorCode` identificável pela 
 - [ ] Tentar criar pedido com `produtoId` inexistente → confirmar `HTTP 422` com `"errorCode": "PRODUCT_NOT_FOUND"`
 - [ ] Tentar criar pedido com produto com `estado=0` (inativo) → confirmar `HTTP 422` com `"errorCode": "PRODUCT_INACTIVE"`
 - [ ] Tentar criar pedido com `quantidade` maior que o estoque disponível → confirmar `HTTP 422` com `"errorCode": "INSUFFICIENT_STOCK"`
+- [ ] Tentar criar pedido com item sem `cfop` → confirmar `HTTP 400` com mensagem `"cfop é obrigatório no item"`
+- [ ] Tentar criar pedido com item sem `ncm` → confirmar `HTTP 400` com mensagem `"ncm é obrigatório no item"`
+- [ ] Tentar criar pedido com item sem `codigoProduto` → confirmar `HTTP 400` com mensagem `"codigoProduto é obrigatório no item"`
 
 Formato de resposta de erro de negócio:
 ```json

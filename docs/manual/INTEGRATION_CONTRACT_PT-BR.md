@@ -4,9 +4,9 @@
 
 | Atributo               | Valor                                   |
 |------------------------|-----------------------------------------|
-| Versão                 | 1.4                                     |
+| Versão                 | 1.5                                     |
 | Status                 | **Aprovado para integração**            |
-| Data de validação      | 01-06-2026                              |
+| Data de validação      | 10-06-2026                              |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`     |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validado contra        | Código-fonte + testes em HOM            |
@@ -1073,3 +1073,14 @@ pedido.status:    "AGUARDANDO" → normal em HOM (lote aceito, cStat=104); não 
 | 8  | Endpoint AN HOM pode retornar HTTP 403 em redes locais      | Limitação da SEFAZ federal — não afeta PRD nem fluxo OMS principal          |
 | 9  | `POST /batch` sempre retorna HTTP 207 — mesmo com todos os itens com sucesso | Não tratar HTTP 207 como erro — inspecionar `resultados[].status` por item |
 | 10 | Toda resposta inclui `X-Request-Id` no header de resposta   | Usar para correlacionar requisições OMS com logs do servidor para diagnóstico |
+
+---
+
+## 11. Changelog
+
+| Versão | Data       | Alteração                                                                                      |
+|--------|------------|-----------------------------------------------------------------------------------------------|
+| 1.5    | 10-06-2026 | `POST /api/app/pedidos` — campos fiscais (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) passam a ser **obrigatórios** em cada item e devem ser enviados pelo OMS. O sistema não copia mais dados fiscais do produto cadastrado. Campo ausente retorna HTTP 400. |
+| 1.4    | 01-06-2026 | Header de rastreabilidade `X-Request-Id`; idempotência via `externalOrderId`; batch upsert (`POST /api/app/produtos/batch`); endpoints de Manifestação do Destinatário. |
+| 1.3    | 27-05-2026 | `cfop` opcional no produto (`POST /api/app/produtos`); rotação de senha de certificado (M3); esclarecimentos sobre geração de DANFE. |
+| 1.2    | 18-05-2026 | Controle de estoque com reserva atômica; Fase 12-B DANFE; isolamento multi-tenant confirmado em HOM. |

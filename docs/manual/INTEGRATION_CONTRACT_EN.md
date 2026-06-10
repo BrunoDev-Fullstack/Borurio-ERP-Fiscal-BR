@@ -4,9 +4,9 @@
 
 | Attribute             | Value                                   |
 |-----------------------|-----------------------------------------|
-| Version               | 1.4                                     |
+| Version               | 1.5                                     |
 | Status                | **Approved for integration**            |
-| Validation date       | 2026-06-01                              |
+| Validation date       | 2026-06-10                              |
 | Reference environment | HOM — `https://hom-api.borurio.com`     |
 | Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validated against     | Source code + HOM tests                 |
@@ -1075,3 +1075,14 @@ pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); do
 | 8  | AN HOM endpoint may return HTTP 403 on local networks       | SEFAZ federal infrastructure limitation — does not affect PRD or the main OMS flow      |
 | 9  | `POST /batch` always returns HTTP 207 — even when all items succeed | Do not treat HTTP 207 as an error — inspect `resultados[].status` per item |
 | 10 | Every response includes `X-Request-Id` in the response header | Use it to correlate OMS requests with API server logs for troubleshooting |
+
+---
+
+## 11. Changelog
+
+| Version | Date       | Change                                                                                      |
+|---------|------------|---------------------------------------------------------------------------------------------|
+| 1.5     | 2026-06-10 | `POST /api/app/pedidos` — fiscal fields (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) are now **required** in each item and must be sent by the OMS. The system no longer copies fiscal data from the product catalog. Missing field returns HTTP 400. |
+| 1.4     | 2026-06-01 | Added `X-Request-Id` traceability header; idempotency via `externalOrderId`; batch upsert (`POST /api/app/produtos/batch`); Manifestação do Destinatário endpoints. |
+| 1.3     | 2026-05-27 | Added `cfop` optional on product (`POST /api/app/produtos`); `M3` certificate password rotation; `DANFE` generation clarifications. |
+| 1.2     | 2026-05-18 | Added stock control (atomic reservation); `Fase 12-B` DANFE; multi-tenant isolation confirmed in HOM. |
