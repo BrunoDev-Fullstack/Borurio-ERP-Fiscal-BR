@@ -228,7 +228,7 @@ Content-Type: application/json
 
 > `[CONTRACT]` CFOP reference: intra-state operation: `5102` · interstate operation: `6102`.
 
-> `[CONTRACT]` CSOSN reference (Simples Nacional): `102`=no ST no credit · `400`=non-contributor · `500`=ICMS previously collected · `900`=other.
+> `[CONTRACT]` CSOSN reference (Simples Nacional): `102`=no ST no credit · `103`=exempt by revenue bracket · `300`=immune · `400`=non-contributor · `500`=ICMS previously collected (ST) · `900`=other. Codes `201`, `202`, and `203` (with ST) are not supported in this version of the fiscal engine.
 
 > `[EXAMPLE]` Minimum valid payload:
 ```json
@@ -492,7 +492,7 @@ Content-Type: application/json
 | `cfop`           | String  | Required · 4 numeric digits (e.g. `"5102"` intra-state, `"6102"` interstate) |
 | `unidade`        | String  | Required · E.g.: `UN`, `KG`, `PC`, `CX`                  |
 | `origem`         | Integer | Required · `0`=Domestic · `1`–`8`=Imported               |
-| `csosn`          | String  | Required · Simples Nacional code (e.g. `"102"`, `"400"`, `"500"`, `"900"`) |
+| `csosn`          | String  | Required · Simples Nacional: `"102"`, `"103"`, `"300"`, `"400"`, `"500"`, `"900"` (do not send `201`/`202`/`203`) |
 
 > `[CONTRACT]` Each item's `valorTotal` is calculated automatically as `quantidade × valorUnitario`. The order total is the sum of all items. Do not send these fields.
 

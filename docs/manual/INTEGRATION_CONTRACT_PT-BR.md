@@ -226,7 +226,7 @@ Content-Type: application/json
 
 > `[CONTRATO]` CFOP de referência: operação interna (mesmo estado): `5102` · operação interestadual: `6102`.
 
-> `[CONTRATO]` CSOSN de referência para Simples Nacional: `102`=sem ST sem crédito · `400`=não contribuinte · `500`=ICMS cobrado anteriormente · `900`=outros.
+> `[CONTRATO]` CSOSN de referência para Simples Nacional: `102`=sem ST sem crédito · `103`=isento por faixa de receita · `300`=imune · `400`=não contribuinte · `500`=ICMS cobrado anteriormente (ST) · `900`=outros. Os códigos `201`, `202` e `203` (com ST) não estão suportados nesta versão do motor.
 
 > `[EXEMPLO]` Payload mínimo válido:
 ```json
@@ -490,7 +490,7 @@ Content-Type: application/json
 | `cfop`           | String  | Obrigatório · 4 dígitos (ex: `"5102"` dentro do estado, `"6102"` interestadual) |
 | `unidade`        | String  | Obrigatório · Ex: `UN`, `KG`, `PC`, `CX`                          |
 | `origem`         | Integer | Obrigatório · `0`=Nacional · `1`–`8`=Importada                    |
-| `csosn`          | String  | Obrigatório · Simples Nacional (ex: `"102"`, `"400"`, `"500"`, `"900"`) |
+| `csosn`          | String  | Obrigatório · Simples Nacional: `"102"`, `"103"`, `"300"`, `"400"`, `"500"`, `"900"` (não enviar `201`/`202`/`203`) |
 
 > `[CONTRATO]` `valorTotal` de cada item é calculado automaticamente como `quantidade × valorUnitario`. O total do pedido é a soma dos itens. Não enviar esses campos.
 
