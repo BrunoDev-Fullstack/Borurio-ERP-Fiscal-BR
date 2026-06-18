@@ -1,5 +1,6 @@
 package br.com.borurio.web.service;
 
+import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.fiscal.builder.NfeXmlBuilder;
 import br.com.borurio.fiscal.config.EmitenteProperties;
@@ -61,6 +62,7 @@ public class NfeGeracaoService {
     private final NfeSefazRetornoParser retornoParser;
     private final NfeDocumentoService documentoService;
     private final EmpresaCertificadoService empresaCertificadoService;
+    private final OmsCertificadoService omsCertificadoService;
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
@@ -73,7 +75,8 @@ public class NfeGeracaoService {
                              NfeSequenciaService sequenciaService,
                              NfeSefazRetornoParser retornoParser,
                              NfeDocumentoService documentoService,
-                             EmpresaCertificadoService empresaCertificadoService) {
+                             EmpresaCertificadoService empresaCertificadoService,
+                             OmsCertificadoService omsCertificadoService) {
         this.emitente = emitente;
         this.nfeXmlBuilder = nfeXmlBuilder;
         this.nfeOrquestradorService = nfeOrquestradorService;
@@ -83,6 +86,7 @@ public class NfeGeracaoService {
         this.retornoParser = retornoParser;
         this.documentoService = documentoService;
         this.empresaCertificadoService = empresaCertificadoService;
+        this.omsCertificadoService = omsCertificadoService;
     }
 
     public NfeGeracaoResult gerar(NfeEmissaoRequest req) throws Exception {
@@ -139,8 +143,11 @@ public class NfeGeracaoService {
 
         log.info("[NfeGeracao] Iniciando transmissão | chave={} | cnpj={}", chave, cnpj);
 
-        CertificadoContexto certCtx = empresaCertificadoService.resolverPorEmpresa(empresa)
-                .orElse(null);
+        // Sessão OMS: cert vem do banco, sem fallback. Sessão de usuário: cert vem do arquivo.
+        String jtiOms = EmpresaContextHolder.getJtiAuth();
+        CertificadoContexto certCtx = (jtiOms != null)
+                ? omsCertificadoService.resolverPorJti(jtiOms)
+                : empresaCertificadoService.resolverPorEmpresa(empresa).orElse(null);
 
         Long empresaId = empresa != null ? empresa.getId() : null;
 

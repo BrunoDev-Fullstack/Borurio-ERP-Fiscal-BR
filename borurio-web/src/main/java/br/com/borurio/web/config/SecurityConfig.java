@@ -84,6 +84,7 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/auth/**"),
                                 new AntPathRequestMatcher("/ping"),
                                 new AntPathRequestMatcher("/api/test/**"),
+                                new AntPathRequestMatcher("/api/integration/fiscal-authorizations", "POST"),
                                 new AntPathRequestMatcher("/swagger-ui/**"),
                                 new AntPathRequestMatcher("/swagger-ui.html"),
                                 new AntPathRequestMatcher("/v3/api-docs/**"),
@@ -124,7 +125,7 @@ public class SecurityConfig {
         }
 
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Api-Key"));
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Date;
 import java.util.function.Function;
 
@@ -115,6 +117,48 @@ public class JwtUtil {
         } catch (JwtException | IllegalArgumentException e) {
             log.warn("[JWT] Token inválido: {}", e.getMessage());
             return false;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // OMS — token técnico fiscal
+    // -------------------------------------------------------------------------
+
+    /**
+     * Gera token JWT para sessão OMS.
+     * sub     = codigoOms (identificador da empresa no sistema OMS)
+     * eid     = empresaId (id interno da empresa no Borurio)
+     * tipo    = "OMS"
+     * jti     = UUID fornecido pelo serviço (base para revogação)
+     * exp     = not_after do certificado A1 (nunca além da validade do cert)
+     */
+    public String generateOmsToken(String codigoOms, Long empresaId, String jti, LocalDateTime certNotAfter) {
+        Date expiry = Date.from(certNotAfter.atZone(ZoneId.systemDefault()).toInstant());
+        return Jwts.builder()
+                .setSubject(codigoOms)
+                .setId(jti)
+                .setIssuedAt(new Date())
+                .setExpiration(expiry)
+                .claim("eid",  empresaId)
+                .claim("tipo", "OMS")
+                .signWith(getSignKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    public String extractTipo(String token) {
+        try {
+            Object tipo = extractClaim(token, claims -> claims.get("tipo"));
+            return tipo != null ? tipo.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public String extractJti(String token) {
+        try {
+            return extractClaim(token, Claims::getId);
+        } catch (Exception e) {
+            return null;
         }
     }
 }

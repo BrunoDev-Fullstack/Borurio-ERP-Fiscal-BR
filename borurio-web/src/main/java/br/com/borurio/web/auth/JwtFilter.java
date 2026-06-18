@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Set;
 
 @Component
@@ -35,7 +37,8 @@ public class JwtFilter extends OncePerRequestFilter {
             "/swagger-ui",
             "/v3/api-docs",
             "/api/test/",
-            "/api/fiscal/nfe/test/"
+            "/api/fiscal/nfe/test/",
+            "/api/integration/"
     );
 
     private static final Set<String> PUBLIC_EXACT = Set.of(
@@ -77,38 +80,12 @@ public class JwtFilter extends OncePerRequestFilter {
         String token = authHeader.substring(7);
 
         try {
-            String username = jwtUtil.extractUsername(token);
+            String tipo = jwtUtil.extractTipo(token);
 
-            if (username != null &&
-                    SecurityContextHolder.getContext().getAuthentication() == null) {
-
-                UserDetails userDetails =
-                        userDetailsService.loadUserByUsername(username);
-
-                if (jwtUtil.validateToken(token, userDetails.getUsername())) {
-
-                    UsernamePasswordAuthenticationToken authToken =
-                            new UsernamePasswordAuthenticationToken(
-                                    userDetails,
-                                    null,
-                                    userDetails.getAuthorities()
-                            );
-
-                    authToken.setDetails(
-                            new WebAuthenticationDetailsSource()
-                                    .buildDetails(request)
-                    );
-
-                    SecurityContextHolder.getContext().setAuthentication(authToken);
-
-                    Long empresaId = jwtUtil.extractEmpresaId(token);
-                    EmpresaContextHolder.set(empresaId);
-
-                    log.info("Usuário autenticado: {} | empresaId={}", username, empresaId);
-
-                } else {
-                    log.warn("Token inválido para usuário: {}", username);
-                }
+            if ("OMS".equals(tipo)) {
+                autenticarOms(token, request);
+            } else {
+                autenticarUsuario(token, request);
             }
 
         } catch (Exception e) {
@@ -121,5 +98,49 @@ public class JwtFilter extends OncePerRequestFilter {
         } finally {
             EmpresaContextHolder.clear();
         }
+    }
+
+    private void autenticarUsuario(String token, HttpServletRequest request) {
+        String username = jwtUtil.extractUsername(token);
+        if (username == null || SecurityContextHolder.getContext().getAuthentication() != null) return;
+
+        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+        if (!jwtUtil.validateToken(token, userDetails.getUsername())) {
+            log.warn("Token inválido para usuário: {}", username);
+            return;
+        }
+
+        UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                userDetails, null, userDetails.getAuthorities());
+        authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authToken);
+
+        Long empresaId = jwtUtil.extractEmpresaId(token);
+        EmpresaContextHolder.set(empresaId);
+        log.info("Usuário autenticado: {} | empresaId={}", username, empresaId);
+    }
+
+    private void autenticarOms(String token, HttpServletRequest request) {
+        // JJWT já valida assinatura e expiração em extractTipo; se chegou aqui, o token é válido.
+        Long empresaId  = jwtUtil.extractEmpresaId(token);
+        String jti      = jwtUtil.extractJti(token);
+        String codigoOms = jwtUtil.extractUsername(token);  // sub = codigoOms
+
+        if (empresaId == null || jti == null) {
+            log.warn("[OMS] Token sem claims obrigatórios (eid ou jti)");
+            return;
+        }
+
+        if (SecurityContextHolder.getContext().getAuthentication() != null) return;
+
+        OmsAuthenticationPrincipal principal = new OmsAuthenticationPrincipal(empresaId, jti, codigoOms);
+        UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                principal, null, List.of(new SimpleGrantedAuthority("ROLE_OMS")));
+        authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authToken);
+
+        EmpresaContextHolder.set(empresaId);
+        EmpresaContextHolder.setJtiAuth(jti);
+        log.info("[OMS] Token autenticado | empresaId={} | codigoOms={}", empresaId, codigoOms);
     }
 }

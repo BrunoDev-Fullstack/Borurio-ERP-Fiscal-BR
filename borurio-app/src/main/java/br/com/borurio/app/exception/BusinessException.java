@@ -56,4 +56,50 @@ public class BusinessException extends RuntimeException {
                 "O lote excede o limite máximo de 200 produtos por requisição.",
                 422);
     }
+
+    // -------------------------------------------------------------------------
+    // OMS — autorização fiscal
+    // -------------------------------------------------------------------------
+
+    public static BusinessException companyNotFound(String cnpj) {
+        return new BusinessException(
+                "COMPANY_NOT_FOUND",
+                "Empresa não encontrada ou não pré-cadastrada: CNPJ=" + cnpj,
+                422);
+    }
+
+    public static BusinessException invalidCertificate(String detail) {
+        return new BusinessException(
+                "INVALID_CERTIFICATE",
+                "Certificado A1 inválido: " + detail,
+                422);
+    }
+
+    public static BusinessException cnpjCertificateMismatch(String cnpjEnviado, String cnpjCert) {
+        return new BusinessException(
+                "CNPJ_CERTIFICATE_MISMATCH",
+                "CNPJ enviado (" + cnpjEnviado + ") não corresponde ao CNPJ do certificado (" + cnpjCert + ")",
+                422);
+    }
+
+    public static BusinessException certificateExpired() {
+        return new BusinessException(
+                "CERTIFICATE_EXPIRED",
+                "O certificado A1 está expirado e não pode ser utilizado para emissão.",
+                422);
+    }
+
+    public static BusinessException invalidApiKey() {
+        return new BusinessException(
+                "INVALID_API_KEY",
+                "API Key ausente, inválida, expirada ou revogada.",
+                401);
+    }
+
+    public static BusinessException authorizationRevoked() {
+        return new BusinessException(
+                "AUTHORIZATION_REVOKED",
+                "A autorização fiscal foi revogada. Realize uma nova autorização.",
+                401);
+    }
 }

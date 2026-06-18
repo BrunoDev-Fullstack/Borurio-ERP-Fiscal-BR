@@ -121,4 +121,73 @@ public class CertSenhaEncryptor {
     public boolean isEncrypted(String value) {
         return value != null && value.startsWith(PREFIX) && value.endsWith(SUFFIX);
     }
+
+    /**
+     * Criptografa bytes brutos (ex: PKCS12) com AES-256-GCM.
+     * Formato armazenado: IV(12 bytes) || CIPHERTEXT+TAG.
+     *
+     * Fail-closed: lança IllegalStateException se a chave não estiver configurada.
+     * Certificados A1 jamais devem ser armazenados sem criptografia autenticada.
+     */
+    public byte[] encryptBytes(byte[] plainBytes) {
+        if (plainBytes == null) return null;
+        if (secretKey == null) {
+            throw new IllegalStateException(
+                    "CERT_ENCRYPTION_KEY não configurada — certificados OMS não podem ser " +
+                    "armazenados sem criptografia autenticada. Configure a variável de ambiente.");
+        }
+        try {
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            new SecureRandom().nextBytes(iv);
+
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] ciphertext = cipher.doFinal(plainBytes);
+
+            byte[] result = new byte[GCM_IV_LENGTH + ciphertext.length];
+            System.arraycopy(iv, 0, result, 0, GCM_IV_LENGTH);
+            System.arraycopy(ciphertext, 0, result, GCM_IV_LENGTH, ciphertext.length);
+            return result;
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("Falha ao criptografar bytes do certificado", e);
+        }
+    }
+
+    /**
+     * Decriptografa bytes previamente criptografados por {@link #encryptBytes}.
+     *
+     * Fail-closed: lança IllegalStateException se a chave não estiver configurada
+     * ou se o conteúdo for insuficiente para conter IV + tag GCM.
+     */
+    public byte[] decryptBytes(byte[] encryptedBytes) {
+        if (encryptedBytes == null) return null;
+        if (secretKey == null) {
+            throw new IllegalStateException(
+                    "CERT_ENCRYPTION_KEY não configurada — impossível decriptografar certificado OMS.");
+        }
+        // Mínimo: IV (12) + tag GCM (16) = 28 bytes; menos que isso é conteúdo corrompido
+        int minLen = GCM_IV_LENGTH + (GCM_TAG_LENGTH / 8);
+        if (encryptedBytes.length < minLen) {
+            throw new IllegalStateException(
+                    "Conteúdo cifrado OMS inválido: esperado mínimo " + minLen +
+                    " bytes, recebido " + encryptedBytes.length);
+        }
+        try {
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            System.arraycopy(encryptedBytes, 0, iv, 0, GCM_IV_LENGTH);
+
+            byte[] ciphertext = new byte[encryptedBytes.length - GCM_IV_LENGTH];
+            System.arraycopy(encryptedBytes, GCM_IV_LENGTH, ciphertext, 0, ciphertext.length);
+
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            return cipher.doFinal(ciphertext);
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("Falha ao decriptografar bytes do certificado — conteúdo corrompido ou chave inválida", e);
+        }
+    }
 }
