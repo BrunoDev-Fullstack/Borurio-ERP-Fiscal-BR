@@ -29,7 +29,7 @@ public class OmsFiscalAuthorizationController {
      */
     @PostMapping("/fiscal-authorizations")
     public ResponseEntity<OmsFiscalAuthorizationResponse> autorizar(
-            @RequestHeader("X-Api-Key") String apiKey,
+            @RequestHeader(value = "X-Api-Key", required = false) String apiKey,
             @Valid @RequestBody OmsFiscalAuthorizationRequest req) {
 
         OmsFiscalAuthorizationResponse resp = service.autorizar(apiKey, req);

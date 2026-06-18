@@ -54,6 +54,10 @@ public class OmsFiscalAuthorizationService {
     public OmsFiscalAuthorizationResponse autorizar(String rawApiKey,
                                                      OmsFiscalAuthorizationRequest req) {
         // 1. Validar API Key
+        if (rawApiKey == null || rawApiKey.isBlank()) {
+            log.warn("[OmsAuth] X-Api-Key ausente na requisição");
+            throw BusinessException.invalidApiKey();
+        }
         OmsApiKey apiKey = omsApiKeyMapper.findAtivaPorHash(sha256Hex(rawApiKey));
         if (apiKey == null) {
             log.warn("[OmsAuth] API Key inválida ou revogada");
@@ -119,20 +123,31 @@ public class OmsFiscalAuthorizationService {
                     auth.getId(), empresa.getId());
         }
 
-        // 11. Substituir certificado ativo
-        LocalDateTime agora = LocalDateTime.now();
-        omsCertMapper.desativarCertsAtivos(auth.getId(), agora);
+        // 11. Substituir certificado ativo — apenas se o thumbprint mudou.
+        //     Mesmo cert re-enviado para renovação de token não precisa de nova linha.
+        OmsCompanyCertificate certAtivo = omsCertMapper.buscarAtivoPorAuthId(auth.getId());
+        boolean mesmoThumbprint = certAtivo != null && thumbprint.equals(certAtivo.getThumbprint());
 
-        OmsCompanyCertificate cert = new OmsCompanyCertificate();
-        cert.setAuthId(auth.getId());
-        cert.setThumbprint(thumbprint);
-        cert.setCertPfxEnc(pfxEnc);
-        cert.setCertSenhaEnc(senhaEnc);
-        cert.setKeyVersion("v1");
-        cert.setNotBefore(notBefore);
-        cert.setNotAfter(notAfter);
-        cert.setAtivo(true);
-        omsCertMapper.inserir(cert);
+        if (!mesmoThumbprint) {
+            LocalDateTime agora = LocalDateTime.now();
+            omsCertMapper.desativarCertsAtivos(auth.getId(), agora);
+
+            OmsCompanyCertificate cert = new OmsCompanyCertificate();
+            cert.setAuthId(auth.getId());
+            cert.setThumbprint(thumbprint);
+            cert.setCertPfxEnc(pfxEnc);
+            cert.setCertSenhaEnc(senhaEnc);
+            cert.setKeyVersion("v1");
+            cert.setNotBefore(notBefore);
+            cert.setNotAfter(notAfter);
+            cert.setAtivo(true);
+            omsCertMapper.inserir(cert);
+            log.info("[OmsAuth] Certificado substituído | authId={} | thumbprint={}...",
+                    auth.getId(), thumbprint.substring(0, 8));
+        } else {
+            log.info("[OmsAuth] Mesmo certificado reutilizado (renovação de token) | authId={}",
+                    auth.getId());
+        }
 
         // 12. Gerar token JWT técnico
         String token = jwtUtil.generateOmsToken(

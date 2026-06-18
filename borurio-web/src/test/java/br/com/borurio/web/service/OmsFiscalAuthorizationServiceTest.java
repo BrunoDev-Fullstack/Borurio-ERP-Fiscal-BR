@@ -16,8 +16,10 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.security.KeyStore;
+import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -57,6 +59,16 @@ class OmsFiscalAuthorizationServiceTest {
     // =========================================================================
     // Falhas na autenticação / pré-condições
     // =========================================================================
+
+    @Test
+    void autorizarComApiKeyAusente_lançaInvalidApiKey() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.autorizar(null, buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
+
+        assertEquals("INVALID_API_KEY", ex.getErrorCode());
+        assertEquals(401, ex.getHttpStatus());
+        verifyNoInteractions(omsApiKeyMapper, empresaMapper, omsAuthMapper, omsCertMapper, encryptor, jwtUtil);
+    }
 
     @Test
     void autorizarComApiKeyInvalida_lançaInvalidApiKey() {
@@ -232,6 +244,49 @@ class OmsFiscalAuthorizationServiceTest {
         // Deve desativar cert anterior e inserir novo
         verify(omsCertMapper).desativarCertsAtivos(eq(50L), any());
         verify(omsCertMapper).inserir(argThat(c -> c.getAuthId().equals(50L)));
+    }
+
+    @Test
+    void reautorizacaoComMesmoCert_reutilizaCertSemInserir() throws Exception {
+        OmsFiscalAuthorization authExistente = new OmsFiscalAuthorization();
+        authExistente.setId(50L);
+        authExistente.setJti("jti-antigo");
+
+        // Calcular thumbprint real do cert de teste para simular "mesmo cert já armazenado"
+        byte[] pfxBytes = Base64.getDecoder().decode(testPfxBase64);
+        KeyStore ks = service.carregarKeyStore(pfxBytes, TEST_SENHA);
+        X509Certificate x509 = service.extrairCertificado(ks);
+        byte[] hash = MessageDigest.getInstance("SHA-256").digest(x509.getEncoded());
+        StringBuilder sb = new StringBuilder(64);
+        for (byte b : hash) sb.append(String.format("%02x", b));
+        String thumbprintReal = sb.toString();
+
+        OmsCompanyCertificate certAtivo = new OmsCompanyCertificate();
+        certAtivo.setThumbprint(thumbprintReal);
+        certAtivo.setAtivo(true);
+
+        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
+        when(empresaMapper.buscarPorCnpj(any())).thenReturn(mockEmpresa(TEST_CNPJ));
+        when(omsAuthMapper.buscarPorSlot(any(), any(), any())).thenReturn(authExistente);
+        when(omsCertMapper.buscarAtivoPorAuthId(eq(50L))).thenReturn(certAtivo);
+        when(encryptor.encryptBytes(any())).thenReturn(new byte[]{4, 5, 6});
+        when(encryptor.encrypt(anyString())).thenReturn("ENC(senha)");
+        when(jwtUtil.generateOmsToken(any(), any(), any(), any())).thenReturn("jwt-renovado");
+
+        OmsFiscalAuthorizationResponse resp = service.autorizar("key",
+                buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
+
+        assertNotNull(resp);
+        assertEquals("jwt-renovado", resp.getToken());
+
+        // Slot atualizado — nunca criado
+        verify(omsAuthMapper, never()).inserir(any());
+        verify(omsAuthMapper).atualizarToken(eq(50L),
+                argThat(novoJti -> !novoJti.equals("jti-antigo")), any());
+
+        // Mesmo thumbprint → cert NÃO deve ser desativado nem reinserido
+        verify(omsCertMapper, never()).desativarCertsAtivos(any(), any());
+        verify(omsCertMapper, never()).inserir(any());
     }
 
     // =========================================================================
