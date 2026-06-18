@@ -4,9 +4,9 @@
 
 | Atributo               | Valor                                   |
 |------------------------|-----------------------------------------|
-| Versão                 | 1.5                                     |
+| Versão                 | 1.6                                     |
 | Status                 | **Aprovado para integração**            |
-| Data de validação      | 10-06-2026                              |
+| Data de validação      | 17-06-2026                              |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`     |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validado contra        | Código-fonte + testes em HOM            |
@@ -96,6 +96,77 @@ Authorization: Bearer eyJhbGci...
 > `[CONTRATO]` O token expira após **1 hora** (padrão de `security.jwt.expiration-ms`). Após expiração, todos os endpoints retornam HTTP 401 e um novo login é necessário.
 
 > `[OPERACIONAL]` Implementar renovação de token antes da expiração para fluxos de longa duração (ex: importação em lote).
+
+---
+
+### 3.3 Sessão OMS — Autorização Fiscal por Certificado A1
+
+> `[CONTRATO]` O ERP logístico externo (OMS) **não utiliza** `POST /auth/login` para se autenticar. O OMS abre sessão via **autorização fiscal**, enviando o certificado A1 da empresa emitente e recebendo um token técnico de longa duração.
+
+> `[CONTRATO]` Pré-requisito: a empresa emitente deve estar pré-cadastrada no Borurio pelo ADMIN via `POST /api/app/empresas`. Autorização com CNPJ não cadastrado retorna `COMPANY_NOT_FOUND`.
+
+#### Endpoint
+
+```
+POST /api/integration/fiscal-authorizations
+X-Api-Key: {chave-tecnica-do-integrador}
+Content-Type: application/json
+```
+
+> `[CONTRATO]` O header `X-Api-Key` é obrigatório. Requisições sem esse header, ou com chave inválida ou revogada, retornam HTTP 401 com `errorCode: INVALID_API_KEY`. A chave é fornecida pelo ADMIN do Borurio.
+
+**Campos do payload:**
+
+| Campo | Tipo | Regra |
+|---|---|---|
+| `codigoEmpresaOms` | String | Obrigatório · Máx 100 chars · Identificador único da empresa no sistema OMS |
+| `cnpj` | String | Obrigatório · Exatamente 14 dígitos numéricos |
+| `certBase64` | String | Obrigatório · Arquivo PKCS12 (.pfx / .p12) codificado em Base64 |
+| `certSenha` | String | Obrigatório · Senha do arquivo PKCS12 |
+
+> `[CONTRATO]` O `cnpj` enviado deve corresponder ao CNPJ embutido no Subject do certificado X.509. Divergência retorna `CNPJ_CERTIFICATE_MISMATCH`.
+
+> `[EXEMPLO]` Payload válido:
+```json
+{
+  "codigoEmpresaOms": "JCHO-001",
+  "cnpj":             "12000000000195",
+  "certBase64":       "<base64 do arquivo .pfx>",
+  "certSenha":        "<senha do certificado>"
+}
+```
+
+**Resposta de sucesso — HTTP 200:**
+```json
+{
+  "code": 200,
+  "message": "Sucesso",
+  "data": {
+    "token":         "eyJhbGci...",
+    "empresaId":     1,
+    "cnpj":          "12000000000195",
+    "razaoSocial":   "Jcho Factory Ltda",
+    "tokenExpiraEm": "2027-05-20T00:00:00"
+  }
+}
+```
+
+> `[CONTRATO]` O campo `tokenExpiraEm` reflete o vencimento do certificado A1 — o token é válido até essa data. O OMS deve armazenar o token e usá-lo no header `Authorization: Bearer {token}` em todas as operações subsequentes (pedidos, emissão, consulta, cancelamento, CC-e).
+
+> `[CONTRATO]` O token OMS dá acesso exclusivamente à empresa vinculada no momento da autorização. O `empresaId` não é enviado nos pedidos — é extraído automaticamente do token, da mesma forma que o contexto de usuário (seção 4).
+
+#### Reautorização e Troca de Certificado
+
+> `[CONTRATO]` Chamar este endpoint novamente com o mesmo `codigoEmpresaOms` e empresa realiza uma **reautorização**: o certificado anterior é substituído, o token anterior é invalidado e um novo token é emitido imediatamente. Usar este fluxo nos seguintes cenários:
+> - Certificado A1 expirado ou renovado pelo time de operações
+> - Rotação preventiva de credencial
+> - Necessidade de emitir novo token por qualquer motivo
+
+> `[CONTRATO]` Não é necessário acionar o ADMIN do Borurio para trocar o certificado — o próprio OMS realiza a reautorização diretamente via este endpoint. O token retornado substitui o anterior imediatamente.
+
+#### Revogação
+
+> `[OPERACIONAL]` Em caso de comprometimento de API Key ou token, acionar o ADMIN do Borurio para revogação administrativa. Após revogação, o token é recusado imediatamente com `AUTHORIZATION_REVOKED` em qualquer requisição — sem aguardar expiração. A reautorização com certificado válido emite um novo token.
 
 ---
 
@@ -920,6 +991,12 @@ Content-Type: application/json
 | `VALIDATION_ERROR`          | 207 `resultados[].errorCode` | Item do batch falhou na validação de campos — NCM inválido, campo obrigatório vazio ou preço ≤ 0                                     |
 | `BATCH_LIMIT_EXCEEDED`      | 422                          | A requisição batch contém mais de 200 produtos — retornado antes de qualquer item ser processado                                     |
 | `DUPLICATE_CODIGO_IN_BATCH` | 207 `resultados[].errorCode` | O mesmo `codigo` aparece mais de uma vez no mesmo payload batch — a segunda ocorrência é rejeitada; a primeira é processada normalmente |
+| `INVALID_API_KEY`           | 401                          | Header `X-Api-Key` ausente, inválido, expirado ou revogado — necessário para `POST /api/integration/fiscal-authorizations` |
+| `COMPANY_NOT_FOUND`         | 422                          | Empresa com o CNPJ informado não encontrada ou não pré-cadastrada no Borurio pelo ADMIN |
+| `INVALID_CERTIFICATE`       | 422                          | Certificado A1 inválido — base64 malformado, PKCS12 corrompido, senha incorreta ou nenhum certificado X.509 encontrado no arquivo |
+| `CNPJ_CERTIFICATE_MISMATCH` | 422                          | CNPJ enviado no payload não corresponde ao CNPJ embutido no Subject do certificado X.509 |
+| `CERTIFICATE_EXPIRED`       | 422                          | Certificado A1 está expirado — substituir pelo certificado renovado e reautorizar |
+| `AUTHORIZATION_REVOKED`     | 401                          | Token OMS foi revogado administrativamente — reautorizar com certificado válido ou aguardar resolução pelo ADMIN |
 
 > `[OPERACIONAL]` O OMS deve usar `errorCode` para toda lógica condicional. O campo `message` é destinado a logs legíveis por humanos. O HTTP status isolado não é suficiente para distinguir `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND` e `PRODUCT_INACTIVE`, que todos retornam HTTP 422.
 
@@ -1080,6 +1157,7 @@ pedido.status:    "AGUARDANDO" → normal em HOM (lote aceito, cStat=104); não 
 
 | Versão | Data       | Alteração                                                                                      |
 |--------|------------|-----------------------------------------------------------------------------------------------|
+| 1.6    | 17-06-2026 | Sessão OMS por Certificado A1 — `POST /api/integration/fiscal-authorizations` com header `X-Api-Key`; sem login de usuário para o OMS; token técnico por empresa; reautorização (troca de certificado) e revogação documentadas. Novos `errorCode`: `INVALID_API_KEY`, `COMPANY_NOT_FOUND`, `INVALID_CERTIFICATE`, `CNPJ_CERTIFICATE_MISMATCH`, `CERTIFICATE_EXPIRED`, `AUTHORIZATION_REVOKED`. |
 | 1.5    | 10-06-2026 | `POST /api/app/pedidos` — campos fiscais (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) passam a ser **obrigatórios** em cada item e devem ser enviados pelo OMS. O sistema não copia mais dados fiscais do produto cadastrado. Campo ausente retorna HTTP 400. |
 | 1.4    | 01-06-2026 | Header de rastreabilidade `X-Request-Id`; idempotência via `externalOrderId`; batch upsert (`POST /api/app/produtos/batch`); endpoints de Manifestação do Destinatário. |
 | 1.3    | 27-05-2026 | `cfop` opcional no produto (`POST /api/app/produtos`); rotação de senha de certificado (M3); esclarecimentos sobre geração de DANFE. |

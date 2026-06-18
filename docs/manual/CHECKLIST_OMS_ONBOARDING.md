@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.5                                      |
-| Data                   | 2026-06-01                               |
+| Versão                 | 1.6                                      |
+| Data                   | 2026-06-17                               |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | Pronto para execução                     |
@@ -49,6 +49,7 @@ Resposta esperada:
 ## Bloco 0 — Pré-requisitos
 
 - [ ] **[BLOQUEANTE]** Receber e-mail e senha de usuário com role `OPERADOR` criado pelo ADMIN
+- [ ] **[BLOQUEANTE]** Receber a `X-Api-Key` do integrador OMS — fornecida pelo ADMIN do Borurio via canal seguro
 - [ ] **[BLOQUEANTE]** Confirmar base URL do ambiente HOM: `https://hom-api.borurio.com`
 - [ ] **[BLOQUEANTE]** Confirmar que o Cloudflare Tunnel está ativo no servidor HOM — URL externa definida: `https://hom-api.borurio.com`. Verificar com `GET https://hom-api.borurio.com/api/test/ping` antes de iniciar os testes. Comandos de setup em `docs/manual/ROTEIRO_ENTREGA_TIME_CHINES.md` Bloco 1.
 - [ ] Ter cliente HTTP configurado (Postman ou equivalente)
@@ -57,7 +58,68 @@ Resposta esperada:
 
 ---
 
-## Bloco 1 — Autenticação
+## Bloco 0B — Autorização Fiscal OMS (Sessão por Certificado A1)
+
+> Este bloco substitui o **Bloco 1** para o OMS. O OMS não faz login com usuário e senha — autentica diretamente com o certificado A1 da empresa emitente.
+
+> **[BLOQUEANTE]** Completar o **Bloco 0** antes de executar este bloco.
+
+- [ ] **[BLOQUEANTE]** Ter em mãos:
+  - Arquivo do certificado A1 (`.pfx` ou `.p12`) da empresa emitente
+  - Senha do arquivo PKCS12
+  - CNPJ da empresa emitente (14 dígitos, sem formatação)
+  - Código da empresa no OMS (`codigoEmpresaOms` — identificador único do seu sistema)
+  - `X-Api-Key` recebida no Bloco 0
+
+- [ ] **[BLOQUEANTE]** Codificar o arquivo `.pfx` em Base64:
+  ```
+  # Linux / macOS
+  base64 -i certificado.pfx
+
+  # PowerShell
+  [Convert]::ToBase64String([IO.File]::ReadAllBytes("certificado.pfx"))
+  ```
+
+- [ ] **[BLOQUEANTE]** Executar autorização fiscal:
+  ```
+  POST /api/integration/fiscal-authorizations
+  X-Api-Key: {chave-tecnica-fornecida-pelo-admin}
+  Content-Type: application/json
+  ```
+  ```json
+  {
+    "codigoEmpresaOms": "JCHO-001",
+    "cnpj":             "12000000000195",
+    "certBase64":       "<base64 do .pfx>",
+    "certSenha":        "<senha do certificado>"
+  }
+  ```
+
+- [ ] Confirmar resposta HTTP 200 com campo `data.token` presente (formato JWT)
+- [ ] Confirmar campo `data.tokenExpiraEm` (data de vencimento do certificado A1)
+- [ ] Confirmar campo `data.razaoSocial` corresponde à empresa esperada
+- [ ] Guardar o `token` retornado — usar em todas as requisições seguintes como `Authorization: Bearer {token}`
+
+**Respostas de erro esperadas (para validação):**
+
+| Cenário | `errorCode` esperado | HTTP |
+|---|---|---|
+| `X-Api-Key` ausente ou inválida | `INVALID_API_KEY` | 401 |
+| CNPJ não cadastrado no Borurio | `COMPANY_NOT_FOUND` | 422 |
+| Base64 do `.pfx` malformado | `INVALID_CERTIFICATE` | 422 |
+| Senha do `.pfx` incorreta | `INVALID_CERTIFICATE` | 422 |
+| CNPJ enviado ≠ CNPJ do certificado | `CNPJ_CERTIFICATE_MISMATCH` | 422 |
+| Certificado vencido | `CERTIFICATE_EXPIRED` | 422 |
+
+**Reautorização (trocar certificado ou renovar token):**
+
+- [ ] Para trocar o certificado A1 ou emitir novo token: repetir o mesmo `POST /api/integration/fiscal-authorizations` com o novo certificado e o mesmo `codigoEmpresaOms`
+- [ ] Confirmar que um novo `token` é retornado
+- [ ] Confirmar que o token anterior parou de funcionar (retorna HTTP 401 com `AUTHORIZATION_REVOKED`)
+
+---
+
+## Bloco 1 — Autenticação (usuário interno — não usar para OMS)
 
 - [ ] **[BLOQUEANTE]** `POST /auth/login` com `{"username": "<email>", "password": "<senha>"}`
 - [ ] Confirmar resposta com campo `token` presente (formato JWT — 3 segmentos separados por `.`)
@@ -383,6 +445,8 @@ Estes itens não são responsabilidade do time chinês, mas bloqueiam o go-live 
 | Configurar A1 real da Jcho Factory Ltda (já entregue) com `tpAmb=1` em PRD | Operações / Bruno | Pendente |
 | `CERT_ENCRYPTION_KEY` configurada em PRD           | Operações / Bruno | Pendente |
 | URL de PRD definida e acessível                    | Operações         | Pendente |
+| Gerar `X-Api-Key` de produção para o integrador OMS e entregá-la ao CC via canal seguro | Bruno / Operações | Pendente |
+| Executar Bloco 0B (autorização fiscal) em HOM com certificado real da empresa 1 (JCHO) | CC / Xiao Li | Pendente |
 
 ---
 
