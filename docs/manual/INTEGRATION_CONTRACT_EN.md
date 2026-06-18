@@ -139,17 +139,15 @@ Content-Type: application/json
 **Success response — HTTP 200:**
 ```json
 {
-  "code": 200,
-  "message": "Sucesso",
-  "data": {
-    "token":         "eyJhbGci...",
-    "empresaId":     1,
-    "cnpj":          "12000000000195",
-    "razaoSocial":   "Jcho Factory Ltda",
-    "tokenExpiraEm": "2027-05-20T00:00:00"
-  }
+  "token":         "eyJhbGci...",
+  "empresaId":     1,
+  "cnpj":          "12000000000195",
+  "razaoSocial":   "Jcho Factory Ltda",
+  "tokenExpiraEm": "2026-08-01T13:15:00"
 }
 ```
+
+> `[CONTRACT]` This route **does not use** the standard `Result<>` API envelope. The response structure is its own: `{ token, empresaId, cnpj, razaoSocial, tokenExpiraEm }`. Read `response.token` directly — there is **no** `response.data.token`.
 
 > `[CONTRACT]` The `tokenExpiraEm` field reflects the A1 certificate expiry — the token is valid until that date. The OMS must store the token and send it in the `Authorization: Bearer {token}` header on all subsequent operations (orders, issuance, status queries, cancellations, CC-e).
 
@@ -918,7 +916,7 @@ Content-Type: application/json
 
 ### 8.1 Standard Success Envelope
 
-> `[CONTRACT]` All `/api/**` endpoints return the `Result<>` envelope, **except** `/auth/login` and `/api/test/ping`, which have their own structure (documented in sections 3.1 and 6.1).
+> `[CONTRACT]` All `/api/**` endpoints return the `Result<>` envelope, **except** `/auth/login`, `/api/test/ping` and `/api/integration/fiscal-authorizations`, which have their own structure (documented in sections 3.1, 3.3 and 6.1).
 
 ```json
 { "code": 200, "message": "Sucesso", "data": { ... } }
@@ -1159,6 +1157,7 @@ pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); do
 
 | Version | Date       | Change                                                                                      |
 |---------|------------|---------------------------------------------------------------------------------------------|
+| 1.6.1   | 2026-06-18 | Documentation fix: `POST /api/integration/fiscal-authorizations` response **does not use** the `Result<>` envelope — DTO returned directly at the root (`token`, `empresaId`, `cnpj`, `razaoSocial`, `tokenExpiraEm`). Sections 3.3 and 8.1 corrected. |
 | 1.6     | 2026-06-17 | OMS Session via A1 Certificate — `POST /api/integration/fiscal-authorizations` with `X-Api-Key` header; no user login for the OMS; one technical token per company; reauthorization (certificate replacement) and revocation documented. New `errorCode` values: `INVALID_API_KEY`, `COMPANY_NOT_FOUND`, `INVALID_CERTIFICATE`, `CNPJ_CERTIFICATE_MISMATCH`, `CERTIFICATE_EXPIRED`, `AUTHORIZATION_REVOKED`. |
 | 1.5     | 2026-06-10 | `POST /api/app/pedidos` — fiscal fields (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) are now **required** in each item and must be sent by the OMS. The system no longer copies fiscal data from the product catalog. Missing field returns HTTP 400. |
 | 1.4     | 2026-06-01 | Added `X-Request-Id` traceability header; idempotency via `externalOrderId`; batch upsert (`POST /api/app/produtos/batch`); Manifestação do Destinatário endpoints. |
