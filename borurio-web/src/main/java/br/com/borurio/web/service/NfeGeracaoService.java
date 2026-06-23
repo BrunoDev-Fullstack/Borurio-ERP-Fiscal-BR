@@ -143,10 +143,10 @@ public class NfeGeracaoService {
 
         log.info("[NfeGeracao] Iniciando transmissão | chave={} | cnpj={}", chave, cnpj);
 
-        // Sessão OMS: cert vem do banco, sem fallback. Sessão de usuário: cert vem do arquivo.
+        // Sessão OMS: cert selecionado por jti + cnpj emitente (multi-CNPJ). Sessão de usuário: cert vem do arquivo.
         String jtiOms = EmpresaContextHolder.getJtiAuth();
         CertificadoContexto certCtx = (jtiOms != null)
-                ? omsCertificadoService.resolverPorJti(jtiOms)
+                ? omsCertificadoService.resolverPorJtiECnpj(jtiOms, cnpjEmitente)
                 : empresaCertificadoService.resolverPorEmpresa(empresa).orElse(null);
 
         Long empresaId = empresa != null ? empresa.getId() : null;

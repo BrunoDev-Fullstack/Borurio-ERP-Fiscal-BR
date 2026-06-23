@@ -12,13 +12,14 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
 @Deprecated
 @RestController
 @RequestMapping("/api/fiscal/nfe")
-@Tag(name = "NF-e (LEGADO)", description = "DEPRECADO — use /api/app/pedidos para emissão, situação e operações fiscais. Mantido para compatibilidade retroativa.")
+@Tag(name = "NF-e (LEGADO)", description = "DEPRECADO — use /api/app/pedidos para emissão, situação e operações fiscais. Mantido para compatibilidade retroativa. Todos os endpoints requerem role ADMIN.")
 public class NfeEnvioController {
 
     private final NfeOrquestradorService nfeOrquestradorService;
@@ -43,6 +44,7 @@ public class NfeEnvioController {
     // ENVIO NF-e
     // =========================================================================
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/enviar")
     @Operation(summary = "Transmitir NF-e para a SEFAZ", deprecated = true,
             description = "DEPRECADO — use POST /api/app/pedidos/{id}/emitir")
@@ -69,6 +71,7 @@ public class NfeEnvioController {
     // GERAÇÃO DE NF-e A PARTIR DE DADOS DE NEGÓCIO
     // =========================================================================
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/gerar")
     @Operation(summary = "Gerar e transmitir NF-e a partir de dados estruturados de negócio", deprecated = true,
             description = "DEPRECADO — crie o pedido via POST /api/app/pedidos e emita via POST /api/app/pedidos/{id}/emitir")
@@ -91,6 +94,7 @@ public class NfeEnvioController {
     // STATUS SEFAZ
     // =========================================================================
 
+    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/status")
     @Operation(summary = "Consultar status do serviço NF-e na SEFAZ-SP", deprecated = true)
     public Result<String> status() {
@@ -110,6 +114,7 @@ public class NfeEnvioController {
     // CONSULTA NF-e POR CHAVE DE ACESSO
     // =========================================================================
 
+    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/{chave}")
     @Operation(summary = "Consultar situação de NF-e pela chave de acesso (44 dígitos)", deprecated = true,
             description = "DEPRECADO — use GET /api/app/pedidos/{id}/situacao")

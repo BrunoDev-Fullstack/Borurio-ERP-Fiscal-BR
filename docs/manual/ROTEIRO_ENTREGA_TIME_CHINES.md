@@ -1,12 +1,12 @@
 # Roteiro de Entrega — Integração com Time Chinês (Bless / CC)
 
-| Atributo             | Valor                                         |
-|----------------------|-----------------------------------------------|
-| Versão               | 1.1                                           |
-| Data                 | 25-05-2026                                    |
-| Estado do backend    | PRONTO — HOM UP, 66/66 + 33/33 testes, v024  |
-| Responsável Bruno    | Operações + Infraestrutura                    |
-| Responsável time CN  | Integração OMS                                |
+| Atributo             | Valor                                                    |
+|----------------------|----------------------------------------------------------|
+| Versão               | 1.2                                                      |
+| Data                 | 22-06-2026                                               |
+| Estado do backend    | PRONTO — HOM UP, 126/126 testes, V028 multi-CNPJ ativo   |
+| Responsável Bruno    | Operações + Infraestrutura                               |
+| Responsável time CN  | Integração OMS                                           |
 
 ---
 
@@ -18,20 +18,18 @@ Execute os blocos em ordem. Cada bloco tem um dono (**Bruno** ou **Time chinês*
 
 ## BLOCO 0 — Commit e versionamento
 **Dono:** Bruno  
-**Critério:** branch `fix/sefaz-xml-structure` com todo o trabalho das Fases 12-A e 12-B comitado
+**Critério:** branch `fix/sefaz-xml-structure` com todo o trabalho das Fases 12-A, 12-B e V028 comitado
 
-- [x] Commit da Fase 12-B — DANFE (5 arquivos de código + 3 docs + 1 relatório) — concluído (histórico git)
-  - `DanfePdfGenerator.java`
-  - `DanfeService.java`
-  - `DanfeServiceImpl.java`
-  - `DanfeController.java`
-  - `DanfeControllerTest.java`
-  - `MTF-001_motor-fiscal-nfe.md` (v2.3)
-  - `MTF-001_motor-fiscal-nfe_EN.md` (v2.3)
-  - `CHECKLIST_ERP_DELIVERY.md`
-  - `Relatorio_Tecnico_18-05-2026.md`
+- [x] Commit da Fase 12-B — DANFE — concluído (histórico git)
+- [ ] Commits V028 — Multi-CNPJ OMS pendentes
+  - migration `V028__oms_multiempresa.sql`
+  - entidades e mappers (`OmsCompanyCertificate`, `OmsFiscalAuthorizationMapper`, etc.)
+  - serviços (`OmsFiscalAuthorizationService`, `OmsCertificadoService`, `JwtUtil`)
+  - controller (`PedidoController` — validação `cnpjEmitente` OMS)
+  - testes (126/126 PASS)
+  - contratos v1.7 (`INTEGRATION_CONTRACT_PT-BR.md`, `INTEGRATION_CONTRACT_EN.md`)
 
-> **Ponto de verificação**: `git log --oneline -5` mostra commit com "danfe" no título.
+> **Ponto de verificação**: `git log --oneline -5` mostra commits V028 e hardening commitados e suite 126/126 PASS.
 
 ---
 
@@ -81,57 +79,56 @@ Execute os blocos em ordem. Cada bloco tem um dono (**Bruno** ou **Time chinês*
 
 ---
 
-## BLOCO 2 — Credenciais para o time chinês
+## BLOCO 2 — Credenciais para o time chinês (V028 — modelo OMS via certificado)
+
 **Dono:** Bruno  
-**Critério:** Time chinês recebe e-mail + senha de usuário com role `OPERADOR` e consegue fazer login
+**Critério:** Time chinês recebe a `X-Api-Key` e consegue obter o token OMS via `POST /api/integration/fiscal-authorizations`
 
-- [ ] Autenticar como ADMIN no HOM:
+> **Nota V028:** o OMS **não usa login com usuário e senha**. A autenticação é feita diretamente com o certificado A1 da empresa emitente. A `X-Api-Key` é o único segredo que precisa ser compartilhado via canal seguro.
+
+- [ ] Gerar (ou confirmar existência de) `X-Api-Key` para o integrador OMS:
+  ```sql
+  -- Verificar se já existe
+  SELECT id, descricao, hash FROM oms_api_key WHERE ativo = 1;
+  -- Se não existir, criar via endpoint ADMIN:
+  -- POST /api/admin/oms/api-keys  { "descricao": "OMS JCHO PRD" }
   ```
-  POST /auth/login
-  { "username": "<admin_email>", "password": "<admin_senha>" }
-  ```
-- [ ] Criar usuário OPERADOR para o time chinês:
-  ```
-  POST /api/app/usuarios
-  Authorization: Bearer <token_admin>
-  {
-    "nome": "OMS Integration",
-    "email": "oms@empresa-chinesa.com",
-    "senha": "<senha_temporaria>",
-    "role": "OPERADOR"
-  }
-  ```
-  > **Atenção:** o campo é `"senha"` (não `"password"`). Enviar `"password"` resulta em HTTP 400 com erro "Senha é obrigatória".
-- [ ] Enviar para o time chinês (canal seguro):
-  - URL base HOM externa
-  - E-mail do usuário OPERADOR
-  - Senha temporária
+- [ ] Enviar para o time chinês via canal seguro:
+  - URL base HOM: `https://hom-api.borurio.com`
+  - `X-Api-Key` (plaintext — enviada **uma única vez** via canal seguro; não salvar em arquivo)
   - Link para `INTEGRATION_CONTRACT_EN.md` e `CHECKLIST_OMS_ONBOARDING.md`
+  - Instruções do Bloco 0B do checklist (autorização com certificado A1)
 
-> **Ponto de verificação**: Time chinês faz `POST /auth/login` e recebe `token` JWT válido.
+> **O time chinês não precisa de e-mail nem senha** — apenas da X-Api-Key e do certificado A1 da empresa.
+
+> **Ponto de verificação**: Time chinês executa `POST /api/integration/fiscal-authorizations` e recebe `data.token` JWT válido.
 
 ---
 
 ## BLOCO 3 — Smoke test pelo time chinês
 **Dono:** Time chinês  
-**Critério:** Todos os 9 blocos do `CHECKLIST_OMS_ONBOARDING.md` marcados como executados
+**Critério:** Todos os blocos do `CHECKLIST_OMS_ONBOARDING.md` executados, incluindo Bloco 0B multi-CNPJ
 
-- [ ] Bloco 0 — Pré-requisitos (credenciais + URL + Postman)
-- [ ] Bloco 1 — Autenticação (`POST /auth/login` → token JWT)
+- [ ] Bloco 0 — Pré-requisitos (X-Api-Key + URL + Postman)
+- [ ] **Bloco 0B — Autorização fiscal OMS (V028)**
+  - M1: autorizar CNPJ1 — confirmar `data.token` + `data.empresaId`
+  - M2: autorizar CNPJ2 com mesmo `codigoEmpresaOms` — confirmar token **idêntico** ao M1
+  - M3: reenviar CNPJ1 com mesmo cert — confirmar token **idêntico** (cenário B)
 - [ ] Bloco 2 — Healthcheck (`GET /api/test/ping` → `"status": "UP"`)
 - [ ] Bloco 3 — Cadastro de produto (confirmar `data.id` + `csosn="400"` default)
-- [ ] Bloco 4 — Criação de pedido (confirmar `status="RASCUNHO"` + snapshot fiscal)
+- [ ] Bloco 4 — Criação de pedido com `cnpjEmitente = CNPJ2` (confirmar `status="RASCUNHO"`)
+- [ ] Bloco 4 — Negativo: pedido com `cnpjEmitente` não autorizado → confirmar `HTTP 403 CNPJ_NOT_AUTHORIZED`
 - [ ] Bloco 5 — Emissão NF-e (confirmar `chaveNfe` com 44 dígitos)
 - [ ] Bloco 6 — Consulta de situação (confirmar máquina de estados)
-- [ ] Bloco 7 — Operações pós-autorização (opcional em HOM — cStat=225 esperado)
-- [ ] Bloco 8 — Verificações de segurança (401 sem token, 403 OPERADOR em `/usuarios`)
+- [ ] Bloco 8 — Verificações de segurança (401 sem token, X-Api-Key inválida → 401)
 - [ ] Bloco 9 — Bloqueadores PRD (identificados; responsabilidade Bruno/Operações)
 
 **Extras recomendados (não bloqueantes):**
 - [ ] Time chinês testa `GET /api/fiscal/nfe/{chave}/danfe` — confirma recebimento do PDF
 - [ ] Time chinês testa `GET /api/app/produtos/{id}/estoque` — confirma saldo em tempo real
+- [ ] M5: emissão com cert A1 real de CNPJ2 (depende de cert disponível)
 
-> **Ponto de verificação**: Time chinês reporta "smoke test concluído" com chaveNfe de 44 dígitos em mãos.
+> **Ponto de verificação**: Time chinês reporta "smoke test concluído" com token multi-CNPJ funcionando e chaveNfe de 44 dígitos.
 
 ---
 
@@ -145,12 +142,17 @@ Referência: `INTEGRATION_CONTRACT_EN.md` — sequência obrigatória:
 produto cadastrado → pedido criado → POST /emitir → GET /situacao (poll)
 ```
 
-- [ ] Mapear campos da OMS para payloads do Borurio (ver seções 4, 5, 6 do contrato EN)
-- [ ] Implementar renovação automática de token (TTL 1h — antes que expire)
+- [ ] Mapear campos da OMS para payloads do Borurio (ver seções 4, 5, 6 do contrato EN v1.7)
+- [ ] **Implementar fluxo multi-CNPJ (V028):**
+  - Armazenar a `X-Api-Key` de forma segura (não expor em logs ou repositório)
+  - Chamar `POST /api/integration/fiscal-authorizations` com o certificado A1 de **cada** CNPJ emitente
+  - Guardar o token retornado (único para todos os CNPJs do `codigoEmpresaOms`)
+  - Incluir `cnpjEmitente` (14 dígitos) em **cada** `POST /api/app/pedidos`
+  - O token expira na data do certificado A1 (`tokenExpiraEm`) — implementar reautorização antes do vencimento
 - [ ] Implementar polling de `GET /situacao` pós-emissão
 - [ ] Tratar máquina de estados: `RASCUNHO → AGUARDANDO → AUTORIZADO / REJEITADO / ERRO`
 - [ ] Garantir que `empresa_id` **nunca** é enviado no body (é extraído do JWT automaticamente)
-- [ ] Garantir que `naturezaOperacao` e `serieNfe` estão sendo enviados ou omitidos conscientemente (defaults aplicados)
+- [ ] Tratar HTTP 403 `CNPJ_NOT_AUTHORIZED` na criação do pedido — indica que o CNPJ não foi autorizado via `/fiscal-authorizations`
 - [ ] Tratar comportamento de estoque: verificar `GET /api/app/produtos/{id}/estoque` antes de emitir se necessário
 - [ ] Tratar HTTP 422 de estoque insuficiente (pedido continua em `RASCUNHO` — não tentar reemitir sem ajustar qtd)
 
@@ -196,11 +198,11 @@ produto cadastrado → pedido criado → POST /emitir → GET /situacao (poll)
 
 | Bloqueador | Responsável | Fase |
 |---|---|---|
-| Commit Fase 12-B | Bruno | Bloco 0 |
+| Commits V028 (migration + código + docs) | Bruno | Bloco 0 |
 | URL externa HOM | Bruno / Operações | Bloco 1 |
-| Criação usuário OPERADOR | Bruno | Bloco 2 |
-| Smoke test HOM | Time chinês | Bloco 3 |
-| Integração OMS | Time chinês | Bloco 4 |
+| X-Api-Key entregue ao CC via canal seguro | Bruno | Bloco 2 |
+| Smoke test HOM — incluindo multi-CNPJ M1–M4/M6 | Time chinês | Bloco 3 |
+| Integração OMS com V028 (cnpjEmitente + token multi-CNPJ) | Time chinês | Bloco 4 |
 | Certificado A1 PRD | Bruno / Operações | Bloco 5 |
 | CERT_ENCRYPTION_KEY PRD | Bruno / Operações | Bloco 5 |
 | URL PRD | Operações | Bloco 5 |

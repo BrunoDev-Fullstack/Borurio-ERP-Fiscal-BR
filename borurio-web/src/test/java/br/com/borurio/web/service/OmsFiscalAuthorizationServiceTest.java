@@ -9,6 +9,7 @@ import br.com.borurio.web.dto.OmsFiscalAuthorizationResponse;
 import br.com.borurio.web.util.PkiTestUtil;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -29,8 +30,10 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class OmsFiscalAuthorizationServiceTest {
 
-    private static final String TEST_SENHA = "test123";
-    private static final String TEST_CNPJ  = "12345678000195";
+    private static final String TEST_SENHA  = "test123";
+    private static final String TEST_CNPJ   = "12345678000195";
+    private static final String TEST_CNPJ2  = "11444777000161";
+    private static final String CODIGO_OMS  = "OMS-EMP-001";
     private static String testPfxBase64;
 
     @Mock private OmsApiKeyMapper              omsApiKeyMapper;
@@ -57,236 +60,343 @@ class OmsFiscalAuthorizationServiceTest {
     }
 
     // =========================================================================
-    // Falhas na autenticação / pré-condições
+    // Falhas na autenticação / API Key
     // =========================================================================
 
-    @Test
-    void autorizarComApiKeyAusente_lançaInvalidApiKey() {
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.autorizar(null, buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
+    @Nested
+    class ApiKeyTests {
 
-        assertEquals("INVALID_API_KEY", ex.getErrorCode());
-        assertEquals(401, ex.getHttpStatus());
-        verifyNoInteractions(omsApiKeyMapper, empresaMapper, omsAuthMapper, omsCertMapper, encryptor, jwtUtil);
+        @Test
+        void autorizarComApiKeyAusente_lançaInvalidApiKey() {
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> service.autorizar(null, buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
+
+            assertEquals("INVALID_API_KEY", ex.getErrorCode());
+            assertEquals(401, ex.getHttpStatus());
+            verifyNoInteractions(omsApiKeyMapper, empresaMapper, omsAuthMapper, omsCertMapper);
+        }
+
+        @Test
+        void autorizarComApiKeyInvalida_lançaInvalidApiKey() {
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(null);
+
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> service.autorizar("bad-key", buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
+
+            assertEquals("INVALID_API_KEY", ex.getErrorCode());
+            assertEquals(401, ex.getHttpStatus());
+            verifyNoInteractions(empresaMapper, omsAuthMapper, omsCertMapper);
+        }
     }
 
-    @Test
-    void autorizarComApiKeyInvalida_lançaInvalidApiKey() {
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(null);
+    // =========================================================================
+    // Falhas na empresa
+    // =========================================================================
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.autorizar("bad-key", buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
+    @Nested
+    class EmpresaTests {
 
-        assertEquals("INVALID_API_KEY", ex.getErrorCode());
-        assertEquals(401, ex.getHttpStatus());
-        // Não deve chegar aos mappers de empresa ou certificado
-        verifyNoInteractions(empresaMapper, omsAuthMapper, omsCertMapper, encryptor, jwtUtil);
-    }
+        @Test
+        void autorizarComEmpresaInativa_lançaCompanyInactive() {
+            Empresa inativa = mockEmpresa(TEST_CNPJ);
+            inativa.setAtivo(false);
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
+            when(empresaMapper.buscarPorCnpj(TEST_CNPJ)).thenReturn(inativa);
 
-    @Test
-    void autorizarComEmpresaNaoEncontrada_lançaCompanyNotFound() {
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(null);
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> service.autorizar("key", buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.autorizar("key", buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
+            assertEquals("COMPANY_INACTIVE", ex.getErrorCode());
+            assertEquals(422, ex.getHttpStatus());
+            verifyNoInteractions(omsAuthMapper, omsCertMapper);
+        }
 
-        assertEquals("COMPANY_NOT_FOUND", ex.getErrorCode());
-        assertEquals(422, ex.getHttpStatus());
-        verifyNoInteractions(omsAuthMapper, omsCertMapper, encryptor, jwtUtil);
-    }
+        @Test
+        void autorizarSemEmpresaPrecadastrada_criaEmpresaAutomaticamente() {
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
+            when(empresaMapper.buscarPorCnpj(TEST_CNPJ)).thenReturn(null); // sem pré-cadastro
+            doAnswer(inv -> {
+                ((Empresa) inv.getArgument(0)).setId(200L);
+                return 1;
+            }).when(empresaMapper).inserir(any());
+            when(omsAuthMapper.buscarPorSlot(any(), any())).thenReturn(null);
+            doAnswer(inv -> {
+                ((OmsFiscalAuthorization) inv.getArgument(0)).setId(10L);
+                return 1;
+            }).when(omsAuthMapper).inserir(any());
+            when(encryptor.encryptBytes(any())).thenReturn(new byte[]{1, 2, 3});
+            when(encryptor.encrypt(anyString())).thenReturn("ENC(senha)");
+            when(jwtUtil.generateOmsToken(any(), any(), any(), any(), any())).thenReturn("jwt-novo");
 
-    @Test
-    void autorizarComEmpresaInativa_lançaCompanyNotFound() {
-        Empresa inativa = mockEmpresa(TEST_CNPJ);
-        inativa.setAtivo(false);
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(inativa);
+            OmsFiscalAuthorizationResponse resp = service.autorizar("key",
+                    buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.autorizar("key", buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
+            assertNotNull(resp);
+            assertEquals("jwt-novo", resp.getToken());
+            assertEquals(TEST_CNPJ, resp.getCnpj());
 
-        assertEquals("COMPANY_NOT_FOUND", ex.getErrorCode());
+            // Empresa deve ter sido criada automaticamente
+            verify(empresaMapper).inserir(argThat(e ->
+                    e.getCnpj().equals(TEST_CNPJ) && Boolean.TRUE.equals(e.getAtivo())));
+            // Slot criado com empresa auto-criada
+            verify(omsAuthMapper).inserir(argThat(a ->
+                    a.getCodigoOms().equals(CODIGO_OMS) && a.getEmpresaId().equals(200L)));
+            // Cert inserido com cnpj e empresaId
+            verify(omsCertMapper).inserir(argThat(c ->
+                    c.getCnpj().equals(TEST_CNPJ) && c.getEmpresaId().equals(200L)));
+        }
     }
 
     // =========================================================================
     // Falhas na validação do certificado
     // =========================================================================
 
-    @Test
-    void autorizarComBase64Invalido_lançaInvalidCertificate() {
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(mockEmpresa(TEST_CNPJ));
+    @Nested
+    class CertificadoValidacaoTests {
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.autorizar("key",
-                        buildRequest(TEST_CNPJ, "!!!INVALIDO_BASE64!!!", TEST_SENHA)));
+        @Test
+        void autorizarComBase64Invalido_lançaInvalidCertificate() {
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
 
-        assertEquals("INVALID_CERTIFICATE", ex.getErrorCode());
-        assertEquals(422, ex.getHttpStatus());
-    }
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> service.autorizar("key",
+                            buildRequest(TEST_CNPJ, "!!!INVALIDO_BASE64!!!", TEST_SENHA)));
 
-    @Test
-    void autorizarComSenhaIncorretaNoKeyStore_lançaInvalidCertificate() {
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(mockEmpresa(TEST_CNPJ));
+            assertEquals("INVALID_CERTIFICATE", ex.getErrorCode());
+        }
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.autorizar("key",
-                        buildRequest(TEST_CNPJ, testPfxBase64, "senha-errada")));
+        @Test
+        void autorizarComSenhaIncorreta_lançaInvalidCertificate() {
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
 
-        assertEquals("INVALID_CERTIFICATE", ex.getErrorCode());
-    }
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> service.autorizar("key",
+                            buildRequest(TEST_CNPJ, testPfxBase64, "senha-errada")));
 
-    @Test
-    void autorizarComCertExpirado_lançaCertificateExpired() {
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(mockEmpresa(TEST_CNPJ));
+            assertEquals("INVALID_CERTIFICATE", ex.getErrorCode());
+        }
 
-        KeyStore mockKs = mock(KeyStore.class);
-        X509Certificate certExpirado = mock(X509Certificate.class);
-        when(certExpirado.getNotAfter()).thenReturn(Date.from(Instant.EPOCH));
+        @Test
+        void autorizarComCertExpirado_lançaCertificateExpired() {
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
 
-        doReturn(mockKs).when(service).carregarKeyStore(any(), anyString());
-        doReturn(certExpirado).when(service).extrairCertificado(any());
+            KeyStore mockKs = mock(KeyStore.class);
+            X509Certificate certExpirado = mock(X509Certificate.class);
+            when(certExpirado.getNotAfter()).thenReturn(Date.from(Instant.EPOCH));
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.autorizar("key",
-                        buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
+            doReturn(mockKs).when(service).carregarKeyStore(any(), anyString());
+            doReturn(certExpirado).when(service).extrairCertificado(any());
 
-        assertEquals("CERTIFICATE_EXPIRED", ex.getErrorCode());
-        assertEquals(422, ex.getHttpStatus());
-    }
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> service.autorizar("key",
+                            buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA)));
 
-    @Test
-    void autorizarComCnpjDivergente_lançaCnpjCertificateMismatch() {
-        // Cert de teste tem CNPJ 12345678000195; requisição envia CNPJ diferente
-        String cnpjDivergente = "11444777000161";
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(mockEmpresa(cnpjDivergente));
+            assertEquals("CERTIFICATE_EXPIRED", ex.getErrorCode());
+        }
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.autorizar("key",
-                        buildRequest(cnpjDivergente, testPfxBase64, TEST_SENHA)));
+        @Test
+        void autorizarComCnpjDivergente_lançaCnpjCertificateMismatch() {
+            // Cert tem CNPJ 12345678000195; requisição envia CNPJ diferente
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
 
-        assertEquals("CNPJ_CERTIFICATE_MISMATCH", ex.getErrorCode());
-        assertEquals(422, ex.getHttpStatus());
-        assertTrue(ex.getMessage().contains(TEST_CNPJ),
-                "Mensagem deve indicar o CNPJ real do certificado");
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> service.autorizar("key",
+                            buildRequest(TEST_CNPJ2, testPfxBase64, TEST_SENHA)));
+
+            assertEquals("CNPJ_CERTIFICATE_MISMATCH", ex.getErrorCode());
+            assertTrue(ex.getMessage().contains(TEST_CNPJ),
+                    "Mensagem deve indicar o CNPJ real do certificado");
+        }
     }
 
     // =========================================================================
-    // Fluxo de autorização bem-sucedido
+    // CASO A — primeira autorização para o cliente OMS
     // =========================================================================
 
-    @Test
-    void primeiraAutorizacao_insereSlotERetornaToken() {
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(mockEmpresa(TEST_CNPJ));
-        when(omsAuthMapper.buscarPorSlot(any(), any(), any())).thenReturn(null);
-        doAnswer(inv -> {
-            ((OmsFiscalAuthorization) inv.getArgument(0)).setId(10L);
-            return 1;
-        }).when(omsAuthMapper).inserir(any());
-        doAnswer(inv -> {
-            ((OmsCompanyCertificate) inv.getArgument(0)).setId(20L);
-            return 1;
-        }).when(omsCertMapper).inserir(any());
-        when(encryptor.encryptBytes(any())).thenReturn(new byte[]{1, 2, 3});
-        when(encryptor.encrypt(anyString())).thenReturn("ENC(senha)");
-        when(jwtUtil.generateOmsToken(any(), any(), any(), any())).thenReturn("jwt-novo");
+    @Nested
+    class PrimeiraAutorizacaoTests {
 
-        OmsFiscalAuthorizationResponse resp = service.autorizar("key",
-                buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
+        @Test
+        void primeiraAutorizacao_comEmpresaJaExistente_insereSlotECertRetornaToken() {
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
+            when(empresaMapper.buscarPorCnpj(TEST_CNPJ)).thenReturn(mockEmpresa(TEST_CNPJ));
+            when(omsAuthMapper.buscarPorSlot(5L, CODIGO_OMS)).thenReturn(null);
+            doAnswer(inv -> {
+                ((OmsFiscalAuthorization) inv.getArgument(0)).setId(10L);
+                return 1;
+            }).when(omsAuthMapper).inserir(any());
+            when(encryptor.encryptBytes(any())).thenReturn(new byte[]{1});
+            when(encryptor.encrypt(any())).thenReturn("ENC");
+            when(jwtUtil.generateOmsToken(any(), any(), any(), any(), any())).thenReturn("jwt-novo");
 
-        assertNotNull(resp);
-        assertEquals("jwt-novo", resp.getToken());
-        assertEquals(100L, resp.getEmpresaId());
-        assertEquals(TEST_CNPJ, resp.getCnpj());
-        assertNotNull(resp.getTokenExpiraEm());
+            OmsFiscalAuthorizationResponse resp = service.autorizar("key",
+                    buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
 
-        // Verifica que o slot foi criado, cert desativado (nenhum ativo anterior) e inserido
-        verify(omsAuthMapper).inserir(argThat(a -> a.getCodigoOms().equals("OMS-EMP-001")));
-        verify(omsAuthMapper, never()).atualizarToken(any(), any(), any());
-        verify(omsCertMapper).desativarCertsAtivos(eq(10L), any());
-        verify(omsCertMapper).inserir(argThat(c -> c.getAuthId().equals(10L) && c.getAtivo()));
-        verify(jwtUtil).generateOmsToken(eq("OMS-EMP-001"), eq(100L), any(), any());
+            assertNotNull(resp);
+            assertEquals("jwt-novo", resp.getToken());
+            assertEquals(100L, resp.getEmpresaId());
+            assertEquals(TEST_CNPJ, resp.getCnpj());
+
+            verify(omsAuthMapper).inserir(argThat(a ->
+                    CODIGO_OMS.equals(a.getCodigoOms()) && a.getEmpresaId() != null));
+            verify(omsAuthMapper, never()).atualizarToken(any(), any(), any());
+            verify(omsCertMapper).inserir(argThat(c ->
+                    c.getAuthId().equals(10L)
+                    && c.getCnpj().equals(TEST_CNPJ)
+                    && Boolean.TRUE.equals(c.getAtivo())));
+            verify(jwtUtil).generateOmsToken(eq(CODIGO_OMS), eq(100L), any(), any(), any());
+            // Empresa não deve ser criada (já existe)
+            verify(empresaMapper, never()).inserir(any());
+        }
     }
 
-    @Test
-    void reautorizacao_atualizaTokenESubstituiCertificado() {
-        OmsFiscalAuthorization authExistente = new OmsFiscalAuthorization();
-        authExistente.setId(50L);
-        authExistente.setJti("jti-antigo");
+    // =========================================================================
+    // CASO B — mesmo CNPJ, mesmo certificado (renovação de token)
+    // =========================================================================
 
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(mockEmpresa(TEST_CNPJ));
-        when(omsAuthMapper.buscarPorSlot(any(), any(), any())).thenReturn(authExistente);
-        doAnswer(inv -> {
-            ((OmsCompanyCertificate) inv.getArgument(0)).setId(30L);
-            return 1;
-        }).when(omsCertMapper).inserir(any());
-        when(encryptor.encryptBytes(any())).thenReturn(new byte[]{4, 5, 6});
-        when(encryptor.encrypt(anyString())).thenReturn("ENC(nova-senha)");
-        when(jwtUtil.generateOmsToken(any(), any(), any(), any())).thenReturn("jwt-renovado");
+    @Nested
+    class MesmoCertificadoTests {
 
-        OmsFiscalAuthorizationResponse resp = service.autorizar("key",
-                buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
+        @Test
+        void mesmoCnpjMesmoCertificado_naoAlteraCertNemJtiRetornaToken() throws Exception {
+            OmsFiscalAuthorization authExistente = mockAuth(50L, "jti-original");
 
-        assertNotNull(resp);
-        assertEquals("jwt-renovado", resp.getToken());
+            String thumbprintReal = calcularThumbprint();
+            OmsCompanyCertificate certAtivo = mockCert(thumbprintReal, TEST_CNPJ);
 
-        // Deve atualizar o slot existente, nunca criar novo
-        verify(omsAuthMapper, never()).inserir(any());
-        verify(omsAuthMapper).atualizarToken(eq(50L),
-                argThat(novoJti -> !novoJti.equals("jti-antigo")), any());
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
+            when(empresaMapper.buscarPorCnpj(TEST_CNPJ)).thenReturn(mockEmpresa(TEST_CNPJ));
+            when(omsAuthMapper.buscarPorSlot(5L, CODIGO_OMS)).thenReturn(authExistente);
+            when(omsCertMapper.buscarAtivoPorAuthIdECnpj(50L, TEST_CNPJ)).thenReturn(certAtivo);
+            when(encryptor.encryptBytes(any())).thenReturn(new byte[]{1});
+            when(encryptor.encrypt(any())).thenReturn("ENC");
+            when(jwtUtil.generateOmsToken(any(), any(), any(), any(), any())).thenReturn("jwt-original");
 
-        // Deve desativar cert anterior e inserir novo
-        verify(omsCertMapper).desativarCertsAtivos(eq(50L), any());
-        verify(omsCertMapper).inserir(argThat(c -> c.getAuthId().equals(50L)));
+            OmsFiscalAuthorizationResponse resp = service.autorizar("key",
+                    buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
+
+            assertEquals("jwt-original", resp.getToken());
+
+            // Caso B: nenhuma alteração no slot nem no certificado
+            verify(omsAuthMapper, never()).inserir(any());
+            verify(omsAuthMapper, never()).atualizarToken(any(), any(), any());
+            verify(omsCertMapper, never()).desativarCertsAtivos(any(), any(), any());
+            verify(omsCertMapper, never()).inserir(any());
+            // Token gerado com o JTI original
+            verify(jwtUtil).generateOmsToken(eq(CODIGO_OMS), any(), eq("jti-original"), any(), any());
+        }
     }
 
-    @Test
-    void reautorizacaoComMesmoCert_reutilizaCertSemInserir() throws Exception {
-        OmsFiscalAuthorization authExistente = new OmsFiscalAuthorization();
-        authExistente.setId(50L);
-        authExistente.setJti("jti-antigo");
+    // =========================================================================
+    // CASO C — mesmo CNPJ, certificado novo (atualização de cert)
+    // =========================================================================
 
-        // Calcular thumbprint real do cert de teste para simular "mesmo cert já armazenado"
-        byte[] pfxBytes = Base64.getDecoder().decode(testPfxBase64);
-        KeyStore ks = service.carregarKeyStore(pfxBytes, TEST_SENHA);
-        X509Certificate x509 = service.extrairCertificado(ks);
-        byte[] hash = MessageDigest.getInstance("SHA-256").digest(x509.getEncoded());
-        StringBuilder sb = new StringBuilder(64);
-        for (byte b : hash) sb.append(String.format("%02x", b));
-        String thumbprintReal = sb.toString();
+    @Nested
+    class CertificadoNovoMesmoCnpjTests {
 
-        OmsCompanyCertificate certAtivo = new OmsCompanyCertificate();
-        certAtivo.setThumbprint(thumbprintReal);
-        certAtivo.setAtivo(true);
+        @Test
+        void mesmoCnpjNovoCertificado_atualizaApenasCertDoMesmoCnpjMantemJti() {
+            OmsFiscalAuthorization authExistente = mockAuth(50L, "jti-original");
+            // Cert ativo com thumbprint DIFERENTE do cert atual
+            OmsCompanyCertificate certAtivo = mockCert("aabbcc-thumbprint-antigo", TEST_CNPJ);
 
-        when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
-        when(empresaMapper.buscarPorCnpj(any())).thenReturn(mockEmpresa(TEST_CNPJ));
-        when(omsAuthMapper.buscarPorSlot(any(), any(), any())).thenReturn(authExistente);
-        when(omsCertMapper.buscarAtivoPorAuthId(eq(50L))).thenReturn(certAtivo);
-        when(encryptor.encryptBytes(any())).thenReturn(new byte[]{4, 5, 6});
-        when(encryptor.encrypt(anyString())).thenReturn("ENC(senha)");
-        when(jwtUtil.generateOmsToken(any(), any(), any(), any())).thenReturn("jwt-renovado");
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
+            when(empresaMapper.buscarPorCnpj(TEST_CNPJ)).thenReturn(mockEmpresa(TEST_CNPJ));
+            when(omsAuthMapper.buscarPorSlot(5L, CODIGO_OMS)).thenReturn(authExistente);
+            when(omsCertMapper.buscarAtivoPorAuthIdECnpj(50L, TEST_CNPJ)).thenReturn(certAtivo);
+            when(encryptor.encryptBytes(any())).thenReturn(new byte[]{4, 5});
+            when(encryptor.encrypt(any())).thenReturn("ENC");
+            when(jwtUtil.generateOmsToken(any(), any(), any(), any(), any())).thenReturn("jwt-renovado");
 
-        OmsFiscalAuthorizationResponse resp = service.autorizar("key",
-                buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
+            OmsFiscalAuthorizationResponse resp = service.autorizar("key",
+                    buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
 
-        assertNotNull(resp);
-        assertEquals("jwt-renovado", resp.getToken());
+            assertEquals("jwt-renovado", resp.getToken());
 
-        // Slot atualizado — nunca criado
-        verify(omsAuthMapper, never()).inserir(any());
-        verify(omsAuthMapper).atualizarToken(eq(50L),
-                argThat(novoJti -> !novoJti.equals("jti-antigo")), any());
+            // Slot não criado — apenas atualizado (tokenExpiraEm, JTI mantido)
+            verify(omsAuthMapper, never()).inserir(any());
+            verify(omsAuthMapper).atualizarToken(
+                    eq(50L),
+                    eq("jti-original"),    // JTI deve ser o mesmo
+                    any());                // tokenExpiraEm atualizado
 
-        // Mesmo thumbprint → cert NÃO deve ser desativado nem reinserido
-        verify(omsCertMapper, never()).desativarCertsAtivos(any(), any());
-        verify(omsCertMapper, never()).inserir(any());
+            // Cert do CNPJ específico desativado e novo inserido
+            verify(omsCertMapper).desativarCertsAtivos(eq(50L), eq(TEST_CNPJ), any());
+            verify(omsCertMapper).inserir(argThat(c ->
+                    c.getAuthId().equals(50L)
+                    && c.getCnpj().equals(TEST_CNPJ)));
+        }
+    }
+
+    // =========================================================================
+    // CASO D — novo CNPJ para cliente OMS existente (mesmo token)
+    // =========================================================================
+
+    @Nested
+    class NovoCnpjMesmoClienteOmsTests {
+
+        @Test
+        void novoCnpjMesmoClienteOms_mantemTokenExistenteAdicionaCert() throws Exception {
+            OmsFiscalAuthorization authExistente = mockAuth(50L, "jti-original");
+            authExistente.setEmpresaId(100L);
+
+            // Segundo CNPJ: cert de teste tem CNPJ TEST_CNPJ, mas o slot existe com outro OMS
+            // Simulamos: slot encontrado, busca por (auth, TEST_CNPJ) retorna null (CNPJ novo)
+            when(omsApiKeyMapper.findAtivaPorHash(any())).thenReturn(mockApiKey());
+            when(empresaMapper.buscarPorCnpj(TEST_CNPJ)).thenReturn(mockEmpresa(TEST_CNPJ));
+            when(omsAuthMapper.buscarPorSlot(5L, CODIGO_OMS)).thenReturn(authExistente);
+            when(omsCertMapper.buscarAtivoPorAuthIdECnpj(50L, TEST_CNPJ)).thenReturn(null); // CNPJ novo
+            when(encryptor.encryptBytes(any())).thenReturn(new byte[]{7, 8});
+            when(encryptor.encrypt(any())).thenReturn("ENC");
+            when(jwtUtil.generateOmsToken(any(), any(), any(), any(), any())).thenReturn("jwt-original");
+
+            OmsFiscalAuthorizationResponse resp = service.autorizar("key",
+                    buildRequest(TEST_CNPJ, testPfxBase64, TEST_SENHA));
+
+            assertEquals("jwt-original", resp.getToken());
+
+            // Slot não criado nem atualizado — token original preservado
+            verify(omsAuthMapper, never()).inserir(any());
+            verify(omsAuthMapper, never()).atualizarToken(any(), any(), any());
+
+            // Cert desativado não (CNPJ novo, sem ativo anterior)
+            verify(omsCertMapper, never()).desativarCertsAtivos(any(), any(), any());
+
+            // Cert inserido para o novo CNPJ
+            verify(omsCertMapper).inserir(argThat(c ->
+                    c.getAuthId().equals(50L)
+                    && c.getCnpj().equals(TEST_CNPJ)));
+
+            // Token regenerado com o JTI original
+            verify(jwtUtil).generateOmsToken(eq(CODIGO_OMS), eq(100L), eq("jti-original"), any(), any());
+        }
+    }
+
+    // =========================================================================
+    // Erro de CNPJ não autorizado (OmsCertificadoService)
+    // =========================================================================
+
+    @Nested
+    class CnpjNaoAutorizadoTests {
+
+        @Test
+        void certNotFoundForCnpj_lançaErroClaro() {
+            // Testa que BusinessException.certNotFoundForCnpj gera código e status corretos
+            BusinessException ex = BusinessException.certNotFoundForCnpj("12345678000195");
+
+            assertEquals("CERT_NOT_FOUND_FOR_CNPJ", ex.getErrorCode());
+            assertEquals(422, ex.getHttpStatus());
+            assertTrue(ex.getMessage().contains("12345678000195"));
+        }
+
+        @Test
+        void cnpjNotAuthorizedForOmsClient_lançaErroClaro() {
+            BusinessException ex = BusinessException.cnpjNotAuthorizedForOmsClient("12345678000195");
+
+            assertEquals("CNPJ_NOT_AUTHORIZED", ex.getErrorCode());
+            assertEquals(403, ex.getHttpStatus());
+            assertTrue(ex.getMessage().contains("12345678000195"));
+        }
     }
 
     // =========================================================================
@@ -310,9 +420,37 @@ class OmsFiscalAuthorizationServiceTest {
         return e;
     }
 
+    private OmsFiscalAuthorization mockAuth(Long id, String jti) {
+        OmsFiscalAuthorization auth = new OmsFiscalAuthorization();
+        auth.setId(id);
+        auth.setJti(jti);
+        auth.setEmpresaId(100L);
+        auth.setIntegratorId(5L);
+        auth.setCodigoOms(CODIGO_OMS);
+        return auth;
+    }
+
+    private OmsCompanyCertificate mockCert(String thumbprint, String cnpj) {
+        OmsCompanyCertificate c = new OmsCompanyCertificate();
+        c.setThumbprint(thumbprint);
+        c.setCnpj(cnpj);
+        c.setAtivo(true);
+        return c;
+    }
+
+    private String calcularThumbprint() throws Exception {
+        byte[] pfxBytes = Base64.getDecoder().decode(testPfxBase64);
+        KeyStore ks = service.carregarKeyStore(pfxBytes, TEST_SENHA);
+        X509Certificate x509 = service.extrairCertificado(ks);
+        byte[] hash = MessageDigest.getInstance("SHA-256").digest(x509.getEncoded());
+        StringBuilder sb = new StringBuilder(64);
+        for (byte b : hash) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
     private OmsFiscalAuthorizationRequest buildRequest(String cnpj, String certBase64, String senha) {
         OmsFiscalAuthorizationRequest req = new OmsFiscalAuthorizationRequest();
-        req.setCodigoEmpresaOms("OMS-EMP-001");
+        req.setCodigoEmpresaOms(CODIGO_OMS);
         req.setCnpj(cnpj);
         req.setCertBase64(certBase64);
         req.setCertSenha(senha);

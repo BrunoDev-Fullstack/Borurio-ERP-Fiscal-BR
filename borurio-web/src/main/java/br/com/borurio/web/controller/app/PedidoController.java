@@ -4,6 +4,7 @@ import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.service.EmpresaService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.core.mvc.api.PageResponse;
@@ -12,6 +13,7 @@ import br.com.borurio.core.mvc.api.ResultUtil;
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.web.dto.PedidoResponse;
+import br.com.borurio.web.service.OmsCertificadoService;
 import br.com.borurio.web.service.PedidoEmissaoService;
 import br.com.borurio.web.service.PedidoOperacaoService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,17 +34,20 @@ public class PedidoController {
     private final PedidoOperacaoService pedidoOperacaoService;
     private final EmitenteProperties emitente;
     private final EmpresaService empresaService;
+    private final OmsCertificadoService omsCertificadoService;
 
     public PedidoController(PedidoService pedidoService,
                             PedidoEmissaoService pedidoEmissaoService,
                             PedidoOperacaoService pedidoOperacaoService,
                             EmitenteProperties emitente,
-                            EmpresaService empresaService) {
-        this.pedidoService         = pedidoService;
-        this.pedidoEmissaoService  = pedidoEmissaoService;
-        this.pedidoOperacaoService = pedidoOperacaoService;
-        this.emitente              = emitente;
-        this.empresaService        = empresaService;
+                            EmpresaService empresaService,
+                            OmsCertificadoService omsCertificadoService) {
+        this.pedidoService           = pedidoService;
+        this.pedidoEmissaoService    = pedidoEmissaoService;
+        this.pedidoOperacaoService   = pedidoOperacaoService;
+        this.emitente                = emitente;
+        this.empresaService          = empresaService;
+        this.omsCertificadoService   = omsCertificadoService;
     }
 
     @GetMapping
@@ -88,11 +93,26 @@ public class PedidoController {
         Long empresaId = EmpresaContextHolder.get();
         pedido.setEmpresaId(empresaId);
 
-        if (empresaId != null) {
-            Empresa empresa = empresaService.buscarPorId(empresaId);
-            pedido.setCnpjEmitente(empresa.getCnpj().replaceAll("\\D", ""));
-        } else {
-            pedido.setCnpjEmitente(emitente.getCnpj().replaceAll("\\D", ""));
+        String jtiOms = EmpresaContextHolder.getJtiAuth();
+        boolean cnpjEnviadoPeloOms = jtiOms != null
+                && pedido.getCnpjEmitente() != null
+                && !pedido.getCnpjEmitente().isBlank();
+
+        if (cnpjEnviadoPeloOms) {
+            // Valida antecipadamente que o CNPJ está autorizado para este cliente OMS.
+            // Falha rápida: evita criar pedido com CNPJ sem certificado ativo.
+            if (!omsCertificadoService.cnpjAutorizadoParaJti(jtiOms, pedido.getCnpjEmitente())) {
+                throw BusinessException.cnpjNotAuthorizedForOmsClient(pedido.getCnpjEmitente());
+            }
+        }
+
+        if (!cnpjEnviadoPeloOms) {
+            if (empresaId != null) {
+                Empresa empresa = empresaService.buscarPorId(empresaId);
+                pedido.setCnpjEmitente(empresa.getCnpj().replaceAll("\\D", ""));
+            } else {
+                pedido.setCnpjEmitente(emitente.getCnpj().replaceAll("\\D", ""));
+            }
         }
 
         List<PedidoItem> itens = pedido.getItens();

@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.6                                      |
-| Data                   | 2026-06-17                               |
+| Versão                 | 1.7                                      |
+| Data                   | 2026-06-22                               |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | Pronto para execução                     |
@@ -58,17 +58,19 @@ Resposta esperada:
 
 ---
 
-## Bloco 0B — Autorização Fiscal OMS (Sessão por Certificado A1)
+## Bloco 0B — Autorização Fiscal OMS (V028 — Multi-CNPJ)
 
 > Este bloco substitui o **Bloco 1** para o OMS. O OMS não faz login com usuário e senha — autentica diretamente com o certificado A1 da empresa emitente.
+>
+> **Modelo multi-CNPJ (V028+):** um mesmo `codigoEmpresaOms` pode ter múltiplos CNPJs autorizados sob o **mesmo token**. Adicionar um segundo CNPJ não altera nem revoga o token existente. A empresa emitente é **criada automaticamente** a partir dos dados do Subject X.509 do certificado — não é necessário pré-cadastrá-la via ADMIN.
 
 > **[BLOQUEANTE]** Completar o **Bloco 0** antes de executar este bloco.
 
 - [ ] **[BLOQUEANTE]** Ter em mãos:
   - Arquivo do certificado A1 (`.pfx` ou `.p12`) da empresa emitente
   - Senha do arquivo PKCS12
-  - CNPJ da empresa emitente (14 dígitos, sem formatação)
-  - Código da empresa no OMS (`codigoEmpresaOms` — identificador único do seu sistema)
+  - CNPJ da empresa emitente (14 dígitos, sem formatação) — deve coincidir com o CNPJ presente no Subject X.509 do certificado
+  - Código da empresa no OMS (`codigoEmpresaOms` — identificador único e estável do seu sistema)
   - `X-Api-Key` recebida no Bloco 0
 
 - [ ] **[BLOQUEANTE]** Codificar o arquivo `.pfx` em Base64:
@@ -98,6 +100,8 @@ Resposta esperada:
 - [ ] Confirmar resposta HTTP 200 com campo `data.token` presente (formato JWT)
 - [ ] Confirmar campo `data.tokenExpiraEm` (data de vencimento do certificado A1)
 - [ ] Confirmar campo `data.razaoSocial` corresponde à empresa esperada
+- [ ] Confirmar campo `data.cnpj` corresponde ao CNPJ do certificado enviado
+- [ ] Confirmar campo `data.empresaId` — identifica a empresa âncora do cliente OMS (sempre o primeiro CNPJ autorizado)
 - [ ] Guardar o `token` retornado — usar em todas as requisições seguintes como `Authorization: Bearer {token}`
 
 **Respostas de erro esperadas (para validação):**
@@ -105,17 +109,29 @@ Resposta esperada:
 | Cenário | `errorCode` esperado | HTTP |
 |---|---|---|
 | `X-Api-Key` ausente ou inválida | `INVALID_API_KEY` | 401 |
-| CNPJ não cadastrado no Borurio | `COMPANY_NOT_FOUND` | 422 |
+| Empresa existe mas está inativa (`ativo=0`) | `COMPANY_INACTIVE` | 422 |
 | Base64 do `.pfx` malformado | `INVALID_CERTIFICATE` | 422 |
 | Senha do `.pfx` incorreta | `INVALID_CERTIFICATE` | 422 |
 | CNPJ enviado ≠ CNPJ do certificado | `CNPJ_CERTIFICATE_MISMATCH` | 422 |
 | Certificado vencido | `CERTIFICATE_EXPIRED` | 422 |
 
-**Reautorização (trocar certificado ou renovar token):**
+> **Nota:** `COMPANY_NOT_FOUND` não ocorre neste endpoint. Se a empresa não existir, ela é criada automaticamente a partir do Subject X.509 do certificado.
 
-- [ ] Para trocar o certificado A1 ou emitir novo token: repetir o mesmo `POST /api/integration/fiscal-authorizations` com o novo certificado e o mesmo `codigoEmpresaOms`
-- [ ] Confirmar que um novo `token` é retornado
-- [ ] Confirmar que o token anterior parou de funcionar (retorna HTTP 401 com `AUTHORIZATION_REVOKED`)
+**Comportamento de reautorização e multi-CNPJ:**
+
+O Borurio aplica automaticamente um dos quatro cenários ao receber uma chamada de autorização:
+
+| Cenário | Condição | Resultado |
+|---|---|---|
+| A — Novo cliente OMS | Primeiro uso do `codigoEmpresaOms` | Novo token emitido; empresa auto-criada a partir do X.509 |
+| B — Mesmo CNPJ, mesmo cert | Certificado SHA-256 idêntico já registrado | **Token string idêntico** retornado; sem alteração no banco |
+| C — Mesmo CNPJ, cert novo | CNPJ já autorizado, thumbprint diferente | Cert anterior desativado; JTI mantido; `tokenExpiraEm` atualizado |
+| D — CNPJ novo | `codigoEmpresaOms` existente, CNPJ inédito | CNPJ adicionado; **token idêntico** retornado |
+
+- [ ] Para adicionar um segundo CNPJ ao mesmo cliente OMS (cenário D): repetir o `POST` com o certificado do CNPJ2 e o **mesmo** `codigoEmpresaOms`
+- [ ] Confirmar que o `token` retornado é **idêntico** ao anterior — o token não muda ao adicionar CNPJs
+- [ ] Para trocar o certificado de um CNPJ já autorizado (cenário C): repetir o `POST` com o novo certificado e o mesmo CNPJ — o JTI é mantido, somente `tokenExpiraEm` é atualizado
+- [ ] **Atenção:** o token **não** é revogado ao adicionar CNPJs (cenário D). O mesmo token cobre todos os CNPJs autorizados do cliente OMS
 
 ---
 
@@ -280,12 +296,13 @@ Resposta (campo relevante):
 
 - [ ] **[BLOQUEANTE]** `POST /api/app/pedidos` com campos obrigatórios:
 
-| Campo                        | Tipo    | Restrição                                                   |
-|------------------------------|---------|-------------------------------------------------------------|
-| `destCnpjCpf`                | string  | obrigatório, não vazio                                      |
-| `destRazaoSocial`            | string  | obrigatório, não vazio                                      |
-| `externalOrderId`            | string  | opcional — ID externo OMS para idempotência (máx 100 chars) |
-| `itens`                      | array   | obrigatório, mínimo 1 item                                  |
+| Campo                        | Tipo    | Restrição                                                                              |
+|------------------------------|---------|----------------------------------------------------------------------------------------|
+| `cnpjEmitente`               | string  | **obrigatório para clientes OMS multi-CNPJ** — 14 dígitos; seleciona o certificado ativo |
+| `destCnpjCpf`                | string  | obrigatório, não vazio                                                                 |
+| `destRazaoSocial`            | string  | obrigatório, não vazio                                                                 |
+| `externalOrderId`            | string  | opcional — ID externo OMS para idempotência (máx 100 chars)                            |
+| `itens`                      | array   | obrigatório, mínimo 1 item                                                             |
 | `itens[].produtoId`          | long    | obrigatório                                                 |
 | `itens[].quantidade`         | decimal | obrigatório, maior que 0                                    |
 | `itens[].valorUnitario`      | decimal | obrigatório, maior que 0                                    |
@@ -325,6 +342,7 @@ Erros de negócio retornam `HTTP 422` com campo `errorCode` identificável pela 
 - [ ] Tentar criar pedido com item sem `cfop` → confirmar `HTTP 400` com mensagem `"cfop é obrigatório no item"`
 - [ ] Tentar criar pedido com item sem `ncm` → confirmar `HTTP 400` com mensagem `"ncm é obrigatório no item"`
 - [ ] Tentar criar pedido com item sem `codigoProduto` → confirmar `HTTP 400` com mensagem `"codigoProduto é obrigatório no item"`
+- [ ] (Multi-CNPJ) Tentar criar pedido com `cnpjEmitente` não autorizado para o cliente OMS → confirmar `HTTP 403` com `"errorCode": "CNPJ_NOT_AUTHORIZED"`
 
 Formato de resposta de erro de negócio:
 ```json
@@ -446,7 +464,9 @@ Estes itens não são responsabilidade do time chinês, mas bloqueiam o go-live 
 | `CERT_ENCRYPTION_KEY` configurada em PRD           | Operações / Bruno | Pendente |
 | URL de PRD definida e acessível                    | Operações         | Pendente |
 | Gerar `X-Api-Key` de produção para o integrador OMS e entregá-la ao CC via canal seguro | Bruno / Operações | Pendente |
-| Executar Bloco 0B (autorização fiscal) em HOM com certificado real da empresa 1 (JCHO) | CC / Xiao Li | Pendente |
+| Executar Bloco 0B (autorização fiscal) em HOM — empresa 1 (JCHO, CNPJ1) | CC / Xiao Li | Pendente |
+| Executar Bloco 0B para empresa 2 (CNPJ2) — adiciona segundo CNPJ ao mesmo token (cenário D) | CC / Xiao Li | Pendente |
+| Validar M5 smoke test com certificado A1 real em HOM (emissão SEFAZ com cnpjEmitente multi-CNPJ) | CC / Xiao Li | Pendente |
 
 ---
 

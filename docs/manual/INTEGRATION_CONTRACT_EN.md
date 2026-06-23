@@ -4,9 +4,9 @@
 
 | Attribute             | Value                                   |
 |-----------------------|-----------------------------------------|
-| Version               | 1.6                                     |
+| Version               | 1.7                                     |
 | Status                | **Approved for integration**            |
-| Validation date       | 2026-06-17                              |
+| Validation date       | 2026-06-22                              |
 | Reference environment | HOM — `https://hom-api.borurio.com`     |
 | Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validated against     | Source code + HOM tests                 |
@@ -103,7 +103,13 @@ Authorization: Bearer eyJhbGci...
 
 > `[CONTRACT]` The external logistics ERP (OMS) **does not use** `POST /auth/login` to authenticate. The OMS opens a session via **fiscal authorization**, sending the issuing company's A1 certificate and receiving a long-lived technical token.
 
-> `[CONTRACT]` Prerequisite: the issuing company must be pre-registered in Borurio by the ADMIN via `POST /api/app/empresas`. Authorization with an unregistered CNPJ returns `COMPANY_NOT_FOUND`.
+> `[CONTRACT]` **No prior company registration is required.** The system automatically creates the company record from the X.509 certificate Subject (company name extracted from the `CN=` field, state from `ST=`). Only companies with an inactive registration block authorization — in that case the OMS receives `COMPANY_INACTIVE`.
+
+#### Multi-CNPJ Model
+
+> `[CONTRACT]` An OMS client (`codigoEmpresaOms`) can authorize **multiple CNPJs** under a single token. The token identifies the OMS client, not a specific CNPJ. Each CNPJ requires a separate call to this endpoint — the token returned is always the same for the same `codigoEmpresaOms`.
+
+> `[CONTRACT]` When issuing an NF-e for an OMS client with multiple authorized CNPJs, the `cnpjEmitente` field of the order selects which CNPJ (and certificate) will be used to sign and transmit the NF-e to SEFAZ. See section 6.3.
 
 #### Endpoint
 
@@ -119,20 +125,30 @@ Content-Type: application/json
 
 | Field | Type | Rule |
 |---|---|---|
-| `codigoEmpresaOms` | String | Required · Max 100 chars · Unique identifier of the company in the OMS system |
+| `codigoEmpresaOms` | String | Required · Max 100 chars · Unique identifier of the OMS client |
 | `cnpj` | String | Required · Exactly 14 numeric digits |
 | `certBase64` | String | Required · PKCS12 file (.pfx / .p12) encoded in Base64 |
 | `certSenha` | String | Required · PKCS12 file password |
 
 > `[CONTRACT]` The `cnpj` sent must match the CNPJ embedded in the X.509 certificate Subject. A mismatch returns `CNPJ_CERTIFICATE_MISMATCH`.
 
-> `[EXAMPLE]` Valid payload:
+> `[EXAMPLE]` First authorization — CNPJ1 of a new OMS client:
 ```json
 {
   "codigoEmpresaOms": "JCHO-001",
   "cnpj":             "12000000000195",
   "certBase64":       "<base64-encoded .pfx file>",
   "certSenha":        "<certificate password>"
+}
+```
+
+> `[EXAMPLE]` Second authorization — CNPJ2 of the **same** OMS client (returns the same token):
+```json
+{
+  "codigoEmpresaOms": "JCHO-001",
+  "cnpj":             "98765432000100",
+  "certBase64":       "<base64-encoded .pfx of the second CNPJ>",
+  "certSenha":        "<password of the second certificate>"
 }
 ```
 
@@ -149,18 +165,26 @@ Content-Type: application/json
 
 > `[CONTRACT]` This route **does not use** the standard `Result<>` API envelope. The response structure is its own: `{ token, empresaId, cnpj, razaoSocial, tokenExpiraEm }`. Read `response.token` directly — there is **no** `response.data.token`.
 
-> `[CONTRACT]` The `tokenExpiraEm` field reflects the A1 certificate expiry — the token is valid until that date. The OMS must store the token and send it in the `Authorization: Bearer {token}` header on all subsequent operations (orders, issuance, status queries, cancellations, CC-e).
+> `[CONTRACT]` The `tokenExpiraEm` field reflects the expiry of the A1 certificate sent. The OMS must store the token and send it in the `Authorization: Bearer {token}` header on all subsequent operations (orders, issuance, status queries, cancellations, CC-e).
 
-> `[CONTRACT]` The OMS token grants access exclusively to the company linked at the time of authorization. The `empresaId` is not sent in order requests — it is extracted automatically from the token, the same way as the user context (section 4).
+> `[CONTRACT]` For OMS clients with **multiple CNPJs**, the token is always the same regardless of which CNPJ was most recently authorized. The `empresaId` in the response refers to the company of the first CNPJ authorized for that `codigoEmpresaOms` (anchor company). The `empresaId` is not needed in order requests.
 
-#### Reauthorization and Certificate Replacement
+#### Behavior by Call Scenario
 
-> `[CONTRACT]` Calling this endpoint again with the same `codigoEmpresaOms` and company performs a **reauthorization**: the previous certificate is replaced, the previous token is invalidated, and a new token is issued immediately. Use this flow in the following scenarios:
-> - Expired or renewed A1 certificate
-> - Preventive credential rotation
-> - Need to issue a new token for any reason
+| Scenario | Condition | Behavior |
+|---|---|---|
+| **A — New OMS client** | `codigoEmpresaOms` never seen before | Creates slot + inserts cert + issues **new token** |
+| **B — Same CNPJ, same cert** | Identical cert already active | No database change — **returns existing token** |
+| **C — Same CNPJ, new cert** | Same CNPJ, different thumbprint | Deactivates previous cert + inserts new cert + updates `tokenExpiraEm` — **returns existing token (same JTI)** |
+| **D — New CNPJ, existing client** | `codigoEmpresaOms` already authorized, new CNPJ | Inserts cert for the new CNPJ — **returns existing token unchanged** |
 
-> `[CONTRACT]` The ADMIN does not need to be contacted to replace the certificate — the OMS performs the reauthorization directly via this endpoint. The returned token replaces the previous one immediately.
+> `[CONTRACT]` In scenarios B, C, and D the **token does not change**. The OMS does not need to update the stored token when adding or renewing CNPJs for an already-authorized client. Store the token received on the client's first authorization.
+
+#### Updating an Expired or Renewed Certificate
+
+> `[CONTRACT]` To renew the certificate for a specific CNPJ, call this endpoint again with the same `codigoEmpresaOms` and `cnpj`, and the new `.pfx` file. The system deactivates the previous certificate for that CNPJ and activates the new one — the token remains the same (scenario C above).
+
+> `[CONTRACT]` The ADMIN does not need to be contacted to replace the certificate — the OMS performs the renewal directly via this endpoint.
 
 #### Revocation
 
@@ -172,7 +196,7 @@ Content-Type: application/json
 
 > `[CONTRACT]` The `empresaId` **is not sent in request bodies.** It is extracted automatically from the JWT token by the system.
 
-**How it works internally:**
+**How it works internally — user flow:**
 
 1. At login, the user's `empresaId` is embedded in the token as claim `"eid"`
 2. On each request, the JWT filter extracts `"eid"` and associates it with the request context
@@ -182,6 +206,12 @@ Content-Type: application/json
 > `[CONTRACT]` A token issued for company A **only accesses** products, orders, and customers of company A. Attempts to access resources from another company return HTTP 404 (resource not found for the authenticated company).
 
 > `[OPERATIONAL]` Each partner company must have its own user with distinct credentials. Do not share tokens between companies.
+
+**OMS multi-CNPJ context:**
+
+> `[CONTRACT]` The OMS token identifies the **OMS client** (`codigoEmpresaOms`), not a specific CNPJ. Products registered via OMS token belong to the OMS client. For NF-e issuance, the `cnpjEmitente` field of the order determines which certificate is used for signing and SEFAZ transmission (see section 6.3).
+
+> `[OPERATIONAL]` The `empresaId` does not need to be sent in any OMS flow request. The system resolves the issuing company from the order's `cnpjEmitente`.
 
 ---
 
@@ -518,7 +548,7 @@ Content-Type: application/json
 
 ### 6.3 Creating an Order — RASCUNHO (Step 3)
 
-> `[CONTRACT]` A newly created order always starts in the `RASCUNHO` state. Fields such as `status`, `chaveNfe`, `numero`, and `cnpjEmitente` are populated automatically — **do not send them in the body**.
+> `[CONTRACT]` A newly created order always starts in the `RASCUNHO` state. Fields such as `status`, `chaveNfe`, and `numero` are populated automatically — **do not send them in the body**.
 
 ```
 POST /api/app/pedidos
@@ -540,6 +570,7 @@ Content-Type: application/json
 | `destMunicipio`       | String | Recommended                                                  |
 | `destCep`             | String | Recommended                                                  |
 | `naturezaOperacao`    | String | Optional · Server-side default: `"VENDA DE MERCADORIA"`      |
+| `cnpjEmitente`        | String | **Required for OMS multi-CNPJ** · 14 numeric digits · CNPJ that must sign and issue the NF-e · If omitted in an OMS flow, the system uses the CNPJ of the first authorized certificate for that client |
 | `externalOrderId`     | String | Recommended · Max 100 chars · Unique per company · Enables idempotent retry |
 
 > `[CONTRACT]` **Idempotency:** If `externalOrderId` is provided and an order already exists for the same company with that identifier, the system returns the existing order unchanged — no duplicate is created. This protects against duplicate NF-e issuance caused by OMS timeout or network retry. If omitted, each call always creates a new order.
@@ -992,11 +1023,13 @@ Content-Type: application/json
 | `BATCH_LIMIT_EXCEEDED`      | 422                          | Batch request contains more than 200 products — returned before any item is processed                                             |
 | `DUPLICATE_CODIGO_IN_BATCH` | 207 `resultados[].errorCode` | The same `codigo` appears more than once in the same batch payload — the second occurrence is rejected; the first is processed   |
 | `INVALID_API_KEY`           | 401                          | `X-Api-Key` header missing, invalid, expired, or revoked — required for `POST /api/integration/fiscal-authorizations` |
-| `COMPANY_NOT_FOUND`         | 422                          | Company with the given CNPJ not found or not pre-registered in Borurio by the ADMIN |
+| `COMPANY_INACTIVE`          | 422                          | Company with the given CNPJ exists in Borurio but is marked inactive — contact the ADMIN to reactivate it |
 | `INVALID_CERTIFICATE`       | 422                          | Invalid A1 certificate — malformed base64, corrupted PKCS12, wrong password, or no X.509 certificate found in the file |
 | `CNPJ_CERTIFICATE_MISMATCH` | 422                          | CNPJ sent in the payload does not match the CNPJ embedded in the X.509 certificate Subject |
 | `CERTIFICATE_EXPIRED`       | 422                          | A1 certificate is expired — replace with the renewed certificate and reauthorize |
 | `AUTHORIZATION_REVOKED`     | 401                          | OMS token has been administratively revoked — reauthorize with a valid certificate or wait for ADMIN resolution |
+| `CNPJ_NOT_AUTHORIZED`       | 403                          | CNPJ provided in `cnpjEmitente` has no active authorization for this OMS client — call `POST /api/integration/fiscal-authorizations` with that CNPJ's certificate before issuing |
+| `CERT_NOT_FOUND_FOR_CNPJ`   | 422                          | No active certificate found for the issuing CNPJ — verify that the fiscal authorization was completed for that CNPJ |
 
 > `[OPERATIONAL]` The OMS must use `errorCode` for all conditional logic. The `message` field is intended for human-readable logs only. The HTTP status alone is not sufficient to distinguish between `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND`, and `PRODUCT_INACTIVE`, all of which return HTTP 422.
 
@@ -1109,6 +1142,21 @@ Response header will contain: `X-Request-Id: oms-batch-20260601-001`
 | 10 | `POST /api/app/produtos/batch` (same product again)                   | HTTP 207 · `atualizados=1` · `resultados[0].status = "ATUALIZADO"` |
 | 11 | Inspect response headers of any request                               | `X-Request-Id` header present · UUID format                         |
 
+### 9.1b OMS Multi-CNPJ Smoke Test
+
+> `[OPERATIONAL]` Run this complementary sequence to validate the multi-CNPJ flow when the OMS client has more than one authorized CNPJ.
+
+| # | Request | PASS criterion |
+|---|---|---|
+| M1 | `POST /api/integration/fiscal-authorizations` — CNPJ1 of the OMS client | HTTP 200 · `token` returned · company auto-created |
+| M2 | `POST /api/integration/fiscal-authorizations` — CNPJ2 of the **same** `codigoEmpresaOms` | HTTP 200 · **same `token`** as M1 |
+| M3 | `POST /api/integration/fiscal-authorizations` — CNPJ1, same cert re-sent (scenario B) | HTTP 200 · same token · no database change |
+| M4 | `POST /api/app/pedidos` with `cnpjEmitente: "{CNPJ2}"` using the OMS token | HTTP 200 · `data.cnpjEmitente` = CNPJ2 · `data.status = "RASCUNHO"` |
+| M5 | `POST /api/app/pedidos/{id}/emitir` for order from M4 | HTTP 200 · NF-e signed with CNPJ2's certificate |
+| M6 | `POST /api/app/pedidos` with `cnpjEmitente: "{CNPJ3-not-authorized}"` | HTTP 403 · `errorCode: "CNPJ_NOT_AUTHORIZED"` |
+
+> `[CONTRACT]` Test M2 is the most important acceptance criterion for the multi-CNPJ flow: it confirms that the token does not change when a second CNPJ is added to an existing OMS client.
+
 ### 9.2 Security Checks
 
 | Request                                                          | Expected result                                           |
@@ -1150,6 +1198,8 @@ pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); do
 | 8  | AN HOM endpoint may return HTTP 403 on local networks       | SEFAZ federal infrastructure limitation — does not affect PRD or the main OMS flow      |
 | 9  | `POST /batch` always returns HTTP 207 — even when all items succeed | Do not treat HTTP 207 as an error — inspect `resultados[].status` per item |
 | 10 | Every response includes `X-Request-Id` in the response header | Use it to correlate OMS requests with API server logs for troubleshooting |
+| 11 | OMS token does not change when a new CNPJ is added (scenarios B, C, D) | The OMS does not need to update the stored token when expanding CNPJ coverage for a client |
+| 12 | `cnpjEmitente` omitted in OMS order uses the anchor CNPJ (first authorized) | OMS clients with a single CNPJ can omit this field with no impact |
 
 ---
 
@@ -1157,6 +1207,7 @@ pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); do
 
 | Version | Date       | Change                                                                                      |
 |---------|------------|---------------------------------------------------------------------------------------------|
+| 1.7     | 2026-06-22 | **OMS Multi-CNPJ (V028):** an OMS client (`codigoEmpresaOms`) can authorize multiple CNPJs under a single token. Company auto-created from X.509 Subject (no ADMIN pre-registration required). `cnpjEmitente` field added to order for certificate selection at issuance. Behavior per scenario (A/B/C/D) documented — token never changes in scenarios B, C, D. New `errorCode` values: `COMPANY_INACTIVE`, `CNPJ_NOT_AUTHORIZED`, `CERT_NOT_FOUND_FOR_CNPJ`. Removed: `COMPANY_NOT_FOUND` (company is now auto-created). OMS multi-CNPJ smoke test added (section 9.1b). |
 | 1.6.1   | 2026-06-18 | Documentation fix: `POST /api/integration/fiscal-authorizations` response **does not use** the `Result<>` envelope — DTO returned directly at the root (`token`, `empresaId`, `cnpj`, `razaoSocial`, `tokenExpiraEm`). Sections 3.3 and 8.1 corrected. |
 | 1.6     | 2026-06-17 | OMS Session via A1 Certificate — `POST /api/integration/fiscal-authorizations` with `X-Api-Key` header; no user login for the OMS; one technical token per company; reauthorization (certificate replacement) and revocation documented. New `errorCode` values: `INVALID_API_KEY`, `COMPANY_NOT_FOUND`, `INVALID_CERTIFICATE`, `CNPJ_CERTIFICATE_MISMATCH`, `CERTIFICATE_EXPIRED`, `AUTHORIZATION_REVOKED`. |
 | 1.5     | 2026-06-10 | `POST /api/app/pedidos` — fiscal fields (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) are now **required** in each item and must be sent by the OMS. The system no longer copies fiscal data from the product catalog. Missing field returns HTTP 400. |

@@ -1,10 +1,10 @@
 # Checklist de Entrega — Borurio ERP Fiscal BR
 
-| Atributo          | Valor                         |
-|-------------------|-------------------------------|
-| Versão            | 1.1                           |
-| Data              | 2026-05-26                    |
-| Sprint            | 3 (final)                     |
+| Atributo          | Valor                               |
+|-------------------|-------------------------------------|
+| Versão            | 1.2                                 |
+| Data              | 2026-06-22                          |
+| Sprint            | V028 (multi-CNPJ OMS)               |
 | Ambiente validado | HOM — `https://hom-api.borurio.com` |
 
 ---
@@ -29,21 +29,22 @@
 
 ## 2. API REST — 10 módulos
 
-| Módulo                   | Endpoint base                           | Estado                                   |
-|--------------------------|-----------------------------------------|------------------------------------------|
-| Ping / health check      | `GET /api/test/ping`                    | Entregue e validado em HOM               |
-| Autenticação             | `POST /auth/login`                      | Entregue e validado em HOM               |
-| Empresas                 | `/api/app/empresas`                     | Entregue e validado em HOM               |
-| Produtos                 | `/api/app/produtos`                     | Entregue e validado em HOM               |
-| Estoque de produtos      | `/api/app/produtos/{id}/estoque`        | Entregue — 18-05-2026 (Fase 12-A)        |
-| Clientes                 | `/api/app/clientes`                     | Entregue e validado em HOM               |
-| Pedidos + ciclo fiscal   | `/api/app/pedidos`                      | Entregue e validado em HOM               |
-| Usuários                 | `/api/app/usuarios`                     | Entregue e validado em HOM               |
-| Logs fiscais             | `/api/fiscal/nfe/logs`                  | Entregue e validado em HOM               |
-| NCM                      | `/api/fiscal/ncm`                       | Entregue e validado em HOM               |
-| DANFE (PDF)              | `/api/fiscal/nfe/{chave}/danfe`         | Entregue — 18-05-2026 (Fase 12-B)        |
-| Manifestação Destinatário| `POST /api/fiscal/nfe/manifestar`       | Entregue — 26-05-2026                    |
-| NF-e legado (deprecated) | `/api/fiscal/nfe`                       | Deprecated — mantido por compatibilidade |
+| Módulo                         | Endpoint base                               | Estado                                     |
+|--------------------------------|---------------------------------------------|--------------------------------------------|
+| Ping / health check            | `GET /api/test/ping`                        | Entregue e validado em HOM                 |
+| Autenticação                   | `POST /auth/login`                          | Entregue e validado em HOM                 |
+| **Autorização Fiscal OMS**     | `POST /api/integration/fiscal-authorizations` | **Entregue — 22-06-2026 (V028 multi-CNPJ)** |
+| Empresas                       | `/api/app/empresas`                         | Entregue e validado em HOM                 |
+| Produtos                       | `/api/app/produtos`                         | Entregue e validado em HOM                 |
+| Estoque de produtos            | `/api/app/produtos/{id}/estoque`            | Entregue — 18-05-2026 (Fase 12-A)          |
+| Clientes                       | `/api/app/clientes`                         | Entregue e validado em HOM                 |
+| Pedidos + ciclo fiscal         | `/api/app/pedidos`                          | Entregue e validado em HOM                 |
+| Usuários                       | `/api/app/usuarios`                         | Entregue e validado em HOM                 |
+| Logs fiscais                   | `/api/fiscal/nfe/logs`                      | Entregue e validado em HOM                 |
+| NCM                            | `/api/fiscal/ncm`                           | Entregue e validado em HOM                 |
+| DANFE (PDF)                    | `/api/fiscal/nfe/{chave}/danfe`             | Entregue — 18-05-2026 (Fase 12-B)          |
+| Manifestação Destinatário      | `POST /api/fiscal/nfe/manifestar`           | Entregue — 26-05-2026                      |
+| NF-e legado (deprecated)       | `/api/fiscal/nfe`                           | Deprecated — mantido por compatibilidade   |
 
 ---
 
@@ -67,6 +68,10 @@
 | `empresa_id` extraído do JWT via ThreadLocal — não enviado no body     | Entregue e validado em HOM    |
 | Certificado A1 por empresa com cache em memória (`ConcurrentHashMap`)  | Entregue e validado em HOM    |
 | Criptografia AES-256-GCM para senha do certificado                     | Entregue — passthrough em HOM |
+| **Multi-CNPJ OMS (V028)** — token por cliente OMS; múltiplos CNPJs sob o mesmo token | **Entregue — 22-06-2026 — validado em HOM** |
+| Auto-criação de empresa a partir do Subject X.509 na autorização OMS  | Entregue — 22-06-2026         |
+| Validação `cnpjEmitente` OMS em `POST /pedidos` — fail-fast antes de persistir | Entregue — 22-06-2026 |
+| Token determinístico — `emitidoEm` truncado a segundos garante token idêntico em cenários B/C/D | Entregue — 22-06-2026 |
 
 ---
 
@@ -111,25 +116,29 @@
 
 | Item                                | Estado                           |
 |-------------------------------------|----------------------------------|
-| 82/82 testes passando (borurio-web — 14 controllers cobertos; +7 NfeManifestacaoController) | Passando (26-05-2026) |
-| 39/39 testes passando borurio-fiscal (+ 1 skip esperado: TesteSefazSSL)       | Passando (26-05-2026) |
+| **126/126 testes passando — BUILD SUCCESS** (borurio-web 93 + fiscal 33) | **Passando (22-06-2026)** |
+| Cenários A/B/C/D de autorização OMS cobertos em `OmsFiscalAuthorizationServiceTest` (14 testes, 8 `@Nested`) | Entregue — 22-06-2026 |
+| Validação `cnpjEmitente` OMS em `PedidoControllerTest` — `@MockBean OmsCertificadoService` | Entregue — 22-06-2026 |
+| A-03 coberto em `NfeEnvioControllerTest` — 401/403/200 para os 4 endpoints deprecated (12 testes) | Entregue — 22-06-2026 |
 | Contexto WebMvc isolado por módulo — MockitoExtension para serviços           | Entregue               |
 
 ---
 
 ## 8. Documentação
 
-| Documento                                                         | Estado                                    |
-|-------------------------------------------------------------------|-------------------------------------------|
-| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.5 — 26-05-2026 (Manifestação + seção 12.5)             |
-| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.5 — 26-05-2026 (Manifestação + seção 12.5)             |
-| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | v1.3 — 26-05-2026 (Manifestação + GET /codigo/{sku})      |
-| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | v1.3 — 26-05-2026 (Manifestação + GET /codigo/{sku})      |
-| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | v1.3 — 26-05-2026 (SKU lookup + Bloco 7B Manifestação)    |
-| Postman collection (10 pastas, 49 requests)                       | Disponível em `docs/postman/`                             |
-| Swagger UI (10 tags, deprecated marcados)                         | Operacional em DEV e HOM                          |
-| Diagramas arquiteturais                                           | Disponíveis em `docs/architecture/`               |
-| Flyway migrations V001–V024                                       | V001–V022 aplicadas em HOM; V023–V024 pendentes HOM |
+| Documento                                                         | Estado                                                          |
+|-------------------------------------------------------------------|-----------------------------------------------------------------|
+| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.6 — 22-06-2026 (V028 multi-CNPJ OMS)                        |
+| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.6 — 22-06-2026 (V028 multi-CNPJ OMS)                        |
+| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | **v1.7** — 22-06-2026 (multi-CNPJ; cnpjEmitente; cenários A/B/C/D) |
+| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | **v1.7** — 22-06-2026 (multi-CNPJ; cnpjEmitente; cenários A/B/C/D) |
+| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | **v1.7** — 22-06-2026 (V028 multi-CNPJ; errorCodes atualizados)    |
+| FAQ Smoke Test OMS (`FAQ_SMOKE_TEST_OMS.md`)                       | **v1.3** — 22-06-2026 (multi-CNPJ; Q16–Q20 adicionadas)            |
+| Roteiro entrega time chinês (`ROTEIRO_ENTREGA_TIME_CHINES.md`)     | **v1.2** — 22-06-2026 (OMS sem login; Bloco 2 reescrito)           |
+| Postman collection (10 pastas, 49 requests)                        | Disponível em `docs/postman/` (pendente atualização V028)          |
+| Swagger UI (10 tags, deprecated marcados)                          | Operacional em DEV e HOM                                           |
+| Diagramas arquiteturais                                            | Disponíveis em `docs/architecture/`                                |
+| Flyway migrations V001–V028                                        | V001–V028 aplicadas em HOM — V028 com reparo manual (22-06-2026)   |
 
 ---
 
@@ -137,13 +146,15 @@
 
 | Ação                                                                                                | Responsável       | Status                      |
 |-----------------------------------------------------------------------------------------------------|-------------------|-----------------------------|
-| Ler `INTEGRATION_CONTRACT_EN.md`                                                                    | Time chinês       | Pendente (entrega imediata) |
-| Receber credencial `OPERADOR` criada via ADMIN                                                      | Bruno / Operações | Pendente                    |
-| Executar smoke test em HOM (8 chamadas documentadas no contrato)                                    | Time chinês       | Pendente                    |
-| Adaptar OMS para sequência: produto → pedido → emitir → situação                                    | Time chinês       | Pendente                    |
-| Implementar renovação de token (TTL 1h)                                                             | Time chinês       | Pendente                    |
-| Tratar máquina de estados: `RASCUNHO`, `AUTORIZADO`, `AGUARDANDO`, `REJEITADO`, `ERRO`, `CANCELADO` | Time chinês       | Pendente                    |
-| Mapear campos da OMS para payloads validados do contrato                                            | Time chinês       | Pendente                    |
+| Ler `INTEGRATION_CONTRACT_EN.md` v1.7                                                               | Time chinês       | Pendente (entrega imediata) |
+| Receber `X-Api-Key` OMS via canal seguro                                                            | Bruno / Operações | Pendente                    |
+| Executar `POST /api/integration/fiscal-authorizations` para cada CNPJ emitente (Bloco 0B)          | Time chinês       | Pendente                    |
+| Executar smoke test M1–M4/M6 em HOM (multi-CNPJ; ver seção 9.1b do contrato v1.7)                 | Time chinês       | Pendente                    |
+| Adaptar OMS para sequência: autorização OMS → produto → pedido (com `cnpjEmitente`) → emitir → situação | Time chinês  | Pendente                    |
+| Implementar renovação de token ao aproximar-se do `tokenExpiraEm` (data do certificado A1)         | Time chinês       | Pendente                    |
+| Tratar máquina de estados: `RASCUNHO`, `AUTORIZADO`, `AGUARDANDO`, `REJEITADO`, `ERRO`, `CANCELADO` | Time chinês      | Pendente                    |
+| Tratar `HTTP 403 CNPJ_NOT_AUTHORIZED` na criação de pedidos                                        | Time chinês       | Pendente                    |
+| Mapear campos da OMS para payloads validados do contrato v1.7                                       | Time chinês       | Pendente                    |
 
 ---
 
@@ -161,11 +172,14 @@
 
 | Item                                                                  | Prioridade  |
 |-----------------------------------------------------------------------|-------------|
-| Invalidação automática do cache de certificado no `EmpresaController` | Alto        |
-| Rate limiting no `POST /api/app/pedidos/{id}/emitir`                  | Médio       |
 | CI/CD automatizado (GitHub Actions → deploy HOM → smoke test)         | Médio       |
-| Política de retenção de `nfe_log` (agendamento do `deleteAntigos`)    | Baixo       |
+| Postman collection — atualizar com endpoint `/api/integration/fiscal-authorizations` e `cnpjEmitente` | Médio |
+| M5 smoke test — emissão SEFAZ com cert A1 real de CNPJ2 (depende de cert disponível) | Baixo |
+| ~~Invalidação automática do cache de certificado no `EmpresaController`~~ | ✓ Entregue |
+| ~~Rate limiting no `POST /api/app/pedidos/{id}/emitir`~~              | ✓ Entregue  |
+| ~~Política de retenção de `nfe_log`~~                                 | ✓ Entregue  |
 | ~~DANFE — PDF da NF-e para destinatário (Fase 12-B)~~                 | ✓ Entregue (18-05-2026) |
+| ~~Multi-CNPJ OMS (V028)~~                                             | ✓ Entregue (22-06-2026) |
 
 ---
 

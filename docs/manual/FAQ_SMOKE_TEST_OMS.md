@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                              |
 |------------------------|------------------------------------|
-| Versão                 | 1.2                                |
-| Data                   | 2026-06-01                         |
+| Versão                 | 1.3                                |
+| Data                   | 2026-06-22                         |
 | Ambiente de referência | HOM — URL temporária por sessão (Cloudflare Tunnel) |
 | Relacionado a          | `CHECKLIST_OMS_ONBOARDING.md`      |
 
@@ -129,12 +129,17 @@ Erros de negócio retornam `HTTP 422` com um campo `errorCode` padronizado no co
 
 Códigos disponíveis:
 
-| `errorCode`            | Situação                                              | Ação sugerida para a OMS                          |
-|------------------------|-------------------------------------------------------|---------------------------------------------------|
-| `PRODUCT_NOT_FOUND`    | `produtoId` não existe no Borurio                     | Sincronizar catálogo de produtos                  |
-| `PRODUCT_INACTIVE`     | Produto existe, mas está inativo (`estado=0`)         | Reativar produto ou remover do pedido             |
-| `INSUFFICIENT_STOCK`   | Quantidade solicitada excede `estoqueDisponivel`      | Consultar `/api/app/produtos/{id}/estoque` e ajustar |
-| `INVALID_ORDER_STATUS` | Operação não permitida no status atual do pedido      | Verificar `status` via `/api/app/pedidos/{id}/situacao` |
+| `errorCode`              | Situação                                              | HTTP | Ação sugerida para a OMS                          |
+|--------------------------|-------------------------------------------------------|------|---------------------------------------------------|
+| `PRODUCT_NOT_FOUND`      | `produtoId` não existe no Borurio                     | 422  | Sincronizar catálogo de produtos                  |
+| `PRODUCT_INACTIVE`       | Produto existe, mas está inativo (`estado=0`)         | 422  | Reativar produto ou remover do pedido             |
+| `INSUFFICIENT_STOCK`     | Quantidade solicitada excede `estoqueDisponivel`      | 422  | Consultar `/api/app/produtos/{id}/estoque` e ajustar |
+| `INVALID_ORDER_STATUS`   | Operação não permitida no status atual do pedido      | 422  | Verificar `status` via `/api/app/pedidos/{id}/situacao` |
+| `CNPJ_NOT_AUTHORIZED`    | `cnpjEmitente` não tem certificado ativo para este cliente OMS | 403 | Executar Bloco 0B para autorizar o CNPJ |
+| `CERT_NOT_FOUND_FOR_CNPJ`| Certificado do `cnpjEmitente` não encontrado na emissão | 422 | Verificar se o CNPJ foi autorizado via Bloco 0B |
+| `COMPANY_INACTIVE`       | Empresa existe mas está inativa (`ativo=0`)           | 422  | Contatar o administrador do Borurio |
+| `INVALID_API_KEY`        | `X-Api-Key` ausente ou inválida                       | 401  | Verificar a chave recebida no Bloco 0 |
+| `CERTIFICATE_EXPIRED`    | Certificado A1 vencido                                | 422  | Renovar o certificado A1 e reautorizar |
 
 Formato de resposta de erro de negócio:
 ```json
@@ -249,6 +254,68 @@ Resposta de erro:
 ```
 
 Para contornar: dividir o catálogo em lotes de até 200 itens e enviar cada lote em uma requisição separada. Não há exigência de delay entre requisições, mas é recomendável processar os lotes sequencialmente para simplificar o tratamento de erros.
+
+---
+
+**16. Posso autorizar múltiplos CNPJs sob o mesmo cliente OMS?**
+
+Sim. O modelo V028 permite que um único `codigoEmpresaOms` possua múltiplos CNPJs autorizados sob o **mesmo token**. Para adicionar um segundo CNPJ:
+
+1. Repetir o `POST /api/integration/fiscal-authorizations` com o certificado do novo CNPJ e o **mesmo** `codigoEmpresaOms`
+2. O token retornado será **idêntico** ao já em uso — não é necessário substituir o header `Authorization`
+3. A empresa emitente do novo CNPJ é criada automaticamente no Borurio a partir do Subject X.509
+
+Não há limite de CNPJs por cliente OMS.
+
+---
+
+**17. O token muda quando autorizo um segundo CNPJ?**
+
+Não. Ao adicionar um CNPJ novo a um cliente OMS já existente (cenário D), o Borurio retorna o **mesmo token** (string idêntica). O token identifica o cliente OMS (`codigoEmpresaOms`), não o CNPJ.
+
+O token só muda nas seguintes situações:
+- Primeira autorização do cliente OMS (cenário A) — token novo emitido
+- Expiração natural (data do `tokenExpiraEm`) — necessário reautorizar com novo certificado
+
+O token **não muda** ao adicionar CNPJs (cenário D) nem ao trocar o certificado de um CNPJ já autorizado (cenário C — JTI mantido, apenas `tokenExpiraEm` atualizado).
+
+---
+
+**18. Como indico qual CNPJ deve emitir a NF-e quando tenho múltiplos CNPJs autorizados?**
+
+Inclua o campo `cnpjEmitente` (14 dígitos) no body do `POST /api/app/pedidos`. O Borurio usa esse valor para selecionar o certificado correto na emissão.
+
+Exemplo:
+```json
+{
+  "cnpjEmitente":    "54393421000159",
+  "destCnpjCpf":     "12345678000195",
+  "destRazaoSocial": "Cliente Exemplo",
+  "itens": [...]
+}
+```
+
+Se `cnpjEmitente` não for enviado (ou o token não for OMS), o sistema usa o CNPJ da empresa vinculada ao JWT.
+
+---
+
+**19. O que acontece se eu enviar um `cnpjEmitente` que ainda não foi autorizado?**
+
+O pedido é **rejeitado na criação** (`POST /api/app/pedidos`), com `HTTP 403` e `"errorCode": "CNPJ_NOT_AUTHORIZED"`. O pedido não é persistido.
+
+Esta validação ocorre antes de criar o pedido — é um fail-fast que evita criar pedidos que falharão na emissão. Para corrigir: executar o Bloco 0B com o certificado do CNPJ em questão antes de criar o pedido.
+
+---
+
+**20. A empresa emitente precisa ser cadastrada no Borurio antes da autorização?**
+
+Não. A partir do V028, a empresa é **criada automaticamente** pelo Borurio na primeira vez que um CNPJ é autorizado. Os dados são extraídos do Subject X.509 do certificado:
+
+- `razaoSocial` ← campo `CN=NOME DA EMPRESA:CNPJ` do Subject
+- `uf` ← campo `ST=SP` (ou equivalente) do Subject; default `SP` se ausente
+- `crt` ← `"1"` (default para Simples Nacional)
+
+Se a empresa já existir no cadastro, ela é usada sem alterações. Se existir mas estiver inativa (`ativo=0`), a autorização é recusada com `COMPANY_INACTIVE`.
 
 ---
 

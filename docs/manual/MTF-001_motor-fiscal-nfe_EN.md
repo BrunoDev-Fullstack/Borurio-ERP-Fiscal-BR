@@ -4,9 +4,9 @@
 ---
 
 **Document:** MTF-001  
-**Version:** 2.5  
+**Version:** 2.6  
 **Issued:** 2026-05-11  
-**Last updated:** 2026-05-26  
+**Last updated:** 2026-06-22  
 **Author:** Bruno Ribeiro — Fullstack Developer / DevSecOps  
 **Status:** VALIDATED IN STAGING (HOM)  
 **Reference branch:** `fix/sefaz-xml-structure`  
@@ -19,6 +19,7 @@
 > - v2.3 (2026-05-18): DANFE implemented — `DanfeXmlParser`, `DanfePdfGenerator`, `DanfeService`, `GET /api/fiscal/nfe/{chave}/danfe`; OpenPDF 1.3.30; watermark "SEM VALOR FISCAL" in staging; 66/66 tests; V023–V024 applied to HOM
 > - v2.4 (2026-05-21): 3 bugs fixed in `DanfePdfGenerator` — pt_BR monetary formatting in totals, thread-safe `DecimalFormat` per call, conditional protocol label; borurio-web tests 66 → 75 (9 new — fiscal states, inventory RBAC, UsuarioController)
 > - v2.5 (2026-05-26): Recipient Manifestation implemented (events 210200/210210/210220/210240); `cOrgao=91` (AN — Ambiente Nacional, NT 2012.004); `SefazProperties.manifestacaoEvento` with distinct AN URL; `cStat` validation in SEFAZ response (cStat=135/136=success, others=rejection); `xml_retorno` captured even on error; section 12.5 added; integration contract v1.3; borurio-web tests 75 → 82 (7 new — NfeManifestacaoController)
+> - v2.6 (2026-06-22): V028 Multi-CNPJ OMS — `POST /api/integration/fiscal-authorizations`; token per OMS client (`codigoEmpresaOms`); multiple CNPJs under the same token; auto-company-creation from X.509 Subject; deterministic token via `emitidoEm` truncated to seconds; `cnpjEmitente` OMS validation in `POST /pedidos` (fail-fast HTTP 403); `OmsCertificadoService.resolverPorJtiECnpj`; sections 3.1/3.2/9.5/10.6/16 updated; contract v1.7; 114/114 tests
 
 ---
 
@@ -97,7 +98,16 @@ The document is intended for:
 | Recipient Manifestation (events 210200/210210/210220/210240) — `POST /api/fiscal/nfe/manifestar` | ✓ Code + HOM — 2026-05-26                               |
 | `cStat` validation in Manifestation SEFAZ response (cStat=135/136=success, others=rejection)   | ✓ Code — 2026-05-26                                       |
 | `xml_retorno` captured in `nfe_log` even when SEFAZ rejects (error path)                       | ✓ Code — 2026-05-26                                       |
-| 82/82 tests passing (borurio-web — 7 new for NfeManifestacaoController)                        | ✓ Code — 2026-05-26                                       |
+| 82/82 tests passing (borurio-web — 7 new for NfeManifestacaoController)                        | ✓ Code — 2026-05-26                                         |
+| OMS Fiscal Authorization — `POST /api/integration/fiscal-authorizations`                       | ✓ HOM — 2026-06-22                                          |
+| Multi-CNPJ OMS — multiple CNPJs under the same OMS client token                                | ✓ HOM — 2026-06-22                                          |
+| Auto-company creation from X.509 Subject on first authorization                                | ✓ HOM — 2026-06-22                                          |
+| Deterministic token — `emitidoEm` truncated to seconds; identical token in scenarios B/C/D     | ✓ HOM — 2026-06-22                                          |
+| `cnpjEmitente` OMS validation in `POST /pedidos` — fail-fast HTTP 403 before persisting        | ✓ HOM — 2026-06-22                                          |
+| `OmsCertificadoService.resolverPorJtiECnpj` — selects cert by CNPJ at issuance time           | ✓ HOM — 2026-06-22                                          |
+| Multi-CNPJ smoke test M1–M4/M6 — approved in HOM                                              | ✓ HOM — 2026-06-22                                          |
+| **126/126 tests passing** (borurio-web 93 + fiscal 33; +12 NfeEnvioControllerTest A-03)       | ✓ Code — 2026-06-22                                         |
+| V025–V028 applied in HOM (Flyway at v028)                                                      | ✓ HOM — 2026-06-22                                          |
 
 ### 1.2 What is PENDING
 
@@ -151,7 +161,7 @@ The bridge between the two domains is exclusively the `borurio-web` module. When
 | Framework         | Spring Boot 3.3.2                                                |
 | Persistence       | MyBatis (annotations)                                            |
 | Database          | MySQL 8.4                                                        |
-| Migrations        | Flyway (V001–V024)                                               |
+| Migrations        | Flyway (V001–V028)                                               |
 | Auth              | Stateless JWT (HMAC-SHA256)                                      |
 | Security          | Spring Security 6.x                                              |
 | XML Signing       | Java XML Crypto API (`javax.xml.crypto.dsig`)                    |
@@ -184,7 +194,13 @@ The bridge between the two domains is exclusively the `borurio-web` module. When
 | V019       | `db_user.role` (ADMIN / OPERADOR) + `nfe_log.empresa_id`                     |
 | V020       | `cliente.empresa_id` — multi-company isolation for customers                 |
 | V021       | `cliente.nome` and `cliente.email` nullable                                  |
-| V022       | Missing foreign key constraints on `pedido_item`, `nfe_documento`, `nfe_log` |
+| V022       | Missing foreign key constraints on `pedido_item`, `nfe_documento`, `nfe_log`                |
+| V023       | `estoque_movimento` — atomic audit of all stock movements                                    |
+| V024       | `produto.estoque_reservado` DECIMAL(13,4) NOT NULL DEFAULT 0                                |
+| V025       | `oms_api_key` — API keys for OMS integrators (SHA-256 hash, `integrator_id`)               |
+| V026       | `oms_fiscal_authorization` — one slot per OMS client (`integrator_id`, `codigo_oms`, `jti`, `emitido_em`) |
+| V027       | `oms_company_certificate` — PKCS12 certificate per `auth_id` (initial single-CNPJ structure) |
+| V028       | Multi-CNPJ: `oms_fiscal_authorization` slot without `empresa_id`; `oms_company_certificate` adds `cnpj`, `empresa_id`, generated column `cnpj_ativo_unico` |
 
 ### 3.2 Main fiscal tables
 
@@ -704,14 +720,15 @@ Restrictions applied in `SecurityConfig` (Sprint 3 — validated in HOM 2026-05-
 
 The following paths are permitted by `SecurityConfig` and skipped by `JwtFilter`:
 
-| Path                                   | Note                                |
-|----------------------------------------|-------------------------------------|
-| `/auth/**`                             | Login and authentication operations |
-| `/api/test/**`                         | Health check — `GET /api/test/ping` |
-| `/api/fiscal/nfe/test/**`              | Internal fiscal engine tests        |
-| `/swagger-ui/**`, `/swagger-ui.html`   | Swagger documentation               |
-| `/v3/api-docs/**`, `/v3/api-docs.yaml` | OpenAPI specification               |
-| `/ping`                                | No controller mapped — do not use   |
+| Path                                   | Note                                                               |
+|----------------------------------------|--------------------------------------------------------------------|
+| `/auth/**`                             | Login and authentication operations                                |
+| `/api/test/**`                         | Health check — `GET /api/test/ping`                                |
+| `/api/fiscal/nfe/test/**`              | Internal fiscal engine tests                                       |
+| `/api/integration/**`                  | OMS fiscal authorization — authenticated by `X-Api-Key`, not JWT  |
+| `/swagger-ui/**`, `/swagger-ui.html`   | Swagger documentation                                              |
+| `/v3/api-docs/**`, `/v3/api-docs.yaml` | OpenAPI specification                                              |
+| `/ping`                                | No controller mapped — do not use                                  |
 
 > **Operational note:** `/ping` is listed in `permitAll` and in `JwtFilter.PUBLIC_EXACT`, but no controller maps this path. The correct health check endpoint is `GET /api/test/ping`.
 
@@ -1181,7 +1198,7 @@ Security checks:
 
 ---
 
-*Document MTF-001 — version 2.4 — Borurio ERP Fiscal BR*  
+*Document MTF-001 — version 2.6 — Borurio ERP Fiscal BR*  
 *Based on the state validated in HOM on 2026-05-11*  
-*Last updated: 2026-05-22 (DA-04 resolved; integration contracts updated with stock and DANFE endpoints)*  
+*Last updated: 2026-06-22 (V028 multi-CNPJ OMS; hardening A-03/A-04; 126/126 tests; sections 3.1/3.2/11.3/16 updated)*  
 *Next revision: after PRD deployment (Phase 11)*

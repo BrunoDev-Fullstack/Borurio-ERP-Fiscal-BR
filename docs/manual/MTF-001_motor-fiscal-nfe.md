@@ -4,9 +4,9 @@
 ---
 
 **Documento:** MTF-001  
-**Versão:** 2.5  
+**Versão:** 2.6  
 **Data de emissão:** 11-05-2026  
-**Última atualização:** 26-05-2026  
+**Última atualização:** 22-06-2026  
 **Autor:** Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps  
 **Status:** VALIDADO EM HOMOLOGAÇÃO  
 **Branch de referência:** `fix/sefaz-xml-structure`  
@@ -19,6 +19,7 @@
 > - v2.3 (18-05-2026): DANFE implementado — `DanfeXmlParser`, `DanfePdfGenerator`, `DanfeService`, `GET /api/fiscal/nfe/{chave}/danfe`; OpenPDF 1.3.30; watermark "SEM VALOR FISCAL" em HOM; 66/66 testes; V023–V024 aplicados em HOM
 > - v2.4 (21-05-2026): 3 bugs corrigidos em `DanfePdfGenerator` — formatação monetária pt_BR nos totais, `DecimalFormat` thread-safe por chamada, label de protocolo condicional; testes borurio-web 66 → 75 (9 novos — estados fiscais, RBAC estoque, UsuarioController)
 > - v2.5 (26-05-2026): Manifestação do Destinatário implementada (210200/210210/210220/210240); cOrgao=91 (AN); validação de cStat na resposta SEFAZ; xml_retorno capturado em erro; seção 12.5 adicionada; contrato de integração v1.3; testes borurio-web 75 → 82 (7 novos — NfeManifestacaoController)
+> - v2.6 (22-06-2026): V028 Multi-CNPJ OMS — `POST /api/integration/fiscal-authorizations`; token por cliente OMS (`codigoEmpresaOms`); múltiplos CNPJs sob o mesmo token; auto-criação de empresa a partir do Subject X.509; token determinístico via `emitidoEm` truncado a segundos; validação `cnpjEmitente` OMS em `POST /pedidos` (fail-fast HTTP 403); `OmsCertificadoService.resolverPorJtiECnpj`; seções 3.1/3.2/9.5/10.6/16 atualizadas; contrato v1.7; 114/114 testes
 
 ---
 
@@ -101,6 +102,15 @@ O documento destina-se a:
 | Validação de cStat na resposta SEFAZ — rejeição correta quando cStat≠128/135                       | ✓ Código — 26-05-2026                                         |
 | xml_retorno persistido em `nfe_log` mesmo em caso de erro de transmissão                           | ✓ Código — 26-05-2026                                         |
 | 82/82 testes passando (borurio-web — +7 NfeManifestacaoController)                                 | ✓ Código — 26-05-2026                                         |
+| Autorização Fiscal OMS — `POST /api/integration/fiscal-authorizations`                              | ✓ HOM — 22-06-2026                                            |
+| Multi-CNPJ OMS — múltiplos CNPJs sob o mesmo token (`codigoEmpresaOms`)                            | ✓ HOM — 22-06-2026                                            |
+| Auto-criação de empresa a partir do Subject X.509 do certificado                                    | ✓ HOM — 22-06-2026                                            |
+| Token determinístico — `emitidoEm` truncado a segundos; token idêntico em cenários B/C/D           | ✓ HOM — 22-06-2026                                            |
+| Validação `cnpjEmitente` OMS em `POST /pedidos` — fail-fast HTTP 403 antes de persistir            | ✓ HOM — 22-06-2026                                            |
+| `OmsCertificadoService.resolverPorJtiECnpj` — seleciona cert pelo CNPJ na emissão                  | ✓ HOM — 22-06-2026                                            |
+| Smoke test multi-CNPJ M1–M4/M6 — aprovados em HOM                                                  | ✓ HOM — 22-06-2026                                            |
+| **126/126 testes passando** (borurio-web 93 + fiscal 33; +12 NfeEnvioControllerTest A-03)          | ✓ Código — 22-06-2026                                         |
+| V025–V028 aplicados em HOM (Flyway em v028)                                                        | ✓ HOM — 22-06-2026                                            |
 
 ### 1.2 O que está PENDENTE
 
@@ -154,7 +164,7 @@ A bridge entre os dois domínios é exclusivamente o módulo `borurio-web`. Quan
 | Framework             | Spring Boot 3.3.2                                                |
 | Persistência          | MyBatis (annotations)                                            |
 | Banco de dados        | MySQL 8.4                                                        |
-| Migrations            | Flyway (V001–V024)                                               |
+| Migrations            | Flyway (V001–V028)                                               |
 | Auth                  | JWT stateless (HMAC-SHA256)                                      |
 | Segurança             | Spring Security 6.x                                              |
 | XML Signing           | Java XML Crypto API (`javax.xml.crypto.dsig`)                    |
@@ -188,8 +198,12 @@ A bridge entre os dois domínios é exclusivamente o módulo `borurio-web`. Quan
 | V020        | `cliente.empresa_id` — isolamento multiempresa de clientes                    |
 | V021        | `cliente.nome` e `cliente.email` nullable                                     |
 | V022        | Foreign key constraints ausentes em `pedido_item`, `nfe_documento`, `nfe_log` |
-| V023        | `estoque_movimento` — auditoria de reservas, baixas, estornos e entradas      |
-| V024        | `produto.estoque_reservado` DECIMAL(13,4) NOT NULL DEFAULT 0                  |
+| V023        | `estoque_movimento` — auditoria de reservas, baixas, estornos e entradas                              |
+| V024        | `produto.estoque_reservado` DECIMAL(13,4) NOT NULL DEFAULT 0                                         |
+| V025        | `oms_api_key` — chaves de API para integradores OMS (hash SHA-256, `integrator_id`)                  |
+| V026        | `oms_fiscal_authorization` — slot de autorização por cliente OMS (`integrator_id`, `codigo_oms`, `jti`, `emitido_em`) |
+| V027        | `oms_company_certificate` — certificado PKCS12 por `auth_id` com estrutura mono-CNPJ inicial         |
+| V028        | Multi-CNPJ: `oms_fiscal_authorization` slot sem `empresa_id`; `oms_company_certificate` adiciona `cnpj`, `empresa_id`, coluna gerada `cnpj_ativo_unico` |
 
 ### 3.2 Tabelas fiscais principais
 
@@ -234,6 +248,43 @@ Garante unicidade atômica do número da NF-e por CNPJ + série.
 | `cnpj`          | CNPJ do emitente      |
 | `serie`         | Série da NF-e         |
 | `ultimo_numero` | Último número emitido |
+
+#### `oms_api_key` (V025)
+Chaves de API para integradores OMS. Autenticam o endpoint `/api/integration/fiscal-authorizations`.
+
+| Coluna          | Tipo         | Descrição                                               |
+|-----------------|--------------|---------------------------------------------------------|
+| `integrator_id` | BIGINT       | ID do integrador (agrupa clientes OMS deste integrador) |
+| `hash`          | VARCHAR(64)  | SHA-256 hex da chave plaintext                          |
+| `descricao`     | VARCHAR(100) | Nome descritivo da chave                                |
+| `ativo`         | TINYINT(1)   | 1 = ativa; 0 = revogada                                 |
+
+#### `oms_fiscal_authorization` (V026/V028)
+Slot de autorização por cliente OMS. Um registro por `(integrator_id, codigo_oms)`.
+
+| Coluna           | Tipo         | Descrição                                                             |
+|------------------|--------------|-----------------------------------------------------------------------|
+| `empresa_id`     | BIGINT       | Empresa âncora — primeira empresa vinculada ao cliente OMS            |
+| `integrator_id`  | BIGINT       | FK → `oms_api_key.integrator_id`                                      |
+| `codigo_oms`     | VARCHAR(100) | Identificador único do cliente no sistema OMS                         |
+| `jti`            | VARCHAR(36)  | UUID do JWT — estável durante toda a vida do token                    |
+| `token_expira_em`| DATETIME     | Data de expiração do token (data `notAfter` do certificado mais recente) |
+| `emitido_em`     | DATETIME     | Timestamp de emissão (precisão de segundos — garantia de determinismo do JWT) |
+| `revogado_em`    | DATETIME     | NULL enquanto ativo; preenchido na revogação manual                   |
+
+#### `oms_company_certificate` (V027/V028)
+Certificado PKCS12 por CNPJ por autorização OMS. Múltiplas linhas por `auth_id`.
+
+| Coluna             | Tipo         | Descrição                                                          |
+|--------------------|--------------|--------------------------------------------------------------------|
+| `auth_id`          | BIGINT       | FK → `oms_fiscal_authorization.id`                                 |
+| `empresa_id`       | BIGINT       | FK → `empresa.id` — empresa correspondente ao CNPJ                 |
+| `cnpj`             | VARCHAR(14)  | CNPJ do certificado (14 dígitos, sem formatação)                   |
+| `thumbprint`       | VARCHAR(64)  | SHA-256 hex do certificado X.509 — usado para detectar troca de cert |
+| `cert_pfx_enc`     | LONGBLOB     | PFX criptografado via AES-256-GCM                                  |
+| `cert_senha_enc`   | VARCHAR(512) | Senha criptografada via AES-256-GCM                                |
+| `ativo`            | TINYINT(1)   | 1 = certificado ativo para este CNPJ; 0 = desativado (histórico)  |
+| `cnpj_ativo_unico` | VARCHAR(14)  | Coluna gerada: `IF(ativo=1, cnpj, NULL)` — UNIQUE por `(auth_id, cnpj_ativo_unico)` |
 
 ---
 
@@ -594,6 +645,53 @@ Quando `empresaId == null` (usuário sem empresa associada, ou ambiente dev sem 
 - `EmitenteProperties` é usado como emitente no lugar de `Empresa`
 - Dados legados (anteriores à V017) são backfillados para a empresa padrão no `StartupListener`
 
+### 9.5 Multi-CNPJ OMS (V028)
+
+O modelo V028 expande o multiempresa para integradores externos que possuem múltiplos CNPJs emitentes. Um cliente OMS (`codigoEmpresaOms`) pode autorizar múltiplos CNPJs sob o **mesmo token JWT**.
+
+#### Fluxo de autorização
+
+```
+POST /api/integration/fiscal-authorizations
+X-Api-Key: {chave-tecnica}
+Body: { codigoEmpresaOms, cnpj, certBase64, certSenha }
+    │
+    ▼
+OmsFiscalAuthorizationService.autorizar()
+    │  ├─ Valida X-Api-Key (SHA-256 → oms_api_key)
+    │  ├─ Decodifica e carrega PKCS12
+    │  ├─ Extrai X509Certificate, valida validade e CNPJ do Subject
+    │  ├─ Localiza ou cria empresa a partir do Subject X.509 (auto-criação)
+    │  ├─ Busca slot em oms_fiscal_authorization por (integrator_id, codigo_oms)
+    │  │
+    │  ├─ CASO A — slot inexistente → INSERT auth + cert; gera JTI novo; emitidoEm=now().truncatedTo(SECONDS)
+    │  ├─ CASO B — mesmo CNPJ, mesmo thumbprint → nenhuma alteração; retorna token existente
+    │  ├─ CASO C — mesmo CNPJ, thumbprint diferente → desativa cert anterior; INSERT cert novo; atualiza tokenExpiraEm; mantém JTI
+    │  └─ CASO D — CNPJ novo → INSERT cert; mantém JTI e token intactos
+    │
+    └─ jwtUtil.generateOmsToken(codigoOms, empresaId_âncora, jti, tokenExpiraEm, emitidoEm)
+         payload: { "sub": codigoOms, "eid": empresaId_âncora, "jti": uuid, "tipo": "OMS", "iat": emitidoEm, "exp": tokenExpiraEm }
+```
+
+#### Token determinístico
+
+O `iat` do token JWT é sempre `auth.getEmitidoEm()` — gravado no banco com precisão de segundos. Isso garante que nos cenários B/C/D, onde o JTI é reutilizado, o token string gerado é **identicamente igual** ao original. Sem essa garantia, diferenças de milissegundos entre `new Date()` e `CURRENT_TIMESTAMP` produziriam tokens distintos a cada chamada.
+
+#### Resolução de CNPJ na emissão
+
+Em `POST /api/app/pedidos`, o campo `cnpjEmitente` seleciona qual certificado OMS usar:
+
+```
+PedidoController.criar()
+    │  ├─ extrai jti do JWT (claim "jti")
+    │  ├─ valida cnpjAutorizadoParaJti(jti, cnpjEmitente) — fail-fast HTTP 403
+    │  └─ persiste pedido com cnpjEmitente no snapshot
+
+PedidoEmissaoService.emitir()
+    │  └─ OmsCertificadoService.resolverPorJtiECnpj(jti, cnpjEmitente)
+              └─ buscarAtivoPorAuthIdECnpj(authId, cnpjEmitente) → CertificadoContexto
+```
+
 ### 9.4 Seed e backfill no startup
 
 O `StartupListener` (`@PostConstruct`) executa na inicialização:
@@ -669,6 +767,24 @@ O `EmpresaCertificadoService` tenta em ordem:
 
 Caso nenhum dos dois encontre o arquivo, lança `IllegalStateException`.
 
+### 10.6 Certificado OMS — carregamento por JTI e CNPJ (V028)
+
+Complementa a resolução por empresa (`resolverPorEmpresa`) com resolução por CNPJ OMS:
+
+```
+OmsCertificadoService.resolverPorJtiECnpj(jti, cnpj)
+    │  ├─ omsAuthMapper.buscarPorJti(jti)        → OmsFiscalAuthorization
+    │  ├─ verifica revogado_em == null
+    │  ├─ omsCertMapper.buscarAtivoPorAuthIdECnpj(authId, cnpj) → OmsCompanyCertificate
+    │  └─ carregarContexto(certRow.getEmpresaId(), certRow)
+              ├─ encryptor.decryptBytes(certPfxEnc) → PFX bytes
+              ├─ encryptor.decrypt(certSenhaEnc)    → senha
+              ├─ KeyStore.load(pfxBytes, senha)
+              └─ CertificadoContexto { empresaId, privateKey, cert, sslContext }
+```
+
+Não há cache para certificados OMS — verificação de revogação ocorre a cada emissão.
+
 ---
 
 ## 11. SEGURANÇA BASE
@@ -711,12 +827,13 @@ Os seguintes paths são liberados pelo `SecurityConfig` e pulados pelo `JwtFilte
 
 | Path                                   | Observação                             |
 |----------------------------------------|----------------------------------------|
-| `/auth/**`                             | Login e operações de autenticação      |
-| `/api/test/**`                         | Health check — `GET /api/test/ping`    |
-| `/api/fiscal/nfe/test/**`              | Testes internos do motor fiscal        |
-| `/swagger-ui/**`, `/swagger-ui.html`   | Documentação Swagger                   |
-| `/v3/api-docs/**`, `/v3/api-docs.yaml` | Especificação OpenAPI                  |
-| `/ping`                                | Path sem controller mapeado — não usar |
+| `/auth/**`                             | Login e operações de autenticação                                      |
+| `/api/test/**`                         | Health check — `GET /api/test/ping`                                    |
+| `/api/fiscal/nfe/test/**`              | Testes internos do motor fiscal                                        |
+| `/api/integration/**`                  | Autorização fiscal OMS — autenticado por `X-Api-Key`, não por JWT      |
+| `/swagger-ui/**`, `/swagger-ui.html`   | Documentação Swagger                                                   |
+| `/v3/api-docs/**`, `/v3/api-docs.yaml` | Especificação OpenAPI                                                  |
+| `/ping`                                | Path sem controller mapeado — não usar                                 |
 
 > **Nota operacional:** `/ping` está listado no `permitAll` e no `JwtFilter.PUBLIC_EXACT`, mas nenhum controller mapeia este path. O endpoint correto de health check é `GET /api/test/ping`.
 
@@ -1170,7 +1287,7 @@ Verificações de segurança:
 
 ---
 
-*Documento MTF-001 — versão 2.4 — Borurio ERP Fiscal BR*  
+*Documento MTF-001 — versão 2.6 — Borurio ERP Fiscal BR*  
 *Gerado com base no estado validado em HOM em 11-05-2026*  
-*Última atualização: 22-05-2026 (cStat=225 → AGUARDANDO confirmado em testes; seção 16 atualizada para v2.4)*  
+*Última atualização: 22-06-2026 (V028 multi-CNPJ OMS; hardening A-03/A-04; 126/126 testes; seções 3.1/3.2/9.5/10.6/11.3/16 atualizadas)*  
 *Próxima revisão prevista: após deploy PRD (Fase 11)*

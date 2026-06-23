@@ -2,8 +2,8 @@ package br.com.borurio.web.service;
 
 import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Empresa;
-import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.entity.Pedido;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
@@ -64,15 +64,15 @@ public class PedidoEmissaoService {
             throw new IllegalArgumentException("Pedido sem itens não pode ser emitido.");
         }
 
-        Long empresaId = EmpresaContextHolder.get() != null
-                ? EmpresaContextHolder.get() : pedido.getEmpresaId();
         String criadoPor = resolverCriadoPor();
+        Empresa empresa  = resolverEmpresaParaEmissao(pedido);
+        Long empresaId   = empresa != null ? empresa.getId()
+                : (EmpresaContextHolder.get() != null ? EmpresaContextHolder.get() : pedido.getEmpresaId());
 
         // Reserva ANTES da chamada SEFAZ — lança IllegalStateException (→ 422) se insuficiente
         estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
 
         NfeEmissaoRequest req = montarRequest(pedido);
-        Empresa empresa = resolverEmpresa(empresaId);
 
         log.info("[PedidoEmissao] Transmitindo | pedidoId={} | dest={} | empresaId={} | itens={}",
                 pedidoId, pedido.getDestCnpjCpf(), empresaId, req.getItens().size());
@@ -135,6 +135,25 @@ public class PedidoEmissaoService {
     // -------------------------------------------------------------------------
     // Montagem do NfeEmissaoRequest a partir do snapshot fiscal do pedido
     // -------------------------------------------------------------------------
+
+    /**
+     * Resolve a empresa emitente para a emissão do pedido.
+     * Fluxo OMS multi-CNPJ: usa cnpjEmitente do pedido para selecionar a empresa correta.
+     * Fluxo de usuário: usa empresaId do contexto de segurança.
+     */
+    private Empresa resolverEmpresaParaEmissao(Pedido pedido) {
+        String jtiOms = EmpresaContextHolder.getJtiAuth();
+        if (jtiOms != null && pedido.getCnpjEmitente() != null) {
+            Empresa e = empresaMapper.buscarPorCnpj(pedido.getCnpjEmitente());
+            if (e == null) {
+                throw BusinessException.cnpjNotAuthorizedForOmsClient(pedido.getCnpjEmitente());
+            }
+            return e;
+        }
+        Long empresaId = EmpresaContextHolder.get() != null
+                ? EmpresaContextHolder.get() : pedido.getEmpresaId();
+        return resolverEmpresa(empresaId);
+    }
 
     private Empresa resolverEmpresa(Long empresaId) {
         if (empresaId == null) return null;
