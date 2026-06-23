@@ -40,10 +40,40 @@ public class OmsCertificadoService {
     }
 
     /**
-     * Carrega o contexto de certificado para a autorização identificada pelo jti.
-     * Verifica revogação a cada chamada — sem cache — para garantir que tokens
-     * revogados sejam recusados imediatamente sem aguardar expiração do JWT.
+     * Carrega o contexto de certificado para a autorização OMS identificada pelo jti e CNPJ emitente.
+     * Usar em todos os fluxos de emissão OMS multi-CNPJ (V028+).
+     * Verifica revogação a cada chamada — sem cache.
      */
+    public CertificadoContexto resolverPorJtiECnpj(String jti, String cnpj) {
+        OmsFiscalAuthorization auth = omsAuthMapper.buscarPorJti(jti);
+        if (auth == null || auth.getRevogadoEm() != null) {
+            log.warn("[OmsCert] Autorização revogada ou inexistente | jti={}", jti);
+            throw BusinessException.authorizationRevoked();
+        }
+
+        OmsCompanyCertificate certRow = omsCertMapper.buscarAtivoPorAuthIdECnpj(auth.getId(), cnpj);
+        if (certRow == null) {
+            log.error("[OmsCert] Certificado não encontrado para auth/CNPJ | authId={} | cnpj={}",
+                    auth.getId(), cnpj);
+            throw BusinessException.certNotFoundForCnpj(cnpj);
+        }
+
+        return carregarContexto(certRow.getEmpresaId(), certRow);
+    }
+
+    /** Retorna true se o CNPJ possui certificado ativo para a autorização OMS identificada pelo jti. */
+    public boolean cnpjAutorizadoParaJti(String jti, String cnpj) {
+        OmsFiscalAuthorization auth = omsAuthMapper.buscarPorJti(jti);
+        if (auth == null || auth.getRevogadoEm() != null) return false;
+        return omsCertMapper.buscarAtivoPorAuthIdECnpj(auth.getId(), cnpj) != null;
+    }
+
+    /**
+     * Carrega o contexto de certificado para a autorização identificada pelo jti.
+     * @deprecated Ambíguo quando o cliente OMS possui múltiplos CNPJs autorizados.
+     *             Usar {@link #resolverPorJtiECnpj(String, String)} nos fluxos de emissão.
+     */
+    @Deprecated
     public CertificadoContexto resolverPorJti(String jti) {
         OmsFiscalAuthorization auth = omsAuthMapper.buscarPorJti(jti);
         if (auth == null || auth.getRevogadoEm() != null) {

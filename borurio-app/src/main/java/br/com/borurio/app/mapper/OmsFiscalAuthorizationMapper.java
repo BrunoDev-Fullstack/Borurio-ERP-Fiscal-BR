@@ -21,14 +21,12 @@ public interface OmsFiscalAuthorizationMapper {
             FROM oms_fiscal_authorization
             """;
 
-    /** Localiza o slot de autorização de uma empresa por integrador. */
+    /** Localiza o slot de autorização por cliente OMS — sem empresa_id (V028: token por cliente OMS). */
     @Select(SELECT_COLUMNS + """
-            WHERE empresa_id    = #{empresaId}
-              AND integrator_id = #{integratorId}
+            WHERE integrator_id = #{integratorId}
               AND codigo_oms    = #{codigoOms}
             """)
-    OmsFiscalAuthorization buscarPorSlot(@Param("empresaId")    Long empresaId,
-                                         @Param("integratorId") Long integratorId,
+    OmsFiscalAuthorization buscarPorSlot(@Param("integratorId") Long integratorId,
                                          @Param("codigoOms")    String codigoOms);
 
     /** Localiza por jti — usado na validação de token e verificação de revogação. */
@@ -37,9 +35,9 @@ public interface OmsFiscalAuthorizationMapper {
 
     @Insert("""
             INSERT INTO oms_fiscal_authorization
-                (empresa_id, integrator_id, codigo_oms, jti, token_expira_em)
+                (empresa_id, integrator_id, codigo_oms, jti, token_expira_em, emitido_em)
             VALUES
-                (#{empresaId}, #{integratorId}, #{codigoOms}, #{jti}, #{tokenExpiraEm})
+                (#{empresaId}, #{integratorId}, #{codigoOms}, #{jti}, #{tokenExpiraEm}, #{emitidoEm})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int inserir(OmsFiscalAuthorization auth);

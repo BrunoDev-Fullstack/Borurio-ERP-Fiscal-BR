@@ -20,6 +20,7 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,6 +29,11 @@ import java.util.regex.Pattern;
 public class OmsFiscalAuthorizationService {
 
     private static final Logger log = LoggerFactory.getLogger(OmsFiscalAuthorizationService.class);
+
+    private static final Set<String> UF_VALIDAS = Set.of(
+            "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA",
+            "MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN",
+            "RS","RO","RR","SC","SP","SE","TO");
 
     private final OmsApiKeyMapper              omsApiKeyMapper;
     private final OmsFiscalAuthorizationMapper omsAuthMapper;
@@ -64,105 +70,175 @@ public class OmsFiscalAuthorizationService {
             throw BusinessException.invalidApiKey();
         }
 
-        // 2. Localizar empresa pré-cadastrada
-        Empresa empresa = empresaMapper.buscarPorCnpj(req.getCnpj());
-        if (empresa == null || Boolean.FALSE.equals(empresa.getAtivo())) {
-            throw BusinessException.companyNotFound(req.getCnpj());
-        }
-
-        // 3. Decodificar e carregar PKCS12
+        // 2. Decodificar e carregar PKCS12
         byte[] pfxBytes = decodificarBase64(req.getCertBase64());
         KeyStore ks = carregarKeyStore(pfxBytes, req.getCertSenha());
 
-        // 4. Extrair certificado X.509
+        // 3. Extrair certificado X.509
         X509Certificate x509 = extrairCertificado(ks);
 
-        // 5. Verificar validade
+        // 4. Verificar validade
         if (x509.getNotAfter().before(new Date())) {
             throw BusinessException.certificateExpired();
         }
 
-        // 6. Validar CNPJ do certificado vs CNPJ enviado
+        // 5. Validar CNPJ do certificado vs CNPJ enviado
         String cnpjCert = extrairCnpjDoCertificado(x509);
         if (!cnpjCert.equals(req.getCnpj())) {
             throw BusinessException.cnpjCertificateMismatch(req.getCnpj(), cnpjCert);
         }
 
-        // 7. Fingerprint SHA-256
+        // 6. Fingerprint SHA-256 + datas
         String thumbprint = sha256HexDeCert(x509);
-
-        // 8. Converter datas
         LocalDateTime notBefore = toLocalDateTime(x509.getNotBefore());
         LocalDateTime notAfter  = toLocalDateTime(x509.getNotAfter());
 
-        // 9. Criptografar PFX e senha
-        byte[] pfxEnc      = encryptor.encryptBytes(pfxBytes);
-        String senhaEnc    = encryptor.encrypt(req.getCertSenha());
+        // 7. Criptografar PFX e senha
+        byte[] pfxEnc   = encryptor.encryptBytes(pfxBytes);
+        String senhaEnc = encryptor.encrypt(req.getCertSenha());
 
-        // 10. Localizar ou criar slot de autorização
+        // 8. Localizar ou criar automaticamente a empresa para este CNPJ
+        Empresa empresa = localizarOuCriarEmpresa(req.getCnpj(), x509);
+
+        // 9. Localizar slot por cliente OMS (sem empresa_id — token é por cliente OMS)
         OmsFiscalAuthorization auth = omsAuthMapper.buscarPorSlot(
-                empresa.getId(), apiKey.getIntegratorId(), req.getCodigoEmpresaOms());
-
-        String jti = UUID.randomUUID().toString();
+                apiKey.getIntegratorId(), req.getCodigoEmpresaOms());
 
         if (auth == null) {
+            // CASO A — primeira autorização para este cliente OMS
             auth = new OmsFiscalAuthorization();
             auth.setEmpresaId(empresa.getId());
             auth.setIntegratorId(apiKey.getIntegratorId());
             auth.setCodigoOms(req.getCodigoEmpresaOms());
-            auth.setJti(jti);
+            auth.setJti(UUID.randomUUID().toString());
             auth.setTokenExpiraEm(notAfter);
+            // emitidoEm truncado a segundos para ser idêntico ao valor armazenado em DB (CURRENT_TIMESTAMP).
+            // Garante que o iat do token gerado aqui seja reproduzível nos casos B/C/D.
+            auth.setEmitidoEm(LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS));
             omsAuthMapper.inserir(auth);
-            log.info("[OmsAuth] Nova autorização criada | empresaId={} | codigoOms={}",
-                    empresa.getId(), req.getCodigoEmpresaOms());
+            inserirCertificado(auth.getId(), empresa.getId(), req.getCnpj(),
+                    thumbprint, pfxEnc, senhaEnc, notBefore, notAfter);
+            log.info("[OmsAuth] Nova autorização criada | codigoOms={} | cnpj={}",
+                    req.getCodigoEmpresaOms(), req.getCnpj());
+
         } else {
-            omsAuthMapper.atualizarToken(auth.getId(), jti, notAfter);
-            auth.setJti(jti);
-            auth.setTokenExpiraEm(notAfter);
-            log.info("[OmsAuth] Autorização atualizada (reautorização) | authId={} | empresaId={}",
-                    auth.getId(), empresa.getId());
+            // Slot existente — identificar caso B, C ou D
+            OmsCompanyCertificate certAtivo = omsCertMapper.buscarAtivoPorAuthIdECnpj(
+                    auth.getId(), req.getCnpj());
+            boolean mesmoCnpj        = certAtivo != null;
+            boolean mesmoThumbprint  = mesmoCnpj && thumbprint.equals(certAtivo.getThumbprint());
+
+            if (mesmoThumbprint) {
+                // CASO B — mesmo CNPJ, mesmo certificado → nenhuma alteração
+                log.info("[OmsAuth] Mesmo certificado reenviado (renovação de token) | authId={} | cnpj={}",
+                        auth.getId(), req.getCnpj());
+
+            } else if (mesmoCnpj) {
+                // CASO C — mesmo CNPJ, certificado novo → atualiza cert deste CNPJ; mantém JTI
+                omsCertMapper.desativarCertsAtivos(auth.getId(), req.getCnpj(), LocalDateTime.now());
+                inserirCertificado(auth.getId(), empresa.getId(), req.getCnpj(),
+                        thumbprint, pfxEnc, senhaEnc, notBefore, notAfter);
+                // Mantém o JTI existente — apenas atualiza tokenExpiraEm para nova validade do cert
+                omsAuthMapper.atualizarToken(auth.getId(), auth.getJti(), notAfter);
+                auth.setTokenExpiraEm(notAfter);
+                log.info("[OmsAuth] Certificado atualizado (mesmo CNPJ, novo cert) | authId={} | cnpj={}",
+                        auth.getId(), req.getCnpj());
+
+            } else {
+                // CASO D — CNPJ novo para cliente OMS existente → adiciona cert; mantém token intacto
+                inserirCertificado(auth.getId(), empresa.getId(), req.getCnpj(),
+                        thumbprint, pfxEnc, senhaEnc, notBefore, notAfter);
+                log.info("[OmsAuth] Novo CNPJ adicionado ao cliente OMS | authId={} | codigoOms={} | cnpj={}",
+                        auth.getId(), req.getCodigoEmpresaOms(), req.getCnpj());
+            }
         }
 
-        // 11. Substituir certificado ativo — apenas se o thumbprint mudou.
-        //     Mesmo cert re-enviado para renovação de token não precisa de nova linha.
-        OmsCompanyCertificate certAtivo = omsCertMapper.buscarAtivoPorAuthId(auth.getId());
-        boolean mesmoThumbprint = certAtivo != null && thumbprint.equals(certAtivo.getThumbprint());
-
-        if (!mesmoThumbprint) {
-            LocalDateTime agora = LocalDateTime.now();
-            omsCertMapper.desativarCertsAtivos(auth.getId(), agora);
-
-            OmsCompanyCertificate cert = new OmsCompanyCertificate();
-            cert.setAuthId(auth.getId());
-            cert.setThumbprint(thumbprint);
-            cert.setCertPfxEnc(pfxEnc);
-            cert.setCertSenhaEnc(senhaEnc);
-            cert.setKeyVersion("v1");
-            cert.setNotBefore(notBefore);
-            cert.setNotAfter(notAfter);
-            cert.setAtivo(true);
-            omsCertMapper.inserir(cert);
-            log.info("[OmsAuth] Certificado substituído | authId={} | thumbprint={}...",
-                    auth.getId(), thumbprint.substring(0, 8));
-        } else {
-            log.info("[OmsAuth] Mesmo certificado reutilizado (renovação de token) | authId={}",
-                    auth.getId());
-        }
-
-        // 12. Gerar token JWT técnico
+        // 10. Gerar (ou regenerar) token usando emitidoEm do DB como iat.
+        //     O emitidoEm (CURRENT_TIMESTAMP, precisão de segundos) é idêntico para todos os casos
+        //     que compartilham o mesmo slot (B/C/D), garantindo token string determinístico.
         String token = jwtUtil.generateOmsToken(
-                req.getCodigoEmpresaOms(), empresa.getId(), jti, notAfter);
+                req.getCodigoEmpresaOms(), auth.getEmpresaId(), auth.getJti(),
+                auth.getTokenExpiraEm(), auth.getEmitidoEm());
 
-        log.info("[OmsAuth] Token OMS emitido | empresaId={} | cnpj={} | notAfter={}",
-                empresa.getId(), empresa.getCnpj(), notAfter);
+        log.info("[OmsAuth] Token OMS emitido | codigoOms={} | cnpj={} | expira={}",
+                req.getCodigoEmpresaOms(), req.getCnpj(), auth.getTokenExpiraEm());
 
+        // empresaId na resposta é sempre o da empresa âncora (primeiro CNPJ autorizado do cliente OMS)
         return new OmsFiscalAuthorizationResponse(
-                token, empresa.getId(), empresa.getCnpj(), empresa.getRazaoSocial(), notAfter);
+                token, auth.getEmpresaId(), empresa.getCnpj(), empresa.getRazaoSocial(), auth.getTokenExpiraEm());
     }
 
     // -------------------------------------------------------------------------
-    // Helpers privados
+    // Empresa — localizar ou criar automaticamente
     // -------------------------------------------------------------------------
+
+    private Empresa localizarOuCriarEmpresa(String cnpj, X509Certificate x509) {
+        Empresa empresa = empresaMapper.buscarPorCnpj(cnpj);
+        if (empresa != null) {
+            if (Boolean.FALSE.equals(empresa.getAtivo())) {
+                throw BusinessException.companyInactive(cnpj);
+            }
+            return empresa;
+        }
+        empresa = new Empresa();
+        empresa.setCnpj(cnpj);
+        empresa.setRazaoSocial(extrairRazaoSocialDoCertificado(x509));
+        empresa.setUf(extrairUfDoCertificado(x509));
+        empresa.setCrt("1");
+        empresa.setSerieNfePadrao("1");
+        empresa.setAtivo(true);
+        empresaMapper.inserir(empresa);
+        log.info("[OmsAuth] Empresa auto-criada | cnpj={} | razaoSocial={}", cnpj, empresa.getRazaoSocial());
+        return empresa;
+    }
+
+    // -------------------------------------------------------------------------
+    // Certificado — inserir
+    // -------------------------------------------------------------------------
+
+    private void inserirCertificado(Long authId, Long empresaId, String cnpj,
+                                     String thumbprint, byte[] pfxEnc, String senhaEnc,
+                                     LocalDateTime notBefore, LocalDateTime notAfter) {
+        OmsCompanyCertificate cert = new OmsCompanyCertificate();
+        cert.setAuthId(authId);
+        cert.setEmpresaId(empresaId);
+        cert.setCnpj(cnpj);
+        cert.setThumbprint(thumbprint);
+        cert.setCertPfxEnc(pfxEnc);
+        cert.setCertSenhaEnc(senhaEnc);
+        cert.setKeyVersion("v1");
+        cert.setNotBefore(notBefore);
+        cert.setNotAfter(notAfter);
+        cert.setAtivo(true);
+        omsCertMapper.inserir(cert);
+    }
+
+    // -------------------------------------------------------------------------
+    // Extração de dados do certificado X.509 (ICP-Brasil)
+    // -------------------------------------------------------------------------
+
+    private String extrairRazaoSocialDoCertificado(X509Certificate cert) {
+        String dn = cert.getSubjectX500Principal().getName();
+        // ICP-Brasil PJ: CN=RAZÃO SOCIAL DA EMPRESA:CNPJ
+        Matcher m = Pattern.compile("(?i)CN=([^,]+)").matcher(dn);
+        if (m.find()) {
+            String cn = m.group(1).trim();
+            int colon = cn.lastIndexOf(':');
+            if (colon > 0) cn = cn.substring(0, colon).trim();
+            return cn.length() > 60 ? cn.substring(0, 60) : cn;
+        }
+        return "EMPRESA OMS";
+    }
+
+    private String extrairUfDoCertificado(X509Certificate cert) {
+        String dn = cert.getSubjectX500Principal().getName();
+        Matcher m = Pattern.compile("(?i)ST=([A-Za-z]{2})").matcher(dn);
+        if (m.find()) {
+            String uf = m.group(1).toUpperCase();
+            if (UF_VALIDAS.contains(uf)) return uf;
+        }
+        return "SP";
+    }
 
     private byte[] decodificarBase64(String base64) {
         try {
@@ -200,14 +276,12 @@ public class OmsFiscalAuthorizationService {
     private String extrairCnpjDoCertificado(X509Certificate cert) {
         String dn = cert.getSubjectX500Principal().getName();
 
-        // Prioridade: campo SERIALNUMBER (OID 2.5.4.5)
         Matcher serial = Pattern.compile("(?i)(?:SERIALNUMBER|OID\\.2\\.5\\.4\\.5)=([^,]+)").matcher(dn);
         if (serial.find()) {
             String val = serial.group(1).replaceAll("\\D", "");
             if (val.length() == 14 && isCnpjValido(val)) return val;
         }
 
-        // Fallback: primeiro trecho de 14 dígitos no DN que passe na validação de CNPJ
         Matcher digits = Pattern.compile("\\d{14}").matcher(dn);
         while (digits.find()) {
             String candidate = digits.group();
