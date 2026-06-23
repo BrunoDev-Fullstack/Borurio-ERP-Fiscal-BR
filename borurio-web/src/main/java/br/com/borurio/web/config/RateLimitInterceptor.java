@@ -68,10 +68,10 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     }
 
     private String resolveIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
+        // Usa o IP real da conexão TCP. X-Forwarded-For foi removido porque pode ser forjado
+        // por qualquer cliente, tornando o rate limit ineficaz. Suporte a proxy confiável
+        // (verificar remoteAddr contra whitelist antes de ler X-Forwarded-For) pode ser
+        // adicionado futuramente se o ambiente exigir um reverse proxy na frente.
         return request.getRemoteAddr();
     }
 }

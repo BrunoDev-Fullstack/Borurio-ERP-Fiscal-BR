@@ -133,11 +133,19 @@ public class JwtUtil {
      * exp     = not_after do certificado A1 (nunca além da validade do cert)
      */
     public String generateOmsToken(String codigoOms, Long empresaId, String jti, LocalDateTime certNotAfter) {
+        return generateOmsToken(codigoOms, empresaId, jti, certNotAfter, null);
+    }
+
+    public String generateOmsToken(String codigoOms, Long empresaId, String jti,
+                                    LocalDateTime certNotAfter, LocalDateTime issuedAt) {
         Date expiry = Date.from(certNotAfter.atZone(ZoneId.systemDefault()).toInstant());
+        Date iat    = issuedAt != null
+                ? Date.from(issuedAt.atZone(ZoneId.systemDefault()).toInstant())
+                : new Date();
         return Jwts.builder()
                 .setSubject(codigoOms)
                 .setId(jti)
-                .setIssuedAt(new Date())
+                .setIssuedAt(iat)
                 .setExpiration(expiry)
                 .claim("eid",  empresaId)
                 .claim("tipo", "OMS")

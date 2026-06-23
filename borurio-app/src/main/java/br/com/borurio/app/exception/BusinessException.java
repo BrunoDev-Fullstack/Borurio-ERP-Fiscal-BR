@@ -102,4 +102,27 @@ public class BusinessException extends RuntimeException {
                 "A autorização fiscal foi revogada. Realize uma nova autorização.",
                 401);
     }
+
+    public static BusinessException companyInactive(String cnpj) {
+        return new BusinessException(
+                "COMPANY_INACTIVE",
+                "Empresa com CNPJ=" + cnpj + " está inativa. Contate o administrador para reativação.",
+                422);
+    }
+
+    public static BusinessException cnpjNotAuthorizedForOmsClient(String cnpj) {
+        return new BusinessException(
+                "CNPJ_NOT_AUTHORIZED",
+                "CNPJ=" + cnpj + " não está autorizado para este cliente OMS. "
+                        + "Realize a autorização via POST /api/integration/fiscal-authorizations.",
+                403);
+    }
+
+    public static BusinessException certNotFoundForCnpj(String cnpj) {
+        return new BusinessException(
+                "CERT_NOT_FOUND_FOR_CNPJ",
+                "Nenhum certificado ativo encontrado para CNPJ=" + cnpj
+                        + ". Verifique se a autorização fiscal foi realizada para este CNPJ.",
+                422);
+    }
 }
