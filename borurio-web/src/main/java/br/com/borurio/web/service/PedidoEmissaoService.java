@@ -66,8 +66,11 @@ public class PedidoEmissaoService {
 
         String criadoPor = resolverCriadoPor();
         Empresa empresa  = resolverEmpresaParaEmissao(pedido);
-        Long empresaId   = empresa != null ? empresa.getId()
-                : (EmpresaContextHolder.get() != null ? EmpresaContextHolder.get() : pedido.getEmpresaId());
+        // empresa é usado apenas para XML e certificado (CNPJ emitente correto no fluxo multi-CNPJ).
+        // Estoque e baixas usam o empresaId do pedido — empresa-âncora onde os produtos foram cadastrados.
+        Long empresaId   = pedido.getEmpresaId() != null ? pedido.getEmpresaId()
+                : (EmpresaContextHolder.get() != null ? EmpresaContextHolder.get()
+                   : (empresa != null ? empresa.getId() : null));
 
         // Reserva ANTES da chamada SEFAZ — lança IllegalStateException (→ 422) se insuficiente
         estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
