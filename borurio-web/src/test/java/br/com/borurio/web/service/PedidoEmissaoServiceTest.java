@@ -19,6 +19,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.List;
 
+import br.com.borurio.app.exception.BusinessException;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -63,6 +65,12 @@ class PedidoEmissaoServiceTest {
         item.setQuantidade(new BigDecimal("2"));
         item.setCsosn("400");
         p.setItens(List.of(item));
+        return p;
+    }
+
+    private Pedido pedidoComStatus(String status) {
+        Pedido p = pedidoRascunho();
+        p.setStatus(status);
         return p;
     }
 
@@ -114,7 +122,9 @@ class PedidoEmissaoServiceTest {
                 .thenReturn(new NfeGeracaoResult(null, "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(rejeitada());
 
-        service.emitir(99L);
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+        assertEquals("SEFAZ_REJECTED", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
 
         verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
         verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
@@ -146,6 +156,63 @@ class PedidoEmissaoServiceTest {
 
         verify(estoqueService).reservarItens(pedido.getItens(), 10L, 99L, "sistema");
         verify(estoqueService).baixaDefinitivaItens(pedido.getItens(), 10L, 99L, "sistema");
+    }
+
+    @Test
+    void emitir_pedidoRejeitado_permiteReemissao() throws Exception {
+        Pedido pedido = pedidoComStatus("REJEITADO");
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any()))
+                .thenReturn(new NfeGeracaoResult("chaveNova", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        NfeGeracaoResult result = service.emitir(99L);
+
+        assertEquals("chaveNova", result.getChaveNfe());
+        verify(pedidoService).atualizarStatus(99L, "AUTORIZADO", "chaveNova");
+    }
+
+    @Test
+    void emitir_pedidoComErro_permiteReemissao() throws Exception {
+        Pedido pedido = pedidoComStatus("ERRO");
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any()))
+                .thenReturn(new NfeGeracaoResult("chaveNova", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        NfeGeracaoResult result = service.emitir(99L);
+
+        assertEquals("chaveNova", result.getChaveNfe());
+    }
+
+    @Test
+    void emitir_pedidoAutorizado_bloqueiaReemissao() {
+        Pedido pedido = pedidoComStatus("AUTORIZADO");
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+        assertEquals("INVALID_ORDER_STATUS", ex.getErrorCode());
+        verifyNoInteractions(nfeGeracaoService);
+    }
+
+    @Test
+    void emitir_pedidoCancelado_bloqueiaReemissao() {
+        Pedido pedido = pedidoComStatus("CANCELADO");
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+
+        assertThrows(BusinessException.class, () -> service.emitir(99L));
+        verifyNoInteractions(nfeGeracaoService);
+    }
+
+    @Test
+    void emitir_pedidoAguardando_bloqueiaReemissao() {
+        Pedido pedido = pedidoComStatus("AGUARDANDO");
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+
+        assertThrows(BusinessException.class, () -> service.emitir(99L));
+        verifyNoInteractions(nfeGeracaoService);
     }
 
     private br.com.borurio.fiscal.dto.NfeSefazRetorno autorizada() {

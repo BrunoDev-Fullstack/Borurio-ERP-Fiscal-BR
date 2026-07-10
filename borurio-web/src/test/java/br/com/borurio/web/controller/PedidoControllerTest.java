@@ -1,5 +1,7 @@
 package br.com.borurio.web.controller;
 
+import br.com.borurio.app.context.EmpresaContextHolder;
+import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.service.EmpresaService;
@@ -13,6 +15,7 @@ import br.com.borurio.web.service.OmsCertificadoService;
 import br.com.borurio.web.service.PedidoEmissaoService;
 import br.com.borurio.web.service.PedidoOperacaoService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -32,6 +35,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -51,6 +56,11 @@ class PedidoControllerTest {
     @MockBean OmsCertificadoService omsCertificadoService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+
+    @AfterEach
+    void limparContexto() {
+        EmpresaContextHolder.clear();
+    }
 
     @Test
     @WithMockUser
@@ -250,6 +260,126 @@ class PedidoControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.externalOrderId").value("ORDER-XLI-2026-001"))
                 .andExpect(jsonPath("$.data.status").value("RASCUNHO"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Endereço do emitente no payload do pedido — completa cadastro incompleto (fluxo OMS)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser
+    void criar_omsComEnderecoEEmpresaIncompleta_completaCadastro() throws Exception {
+        EmpresaContextHolder.setJtiAuth("jti-oms-teste");
+        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", "22418179000134"))
+                .thenReturn(true);
+
+        Empresa empresaIncompleta = new Empresa();
+        empresaIncompleta.setId(8L);
+        empresaIncompleta.setCnpj("22418179000134");
+        when(empresaService.buscarPorCnpj("22418179000134")).thenReturn(empresaIncompleta);
+
+        Pedido pedido = new Pedido();
+        pedido.setId(1L);
+        pedido.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(pedido);
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "cnpjEmitente": "22418179000134",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP",
+                                  "emitLogradouro": "PRATES",
+                                  "emitNumero": "447",
+                                  "emitBairro": "BOM RETIRO",
+                                  "emitCodigoMunicipio": "3550308",
+                                  "emitMunicipio": "São Paulo",
+                                  "emitCep": "01121000"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        verify(empresaService).atualizar(8L, empresaIncompleta);
+        org.junit.jupiter.api.Assertions.assertEquals("PRATES", empresaIncompleta.getLogradouro());
+        org.junit.jupiter.api.Assertions.assertEquals("BOM RETIRO", empresaIncompleta.getBairro());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_omsComEnderecoMasEmpresaJaCompleta_naoAlteraCadastro() throws Exception {
+        EmpresaContextHolder.setJtiAuth("jti-oms-teste");
+        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", "22418179000134"))
+                .thenReturn(true);
+
+        Empresa empresaCompleta = new Empresa();
+        empresaCompleta.setId(1L);
+        empresaCompleta.setCnpj("22418179000134");
+        empresaCompleta.setLogradouro("Rua Já Cadastrada");
+        empresaCompleta.setNumero("100");
+        empresaCompleta.setBairro("Centro");
+        empresaCompleta.setCodigoMunicipio("3550308");
+        empresaCompleta.setMunicipio("São Paulo");
+        empresaCompleta.setCep("01000000");
+        when(empresaService.buscarPorCnpj("22418179000134")).thenReturn(empresaCompleta);
+
+        Pedido pedido = new Pedido();
+        pedido.setId(2L);
+        pedido.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(pedido);
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "cnpjEmitente": "22418179000134",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP",
+                                  "emitLogradouro": "OUTRA RUA",
+                                  "emitNumero": "999"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        verify(empresaService, never()).atualizar(anyLong(), any());
+        org.junit.jupiter.api.Assertions.assertEquals("Rua Já Cadastrada", empresaCompleta.getLogradouro());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_omsSemEnderecoNoPayload_naoAlteraCadastro() throws Exception {
+        EmpresaContextHolder.setJtiAuth("jti-oms-teste");
+        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", "22418179000134"))
+                .thenReturn(true);
+
+        Empresa empresaIncompleta = new Empresa();
+        empresaIncompleta.setId(8L);
+        empresaIncompleta.setCnpj("22418179000134");
+        when(empresaService.buscarPorCnpj("22418179000134")).thenReturn(empresaIncompleta);
+
+        Pedido pedido = new Pedido();
+        pedido.setId(3L);
+        pedido.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(pedido);
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "cnpjEmitente": "22418179000134",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        verify(empresaService, never()).atualizar(anyLong(), any());
     }
 
     // -------------------------------------------------------------------------
