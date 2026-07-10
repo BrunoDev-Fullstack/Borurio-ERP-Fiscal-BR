@@ -4,9 +4,9 @@
 ---
 
 **Documento:** MTF-001  
-**Versão:** 2.6  
+**Versão:** 2.8  
 **Data de emissão:** 11-05-2026  
-**Última atualização:** 22-06-2026  
+**Última atualização:** 10-07-2026  
 **Autor:** Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps  
 **Status:** VALIDADO EM HOMOLOGAÇÃO  
 **Branch de referência:** `fix/sefaz-xml-structure`  
@@ -20,6 +20,8 @@
 > - v2.4 (21-05-2026): 3 bugs corrigidos em `DanfePdfGenerator` — formatação monetária pt_BR nos totais, `DecimalFormat` thread-safe por chamada, label de protocolo condicional; testes borurio-web 66 → 75 (9 novos — estados fiscais, RBAC estoque, UsuarioController)
 > - v2.5 (26-05-2026): Manifestação do Destinatário implementada (210200/210210/210220/210240); cOrgao=91 (AN); validação de cStat na resposta SEFAZ; xml_retorno capturado em erro; seção 12.5 adicionada; contrato de integração v1.3; testes borurio-web 75 → 82 (7 novos — NfeManifestacaoController)
 > - v2.6 (22-06-2026): V028 Multi-CNPJ OMS — `POST /api/integration/fiscal-authorizations`; token por cliente OMS (`codigoEmpresaOms`); múltiplos CNPJs sob o mesmo token; auto-criação de empresa a partir do Subject X.509; token determinístico via `emitidoEm` truncado a segundos; validação `cnpjEmitente` OMS em `POST /pedidos` (fail-fast HTTP 403); `OmsCertificadoService.resolverPorJtiECnpj`; seções 3.1/3.2/9.5/10.6/16 atualizadas; contrato v1.7; 114/114 testes
+> - v2.7 (30-06-2026): fix bug `PRODUCT_NOT_FOUND` no fluxo multi-CNPJ — `PedidoEmissaoService` separou `empresaId` para estoque (empresa-âncora do pedido) de `empresa` para NF-e (empresa fiscal do CNPJ emitente); DA-08 documentado; seção 9.5 atualizada com causa raiz e correção; 126/126 testes
+> - v2.8 (10-07-2026): estoque opcional por empresa (`controleEstoqueAtivo`, commit 936e771); homologação ao vivo com CC — diagnosticado cStat=225 real (cadastro do emitente incompleto, causa 2 nova na seção 13.1) e corrigido; 3 melhorias solicitadas pelo CC implementadas e testadas: (1) reemissão de pedidos `REJEITADO`/`ERRO` no mesmo `pedidoId`; (2) endereço do emitente opcional em `POST /api/app/pedidos` completando o cadastro automaticamente; (3) `errorCode`/`retryable` padronizados, `SEFAZ_REJECTED` não retorna mais HTTP 200; revisão de código (8 agentes + 9 verificações) encontrou e corrigiu 4 bugs: perda de `chaveNfe` em retry, mutação de empresa sem rollback, `retryable=true` incorreto no fallback global e em `SEFAZ_REJECTED`; contrato de integração v1.9; 190/190 testes
 
 ---
 
@@ -111,6 +113,13 @@ O documento destina-se a:
 | Smoke test multi-CNPJ M1–M4/M6 — aprovados em HOM                                                  | ✓ HOM — 22-06-2026                                            |
 | **126/126 testes passando** (borurio-web 93 + fiscal 33; +12 NfeEnvioControllerTest A-03)          | ✓ Código — 22-06-2026                                         |
 | V025–V028 aplicados em HOM (Flyway em v028)                                                        | ✓ HOM — 22-06-2026                                            |
+| Controle de estoque opcional por empresa (`controleEstoqueAtivo`)                                  | ✓ HOM — 10-07-2026                                            |
+| Reemissão de pedidos `REJEITADO`/`ERRO` no mesmo `pedidoId` (`STATUS_EMISSIVEIS`)                  | ✓ Código — 10-07-2026                                         |
+| Endereço do emitente opcional em `POST /api/app/pedidos` — completa cadastro incompleto automaticamente | ✓ Código — 10-07-2026                                    |
+| `NfeGeracaoService.validarEnderecoEmitente()` — bloqueia emissão antes da SEFAZ se endereço incompleto | ✓ Código — 10-07-2026                                     |
+| `errorCode`/`retryable` padronizados — `EMITTER_ADDRESS_INCOMPLETE`, `SEFAZ_REJECTED`, `SEFAZ_TIMEOUT`, `SEFAZ_UNAVAILABLE`, `XML_SCHEMA_INVALID` | ✓ Código — 10-07-2026                    |
+| `POST /emitir` não retorna mais HTTP 200 quando a SEFAZ rejeita a NF-e                             | ✓ Código — 10-07-2026                                         |
+| **190/190 testes passando** (revisão de código com 4 correções: perda de chaveNfe, mutação de empresa sem rollback, retryable incorreto) | ✓ Código — 10-07-2026                       |
 
 ### 1.2 O que está PENDENTE
 
@@ -304,7 +313,7 @@ PedidoController (borurio-web)
     │
     ▼
 PedidoEmissaoService (borurio-web)
-    │  ├─ pedidoService.buscarComItens(id)      → valida status=RASCUNHO
+    │  ├─ pedidoService.buscarComItens(id)      → valida status ∈ {RASCUNHO, REJEITADO, ERRO} (v1.9)
     │  ├─ montarRequest(pedido)                  → NfeEmissaoRequest com snapshot fiscal
     │  ├─ resolverEmpresa(empresaId)              → Empresa do contexto JWT
     │  │
@@ -312,6 +321,7 @@ PedidoEmissaoService (borurio-web)
     │  │
     ▼  ▼
 NfeGeracaoService (borurio-web)
+    │  ├─ validarEnderecoEmitente(empresa)        → (v1.9) lança EMITTER_ADDRESS_INCOMPLETE ANTES de montar XML, se endereço incompleto
     │  ├─ montarIde / montarEmit / montarDest / montarDet / montarTotal
     │  ├─ nfeXmlBuilder.build(nfe)               → XML sem assinatura
     │  ├─ sequenciaService.proximoNumero()        → número atômico por série/CNPJ
@@ -322,14 +332,14 @@ NfeGeracaoService (borurio-web)
     ▼  ▼
 NfeOrquestradorService (borurio-fiscal)
     │  ├─ [1] converterParaDocument()             → parse XML com namespace-aware
-    │  ├─ [2] xsdValidator.validate()             → contra xsd/custom/nfe_v4.00_consolidado.xsd
+    │  ├─ [2] xsdValidator.validate()             → contra xsd/custom/nfe_v4.00_consolidado.xsd — lança XmlSchemaValidationException (v1.9)
     │  ├─ [3] assinaturaXmlService.assinar()      → XMLDSIG RSA-SHA256 + C14N
     │  └─ [4] nfeTransmitService.transmitirXml()  → SOAP HTTPS → SEFAZ
     │
     ▼
 NfeTransmitServiceImpl (borurio-fiscal)
     │  ├─ criarEnvelopeEnviNFe()                  → lote com 1 NF-e
-    │  ├─ enviarSoap(url, envelope, sslContext)    → HTTPS POST
+    │  ├─ enviarSoap(url, envelope, sslContext)    → HTTPS POST (retry via SefazRetryConfig/resilience4j)
     │  └─ salvarLogSeguro(nfeLog)                  → nfe_log com usuario real
     │
     ▼
@@ -340,12 +350,13 @@ NfeGeracaoService (retorno)
     │
     ▼
 PedidoEmissaoService (pós-emissão)
-    │  ├─ resolverStatus(soapRetorno)              → AUTORIZADO / REJEITADO / AGUARDANDO
-    │  ├─ pedidoService.atualizarStatus()          → pedido.status + chave_nfe
-    │  └─ baixarEstoque()                          → somente se AUTORIZADO (cStat=100)
+    │  ├─ resolverStatus(retorno)                  → AUTORIZADO / REJEITADO / AGUARDANDO
+    │  ├─ pedidoService.atualizarStatus()          → pedido.status + chave_nfe (preserva chaveNfe existente se a nova tentativa falhar, v1.9)
+    │  ├─ baixarEstoque()                          → somente se AUTORIZADO (cStat=100)
+    │  └─ (v1.9) se REJEITADO: lança BusinessException.sefazRejected(cStat, xMotivo) — HTTP 422, não retorna 200
 ```
 
-Se uma exceção for lançada durante `nfeGeracaoService.gerar()`, o serviço executa `atualizarStatus(id, "ERRO", null)` antes de relançar — o pedido fica em `ERRO` e o endpoint retorna HTTP 500.
+Se uma exceção for lançada durante `nfeGeracaoService.gerar()`, o serviço chama `traduzirFalhaTransmissao()` (v1.9) pra classificar a causa antes de relançar: `XmlSchemaValidationException` → `XML_SCHEMA_INVALID` (422); `SocketTimeoutException` → `SEFAZ_TIMEOUT` (503, retryable); `ConnectException`/`UnknownHostException` → `SEFAZ_UNAVAILABLE` (503, retryable); qualquer outra exceção não classificada → HTTP 500 genérico (retryable=false). Em todos os casos o pedido fica em `ERRO`, preservando a `chaveNfe` que já existia (se houver).
 
 ### 4.2 Status semântico do pedido
 
@@ -354,9 +365,11 @@ Se uma exceção for lançada durante `nfeGeracaoService.gerar()`, o serviço ex
 | `RASCUNHO`   | Pedido criado, ainda não emitido                                     | Não                |
 | `AUTORIZADO` | `cStat = 100` da SEFAZ                                               | Sim                |
 | `AGUARDANDO` | Lote aceito (`cStat = 104`) sem infProt; ou falha ao parsear retorno | Não                |
-| `REJEITADO`  | `cStat >= 200`                                                       | Não                |
-| `ERRO`       | Exceção durante a transmissão — HTTP 500 retornado ao cliente        | Não                |
+| `REJEITADO`  | `cStat >= 200` — HTTP 422 `SEFAZ_REJECTED` (v1.9, não mais HTTP 200) | Não — reserva desfeita |
+| `ERRO`       | Exceção durante a transmissão — HTTP 422/500/503 conforme classificação (v1.9) | Não — reserva desfeita |
 | `CANCELADO`  | Evento de cancelamento autorizado                                    | N/A                |
+
+> **v1.9:** `REJEITADO` e `ERRO` deixaram de ser terminais — `PedidoEmissaoService.STATUS_EMISSIVEIS = {RASCUNHO, REJEITADO, ERRO}` permite chamar `/emitir` de novo no mesmo `pedidoId`. Cada nova tentativa gera `nNF`/`chaveNfe` novos via `NfeSequenciaService`, sem risco de duplicidade na SEFAZ.
 
 ### 4.3 Snapshot fiscal imutável
 
@@ -691,6 +704,19 @@ PedidoEmissaoService.emitir()
     │  └─ OmsCertificadoService.resolverPorJtiECnpj(jti, cnpjEmitente)
               └─ buscarAtivoPorAuthIdECnpj(authId, cnpjEmitente) → CertificadoContexto
 ```
+
+#### Separação de responsabilidades: empresa fiscal vs. empresa do catálogo (DA-08)
+
+O fluxo multi-CNPJ introduz dois conceitos de "empresa" com responsabilidades distintas que **não devem ser confundidos**:
+
+| Conceito | Fonte | Usado para |
+|---|---|---|
+| **Empresa fiscal do emitente** | `empresaMapper.buscarPorCnpj(cnpjEmitente)` | XML NF-e (`<emit>`), certificado de assinatura |
+| **Empresa-âncora do pedido** | `pedido.getEmpresaId()` (claim `eid` do token) | Estoque, reserva, baixa, busca de produto |
+
+Os produtos são cadastrados com o token OMS, cujo `eid` aponta para a empresa-âncora (primeiro CNPJ autorizado do cliente OMS). Por isso, todas as operações de catálogo e estoque usam `pedido.getEmpresaId()` — e não o id da empresa fiscal resolvida pelo CNPJ emitente.
+
+> **Bug corrigido em 30-06-2026 (commit `117a447`):** `PedidoEmissaoService.emitir()` anteriormente resolvia `empresaId = empresa.getId()` onde `empresa` era obtida via `buscarPorCnpj(cnpjEmitente)`. Para o segundo CNPJ (empresa fiscal `id=2`), isso fazia com que `estoqueService.reservarItens()` buscasse o produto com `empresa_id=2` — mas os produtos foram cadastrados com `empresa_id=1` (empresa-âncora). Resultado: `PRODUCT_NOT_FOUND`. A correção: `empresaId = pedido.getEmpresaId()` como valor primário para operações de estoque, com `empresa` (fiscal) usado exclusivamente para geração do XML e seleção do certificado.
 
 ### 9.4 Seed e backfill no startup
 
@@ -1055,7 +1081,9 @@ O endpoint AN HOM (`hom.nfe.fazenda.gov.br`) retorna HTTP 403 para requests de I
 
 ### 13.1 cStat=225 — "Rejeição: Falha no Schema XML do lote de NFe"
 
-**Comportamento observado:**
+> **Correção v1.9 (10-07-2026):** esta seção descrevia cStat=225 como exclusivamente uma limitação de ambiente. Uma segunda causa raiz, distinta e real, foi identificada em homologação com um cliente OMS no mesmo dia — ver "Causa 2" abaixo. **`xMotivo` é sempre a fonte confiável do motivo** — não assumir automaticamente que é limitação de ambiente sem inspecionar `data.xMotivo`/`data.cStat` (expostos desde v1.9 via `errorCode: SEFAZ_REJECTED`, ver contrato de integração seção 8.2a).
+
+**Causa 1 — divergência de processador SEFAZ SP (diagnóstico original, 08-05-2026):**
 
 ```
 retEnviNFe.cStat   = 104   (lote aceito pelo processador PL009)
@@ -1065,15 +1093,17 @@ verAplic (lote)    = SP_NFE_PL009_V4
 verAplic (infProt) = SP_NFE_PL_008i2
 ```
 
-**Diagnóstico:**
+A SEFAZ SP usa dois processadores distintos: o `PL009` valida o lote, e o `PL_008i2` (versão mais antiga) valida cada NF-e individualmente. A hipótese mais provável é que o `PL_008i2` use internamente o schema `xmldsig-core-schema_v1.01.xsd` com `fixed="rsa-sha1"`, enquanto o código usa RSA-SHA256 (obrigatório pela NT 2019.001). O xmldsig foi corrigido para W3C puro em 08-05-2026, mas o `verAplic PL_008i2` continua aparecendo esporadicamente em HOM-SP.
 
-A SEFAZ SP usa dois processadores distintos: o `PL009` valida o lote, e o `PL_008i2` (versão mais antiga) valida cada NF-e individualmente. A hipótese mais provável é que o `PL_008i2` use internamente o schema `xmldsig-core-schema_v1.01.xsd` com `fixed="rsa-sha1"`, enquanto o código usa RSA-SHA256 (obrigatório pela NT 2019.001).
+**Causa 2 — cadastro do emitente incompleto (achado em homologação, 10-07-2026):**
 
-**Status de investigação:** ENCERRADA. Trata-se de limitação do ambiente HOM da SEFAZ SP. Não há ação corretiva possível no código sem violar a NT 2019.001.
+Mesmo `xMotivo` ("Rejeição: Falha no Schema XML do lote de NFe") e mesmo `cStat=225`, mas causa completamente diferente: a empresa emitente (auto-criada via autorização OMS, que só recebe CNPJ/razão social/UF do certificado A1 — ver seção sobre multi-CNPJ) estava sem endereço (`logradouro`/`numero`/`bairro`/`codigoMunicipio`/`municipio`/`cep` ausentes), gerando um `enderEmit` incompleto no XML. Confirmado comparando o XML de envio real: o bloco `enderDest` (destinatário) estava completo, mas o `enderEmit` (emitente) só tinha `UF`/`cPais`/`xPais`.
 
-**Impacto em HOM:** todas as NF-e transmitidas em HOM-SP retornam cStat=225. O pedido fica com status `"AGUARDANDO"` (lote aceito com cStat=104). Para validar o fluxo técnico, inspecionar `data.soapRetorno` (retorno da SEFAZ) e verificar que a chave de acesso foi gerada (44 dígitos).
+**Correção:** endereço completado via `PUT /api/app/empresas/{id}` (ou automaticamente desde v1.9, via campos `emit*` em `POST /api/app/pedidos` — ver seção 4). Além disso, `NfeGeracaoService.validarEnderecoEmitente()` (v1.9) agora intercepta esse caso ANTES de montar o XML e chamar a SEFAZ, retornando `EMITTER_ADDRESS_INCOMPLETE` (422) em vez de deixar a SEFAZ rejeitar por schema.
 
-**Impacto em PRD:** nenhum. Não afeta produção e não afeta outros estados da federação.
+**Status de investigação:** Causa 1 permanece como limitação de ambiente conhecida (sem ação corretiva possível sem violar a NT 2019.001). Causa 2 foi um bug de dado real, já corrigido — não deve mais ocorrer para empresas com cadastro completo, e agora é bloqueado preventivamente pelo `EMITTER_ADDRESS_INCOMPLETE`.
+
+**Impacto em HOM/PRD (correção v1.9):** desde a v1.9, qualquer `cStat≥200` (incluindo 225) resulta em `REJEITADO` e `POST /emitir` retorna HTTP 422 `SEFAZ_REJECTED` com `data.cStat`/`data.xMotivo` — **não mais HTTP 200 com pedido em `AGUARDANDO`** (a afirmação anterior desta seção, de que o pedido ficava em `AGUARDANDO`, estava incorreta: cStat≥200 sempre resultou em `REJEITADO`, nunca em `AGUARDANDO`, mesmo antes da v1.9). Para validar o fluxo técnico, inspecionar `data.cStat`/`data.xMotivo` (quando `SEFAZ_REJECTED`) ou `data.soapRetorno` (quando HTTP 200) e verificar se a chave de acesso foi gerada (44 dígitos).
 
 ### 13.2 Invalidação de cache de certificado
 
@@ -1130,7 +1160,7 @@ O cache `EmpresaCertificadoService` é invalidado automaticamente pelo `EmpresaC
 □ 6. Pedido criado com destCnpjCpf/destRazaoSocial válidos
 □ 7. POST /{id}/emitir → HTTP 200, data.soapRetorno não vazio
 □ 8. Verificar chaveNfe: 44 dígitos (confirma que SEFAZ aceitou o lote)
-□ 9. Em HOM-SP: cStat=225 no soapRetorno é esperado — não é erro do sistema
+□ 9. Em HOM-SP: cStat=225 pode ocorrer — verificar `xMotivo` antes de assumir limitação de ambiente (v1.9: retorna HTTP 422 `SEFAZ_REJECTED`, não mais HTTP 200)
 □ 10. Verificar nfe_documento no banco: c_stat, x_motivo, n_prot
 □ 11. Verificar nfe_log: empresa_id, usuario preenchidos
 ```
@@ -1237,6 +1267,18 @@ Verificações de segurança:
 
 ---
 
+### DA-08: Separação de empresaId para estoque vs. empresa para NF-e no fluxo multi-CNPJ
+
+**Decisão:** em `PedidoEmissaoService.emitir()`, o `empresaId` usado para operações de estoque é derivado de `pedido.getEmpresaId()` (empresa-âncora registrada no pedido no momento da criação), não de `empresa.getId()` onde `empresa` é resolvida a partir do `cnpjEmitente`.
+
+**Motivação:** no modelo multi-CNPJ, o catálogo de produtos pertence ao cliente OMS como um todo — não a cada CNPJ individualmente. Os produtos são cadastrados via batch com o token OMS cujo `eid` aponta para a empresa-âncora. Se o estoque fosse operado pela empresa fiscal do CNPJ emitente (que pode ter `id` diferente da âncora), a busca `buscarPorIdEEmpresa(produtoId, empresaFiscal.getId())` retornaria `null` porque o produto existe sob `empresa_id = âncora.getId()`.
+
+**Consequência:** a variável `empresa` em `PedidoEmissaoService` tem duas responsabilidades distintas: (1) dados do emitente no XML NF-e e (2) seleção do certificado OMS por CNPJ — ambas corretas pela empresa fiscal. Apenas o `empresaId` para estoque é desacoplado e fixado na empresa-âncora.
+
+**Implementado:** commit `117a447` em 30-06-2026 — 126/126 testes passando.
+
+---
+
 ## 16. ROADMAP ATÉ PRODUÇÃO
 
 ### Fase 10 — Documentação e Swagger ✓ CONCLUÍDA (12-05-2026)
@@ -1287,7 +1329,7 @@ Verificações de segurança:
 
 ---
 
-*Documento MTF-001 — versão 2.6 — Borurio ERP Fiscal BR*  
+*Documento MTF-001 — versão 2.8 — Borurio ERP Fiscal BR*  
 *Gerado com base no estado validado em HOM em 11-05-2026*  
-*Última atualização: 22-06-2026 (V028 multi-CNPJ OMS; hardening A-03/A-04; 126/126 testes; seções 3.1/3.2/9.5/10.6/11.3/16 atualizadas)*  
+*Última atualização: 10-07-2026 (estoque opcional por empresa; reemissão REJEITADO/ERRO; endereço do emitente via pedido; errorCode/retryable padronizados; seção 13.1 corrigida com causa 2 do cStat=225; 190/190 testes)*  
 *Próxima revisão prevista: após deploy PRD (Fase 11)*

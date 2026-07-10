@@ -2,9 +2,9 @@
 
 | Atributo             | Valor                                                    |
 |----------------------|----------------------------------------------------------|
-| Versão               | 1.2                                                      |
-| Data                 | 22-06-2026                                               |
-| Estado do backend    | PRONTO — HOM UP, 126/126 testes, V028 multi-CNPJ ativo   |
+| Versão               | 1.4                                                      |
+| Data                 | 10-07-2026                                               |
+| Estado do backend    | PRONTO — HOM UP, 190/190 testes, V028 multi-CNPJ ativo, estoque opcional + reemissão + endereço emitente + errorCode/retryable (v1.9) |
 | Responsável Bruno    | Operações + Infraestrutura                               |
 | Responsável time CN  | Integração OMS                                           |
 
@@ -21,23 +21,27 @@ Execute os blocos em ordem. Cada bloco tem um dono (**Bruno** ou **Time chinês*
 **Critério:** branch `fix/sefaz-xml-structure` com todo o trabalho das Fases 12-A, 12-B e V028 comitado
 
 - [x] Commit da Fase 12-B — DANFE — concluído (histórico git)
-- [ ] Commits V028 — Multi-CNPJ OMS pendentes
+- [x] Commits V028 — Multi-CNPJ OMS — concluídos (23-06-2026)
   - migration `V028__oms_multiempresa.sql`
   - entidades e mappers (`OmsCompanyCertificate`, `OmsFiscalAuthorizationMapper`, etc.)
   - serviços (`OmsFiscalAuthorizationService`, `OmsCertificadoService`, `JwtUtil`)
   - controller (`PedidoController` — validação `cnpjEmitente` OMS)
   - testes (126/126 PASS)
   - contratos v1.7 (`INTEGRATION_CONTRACT_PT-BR.md`, `INTEGRATION_CONTRACT_EN.md`)
+- [x] Fix DA-08 — PRODUCT_NOT_FOUND multi-CNPJ — concluído (30-06-2026, commit 117a447)
+  - `PedidoEmissaoService`: empresaId para estoque usa `pedido.getEmpresaId()` (âncora)
+  - MTF-001 PT-BR e EN atualizados para v2.7
 
-> **Ponto de verificação**: `git log --oneline -5` mostra commits V028 e hardening commitados e suite 126/126 PASS.
+> **Ponto de verificação**: `git log --oneline -5` mostra commits V028, hardening e fix DA-08 — suite 126/126 PASS.
 
 ---
 
 ## BLOCO 1 — Acesso externo ao HOM
 **Dono:** Bruno / Operações  
-**Critério:** Time chinês consegue acessar `GET https://hom-api.borurio.com/api/test/ping` e recebe `"status": "UP"`
+**Critério:** Time chinês consegue acessar `GET {tunnel-url}/api/test/ping` e recebe `"status": "UP"`
 
-**URL confirmada:** `https://hom-api.borurio.com` (Cloudflare Tunnel — HTTPS, TLS 1.3)  
+> **Nota (v1.9 — divergência da prática atual):** este bloco descreve o setup de um túnel nomeado permanente (`hom-api.borurio.com`, DNS fixo). **Na prática, cada sessão de teste com o CC usa um Cloudflare Quick Tunnel efêmero** (`cloudflared tunnel --url http://localhost:8081`), que gera uma URL `*.trycloudflare.com` nova a cada execução — sem DNS fixo, sem persistência como serviço Windows. A URL ativa é informada ao CC manualmente no início de cada sessão (ver `FAQ_SMOKE_TEST_OMS.md` Q7). O setup de túnel nomeado abaixo permanece como opção futura, não implementada — não assumir que `https://hom-api.borurio.com` está no ar sem confirmar antes.
+
 **PRD reservado:** `https://api.borurio.com` (não configurar agora)
 
 - [x] Mecanismo definido: Cloudflare Tunnel (`cloudflared`)
@@ -122,6 +126,8 @@ Execute os blocos em ordem. Cada bloco tem um dono (**Bruno** ou **Time chinês*
 - [ ] Bloco 6 — Consulta de situação (confirmar máquina de estados)
 - [ ] Bloco 8 — Verificações de segurança (401 sem token, X-Api-Key inválida → 401)
 - [ ] Bloco 9 — Bloqueadores PRD (identificados; responsabilidade Bruno/Operações)
+- [ ] **(v1.9)** Bloco 4/5 — Endereço do emitente incompleto → `EMITTER_ADDRESS_INCOMPLETE`; completar via `emit*` e reemitir
+- [ ] **(v1.9)** Bloco 5 — Reemissão de pedido `REJEITADO`/`ERRO` no mesmo `pedidoId` (smoke test R1–R5 do contrato, seção 9.1c)
 
 **Extras recomendados (não bloqueantes):**
 - [ ] Time chinês testa `GET /api/fiscal/nfe/{chave}/danfe` — confirma recebimento do PDF
@@ -142,7 +148,7 @@ Referência: `INTEGRATION_CONTRACT_EN.md` — sequência obrigatória:
 produto cadastrado → pedido criado → POST /emitir → GET /situacao (poll)
 ```
 
-- [ ] Mapear campos da OMS para payloads do Borurio (ver seções 4, 5, 6 do contrato EN v1.7)
+- [ ] Mapear campos da OMS para payloads do Borurio (ver seções 4, 5, 6 do contrato EN v1.9)
 - [ ] **Implementar fluxo multi-CNPJ (V028):**
   - Armazenar a `X-Api-Key` de forma segura (não expor em logs ou repositório)
   - Chamar `POST /api/integration/fiscal-authorizations` com o certificado A1 de **cada** CNPJ emitente
@@ -150,11 +156,14 @@ produto cadastrado → pedido criado → POST /emitir → GET /situacao (poll)
   - Incluir `cnpjEmitente` (14 dígitos) em **cada** `POST /api/app/pedidos`
   - O token expira na data do certificado A1 (`tokenExpiraEm`) — implementar reautorização antes do vencimento
 - [ ] Implementar polling de `GET /situacao` pós-emissão
-- [ ] Tratar máquina de estados: `RASCUNHO → AGUARDANDO → AUTORIZADO / REJEITADO / ERRO`
+- [ ] Tratar máquina de estados: `RASCUNHO → AGUARDANDO → AUTORIZADO / REJEITADO / ERRO` — **(v1.9)** `REJEITADO`/`ERRO` não são mais terminais: chamar `/emitir` de novo no mesmo `pedidoId` após corrigir a causa, sem criar pedido novo
 - [ ] Garantir que `empresa_id` **nunca** é enviado no body (é extraído do JWT automaticamente)
 - [ ] Tratar HTTP 403 `CNPJ_NOT_AUTHORIZED` na criação do pedido — indica que o CNPJ não foi autorizado via `/fiscal-authorizations`
 - [ ] Tratar comportamento de estoque: verificar `GET /api/app/produtos/{id}/estoque` antes de emitir se necessário
 - [ ] Tratar HTTP 422 de estoque insuficiente (pedido continua em `RASCUNHO` — não tentar reemitir sem ajustar qtd)
+- [ ] **(v1.9)** Usar o campo `retryable` de toda resposta de erro pra decidir entre reenvio automático (`true`) e correção manual antes de reenviar (`false`) — não inferir pelo texto de `message`
+- [ ] **(v1.9)** Tratar `errorCode: EMITTER_ADDRESS_INCOMPLETE` — enviar campos `emit*` em `POST /api/app/pedidos` pra completar o cadastro da empresa emitente
+- [ ] **(v1.9)** Tratar `errorCode: SEFAZ_REJECTED` — `/emitir` não retorna mais HTTP 200 quando a SEFAZ rejeita; usar `data.cStat`/`data.xMotivo`
 
 > **Ponto de verificação**: OMS emite NF-e em HOM via integração automática (sem chamada manual do Postman).
 

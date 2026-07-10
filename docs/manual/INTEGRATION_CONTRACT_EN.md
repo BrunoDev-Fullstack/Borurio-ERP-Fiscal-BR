@@ -4,9 +4,9 @@
 
 | Attribute             | Value                                   |
 |-----------------------|-----------------------------------------|
-| Version               | 1.7                                     |
+| Version               | 1.9                                     |
 | Status                | **Approved for integration**            |
-| Validation date       | 2026-06-22                              |
+| Validation date       | 2026-07-10                              |
 | Reference environment | HOM — `https://hom-api.borurio.com`     |
 | Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validated against     | Source code + HOM tests                 |
@@ -261,15 +261,17 @@ Step 7 ── POST /api/app/pedidos/{pedidoId}/cce
 RASCUNHO ────────────────►│   cStat=100  → AUTORIZADO   │
                           │   cStat=104  → AGUARDANDO   │
                           │   cStat≥200  → REJEITADO    │
-                          │   exception  → ERRO (500)   │
+                          │   exception  → ERRO          │
                           └─────────────────────────────┘
 
 AUTORIZADO ──► POST /cancelar ──► CANCELADO   (immutable)
 AUTORIZADO ──► POST /cce      ──► AUTORIZADO  (status unchanged)
 AGUARDANDO ──► GET  /situacao ──► (check current cStat)
-REJEITADO  ──► (create a new corrected order)
-ERRO       ──► (check logs, evaluate manual retry)
+REJEITADO  ──► POST /emitir   ──► retry on the SAME order (no new order needed)
+ERRO       ──► POST /emitir   ──► retry on the SAME order (no new order needed)
 ```
+
+> `[CONTRACT]` Since v1.9, `REJEITADO` and `ERRO` are **no longer terminal states**. `POST /emitir` can be called again on the same `pedidoId` — no need to create a new order. Each new attempt generates a fresh NF-e number (`nNF`) and `chaveNfe`, with no duplicate-submission risk to SEFAZ. Only `AUTORIZADO` and `CANCELADO` remain terminal.
 
 > `[OPERATIONAL]` The `cStat` values in the diagram above refer to the **individual NF-e response** (`infProt/cStat`) returned inside the SOAP envelope — not the batch-level code (`retEnviNFe/cStat`). In HOM-SP specifically, the batch is accepted with `cStat=104` (AGUARDANDO) even though the individual NF-e entry inside the same response shows `cStat=225`. The system reads the batch result first: `cStat=104 → AGUARDANDO`. Therefore **do not expect `REJEITADO` when you see `cStat=225` in HOM** — the order will be `AGUARDANDO`. See section 9.3 for the full HOM-SP behavior.
 
@@ -572,6 +574,14 @@ Content-Type: application/json
 | `naturezaOperacao`    | String | Optional · Server-side default: `"VENDA DE MERCADORIA"`      |
 | `cnpjEmitente`        | String | **Required for OMS multi-CNPJ** · 14 numeric digits · CNPJ that must sign and issue the NF-e · If omitted in an OMS flow, the system uses the CNPJ of the first authorized certificate for that client |
 | `externalOrderId`     | String | Recommended · Max 100 chars · Unique per company · Enables idempotent retry |
+| `emitLogradouro`      | String | Optional · Emitter address (see note below) |
+| `emitNumero`          | String | Optional |
+| `emitBairro`          | String | Optional |
+| `emitCodigoMunicipio` | String | Optional · 7-digit IBGE code |
+| `emitMunicipio`       | String | Optional |
+| `emitCep`             | String | Optional |
+
+> `[CONTRACT]` **Emitter address (v1.9).** When a company is first authorized (`POST /api/integration/fiscal-authorizations`), it is auto-created with only CNPJ, razão social and UF — data extracted from the A1 certificate, which carries no address. If the emitter company's registration is missing address data, `POST /emitir` returns `EMITTER_ADDRESS_INCOMPLETE` without ever calling SEFAZ (see section 8.2a). To fix this, send the 6 `emit*` fields above in `POST /api/app/pedidos` — the system automatically fills in **only the missing fields** on the company record (never overwrites an address that's already set). No need to resend on every order — once complete, the record stays complete.
 
 > `[CONTRACT]` **Idempotency:** If `externalOrderId` is provided and an order already exists for the same company with that identifier, the system returns the existing order unchanged — no duplicate is created. This protects against duplicate NF-e issuance caused by OMS timeout or network retry. If omitted, each call always creates a new order.
 
@@ -674,14 +684,14 @@ Content-Type: application/json
 
 > `[CONTRACT]` No request body. The fiscal engine constructs the NF-e 4.00 XML internally from the items' fiscal snapshot.
 
-> `[CONTRACT]` Precondition: the order must be in `RASCUNHO` state. Any other state returns HTTP 422.
+> `[CONTRACT]` Precondition (v1.9): the order must be in `RASCUNHO`, `REJEITADO`, or `ERRO`. Any other state (`AUTORIZADO`, `AGUARDANDO`, `CANCELADO`) returns HTTP 422 with `errorCode: INVALID_ORDER_STATUS`. Calling `/emitir` on a `REJEITADO` or `ERRO` order **reuses the same order** — do not create a new order to retry.
 
 ```
 POST /api/app/pedidos/{pedidoId}/emitir
 Authorization: Bearer {token}
 ```
 
-**Response — HTTP 200 (transmission processed):**
+**Response — HTTP 200 (SEFAZ authorized or still processing):**
 ```json
 {
   "code": 200,
@@ -693,21 +703,41 @@ Authorization: Bearer {token}
 }
 ```
 
-> `[CONTRACT]` HTTP 200 indicates that the SEFAZ call was processed — **it does not mean the NF-e was authorized.** The actual status is in the order's `status` field (check via `GET /api/app/pedidos/{id}` or `/situacao`).
+> `[CONTRACT]` Since v1.9, HTTP 200 only occurs when the NF-e was **authorized** (`AUTORIZADO`) or is **pending** (`AGUARDANDO`). A SEFAZ rejection does **not** return HTTP 200 anymore — see `SEFAZ_REJECTED` below. The real status can still be confirmed via `GET /api/app/pedidos/{id}` or `/situacao`.
 
 > `[CONTRACT]` The `data.chaveNfe` field will be an empty string `""` (not `null`) when SEFAZ does not return an access key.
 
-**Response — HTTP 422 (precondition violated):**
+**Response — HTTP 422 (state precondition violated):**
 ```json
-{ "code": 422, "message": "Pedido não está em RASCUNHO. Status atual: AUTORIZADO", "data": null }
+{ "code": 422, "message": "Pedido não pode ser emitido no status atual: AUTORIZADO. Permitido apenas para RASCUNHO, REJEITADO ou ERRO.", "data": null, "errorCode": "INVALID_ORDER_STATUS", "retryable": false }
 ```
 
-**Response — HTTP 500 (transmission failure):**
+**Response — HTTP 422 (SEFAZ rejected the NF-e):**
 ```json
-{ "code": 500, "message": "Erro interno do servidor", "data": null }
+{
+  "code": 422,
+  "message": "NF-e rejeitada pela SEFAZ: Rejeição: Falha no Schema XML do lote de NFe",
+  "data": { "cStat": 225, "xMotivo": "Rejeição: Falha no Schema XML do lote de NFe" },
+  "errorCode": "SEFAZ_REJECTED",
+  "retryable": false
+}
 ```
 
-> `[OPERATIONAL]` HTTP 500 on `/emitir` means the order was automatically moved to the `"ERRO"` state. Check the order status via `GET /api/app/pedidos/{id}` before any retry attempt.
+> `[CONTRACT]` `SEFAZ_REJECTED` exposes the real `cStat`/`xMotivo` in `data` — no need to parse the raw `soapRetorno` to find the reason. `retryable: false` because the cause is usually bad data (NCM, CFOP, CSOSN, address) that will repeat on an unmodified retry. Fix the cause and call `/emitir` again on the same `pedidoId`.
+
+**Response — HTTP 422 (emitter registration incomplete — SEFAZ is never called):**
+```json
+{ "code": 422, "message": "Cadastro do emitente incompleto.", "data": null, "errorCode": "EMITTER_ADDRESS_INCOMPLETE", "retryable": false }
+```
+
+**Response — HTTP 503 (network failure calling SEFAZ):**
+```json
+{ "code": 503, "message": "SEFAZ temporariamente indisponível.", "data": null, "errorCode": "SEFAZ_UNAVAILABLE", "retryable": true }
+```
+
+> `[CONTRACT]` `SEFAZ_TIMEOUT`/`SEFAZ_UNAVAILABLE` are the only `/emitir` failures with `retryable: true` — retrying unchanged is safe in these cases.
+
+> `[OPERATIONAL]` An unexpected (unclassified) exception returns HTTP 500 with `retryable: false` and no `errorCode`. Check the order's status via `GET /api/app/pedidos/{id}` before deciding whether to retry.
 
 ---
 
@@ -933,13 +963,13 @@ Content-Type: application/json
 | `RASCUNHO`   | Order created, not yet transmitted      | `/emitir`                           |
 | `AUTORIZADO` | NF-e approved by SEFAZ (cStat=100)      | `/situacao`, `/cancelar`, `/cce`    |
 | `AGUARDANDO` | Transmitted; SEFAZ confirmation pending | `/situacao`                         |
-| `REJEITADO`  | SEFAZ rejected (cStat ≥ 200)            | None — create a new corrected order |
+| `REJEITADO`  | SEFAZ rejected (cStat ≥ 200)            | `/emitir` (retry on the same order, v1.9) |
 | `CANCELADO`  | NF-e cancelled with protocol            | None — immutable                    |
-| `ERRO`       | Technical failure during transmission   | None via API — check logs           |
+| `ERRO`       | Technical failure during transmission   | `/emitir` (retry on the same order, v1.9) |
 
 > `[CONTRACT]` State transitions are managed exclusively by the fiscal engine. The logistics ERP must not assume or force transitions.
 
-> `[OPERATIONAL]` The `ERRO` state is terminal from the API's perspective. Recovery requires analysis of internal logs (`GET /api/fiscal/nfe/logs`).
+> `[CONTRACT]` Since v1.9, `REJEITADO` and `ERRO` are no longer terminal via the API — `POST /emitir` can be called again on the same `pedidoId` at any time after fixing the cause (see section 6.4). Only `AUTORIZADO` and `CANCELADO` are terminal.
 
 ---
 
@@ -965,10 +995,10 @@ Content-Type: application/json
 > `[CONTRACT]` All other errors follow the standard envelope with `"data": null`:
 
 ```json
-{ "code": 400, "message": "Error description",       "data": null }
-{ "code": 404, "message": "Recurso não encontrado",  "data": null }
-{ "code": 422, "message": "Error description",       "data": null }
-{ "code": 500, "message": "Erro interno do servidor","data": null }
+{ "code": 400, "message": "Error description",        "data": null, "retryable": false }
+{ "code": 404, "message": "Recurso não encontrado",   "data": null, "retryable": false }
+{ "code": 422, "message": "Error description",        "data": null, "retryable": false }
+{ "code": 500, "message": "Erro interno do servidor", "data": null, "retryable": false }
 ```
 
 > `[CONTRACT]` Field validation errors (`@Valid`) return HTTP 422 with the **error map in `data`**:
@@ -1011,25 +1041,32 @@ Content-Type: application/json
 
 > `[CONTRACT]` The `errorCode` field is present **only in business error responses**. Successful responses (`code: 200`) do not include it.
 
+> `[CONTRACT]` Since v1.9, every error response (not only business ones) includes the boolean field `retryable`. `retryable: true` means resending the exact same request is safe (transient failure — timeout, unavailability). `retryable: false` means the underlying data/cause must be fixed first — resending unchanged repeats the same error. **Do not infer retry behavior from `message`** (free-text Portuguese) — always use `retryable`.
+
 **Defined error codes:**
 
-| `errorCode`            | HTTP | Trigger                                                                               |
-|------------------------|------|---------------------------------------------------------------------------------------|
-| `INVALID_ORDER_STATUS` | 422  | Order is not in the expected state for the operation (e.g., not `RASCUNHO` for `/emitir`, not `AUTORIZADO` for `/cancelar` or `/cce`) |
-| `INSUFFICIENT_STOCK`   | 422  | Available stock (`estoqueDisponivel`) is less than the requested quantity for an item — does not occur for companies with stock control disabled (see note below) |
-| `PRODUCT_NOT_FOUND`    | 422  | An item references a `produtoId` that does not exist for the authenticated company    |
-| `PRODUCT_INACTIVE`          | 422                          | An item references a product with `estado = 0` (inactive)                                                                         |
-| `VALIDATION_ERROR`          | 207 `resultados[].errorCode` | Batch item failed field validation — invalid NCM, blank required field, or price ≤ 0                                              |
-| `BATCH_LIMIT_EXCEEDED`      | 422                          | Batch request contains more than 200 products — returned before any item is processed                                             |
-| `DUPLICATE_CODIGO_IN_BATCH` | 207 `resultados[].errorCode` | The same `codigo` appears more than once in the same batch payload — the second occurrence is rejected; the first is processed   |
-| `INVALID_API_KEY`           | 401                          | `X-Api-Key` header missing, invalid, expired, or revoked — required for `POST /api/integration/fiscal-authorizations` |
-| `COMPANY_INACTIVE`          | 422                          | Company with the given CNPJ exists in Borurio but is marked inactive — contact the ADMIN to reactivate it |
-| `INVALID_CERTIFICATE`       | 422                          | Invalid A1 certificate — malformed base64, corrupted PKCS12, wrong password, or no X.509 certificate found in the file |
-| `CNPJ_CERTIFICATE_MISMATCH` | 422                          | CNPJ sent in the payload does not match the CNPJ embedded in the X.509 certificate Subject |
-| `CERTIFICATE_EXPIRED`       | 422                          | A1 certificate is expired — replace with the renewed certificate and reauthorize |
-| `AUTHORIZATION_REVOKED`     | 401                          | OMS token has been administratively revoked — reauthorize with a valid certificate or wait for ADMIN resolution |
-| `CNPJ_NOT_AUTHORIZED`       | 403                          | CNPJ provided in `cnpjEmitente` has no active authorization for this OMS client — call `POST /api/integration/fiscal-authorizations` with that CNPJ's certificate before issuing |
-| `CERT_NOT_FOUND_FOR_CNPJ`   | 422                          | No active certificate found for the issuing CNPJ — verify that the fiscal authorization was completed for that CNPJ |
+| `errorCode`            | HTTP | `retryable` | Trigger                                                                               |
+|------------------------|------|-------------|------------------------------------------------------------------------------------------|
+| `INVALID_ORDER_STATUS` | 422  | false | Order is not in the expected state for the operation (e.g., not `RASCUNHO`/`REJEITADO`/`ERRO` for `/emitir`, not `AUTORIZADO` for `/cancelar` or `/cce`) |
+| `INSUFFICIENT_STOCK`   | 422  | false | Available stock (`estoqueDisponivel`) is less than the requested quantity for an item — does not occur for companies with stock control disabled (see note below) |
+| `PRODUCT_NOT_FOUND`    | 422  | false | An item references a `produtoId` that does not exist for the authenticated company    |
+| `PRODUCT_INACTIVE`          | 422                          | false | An item references a product with `estado = 0` (inactive)                                                                         |
+| `VALIDATION_ERROR`          | 207 `resultados[].errorCode` | false | Batch item failed field validation — invalid NCM, blank required field, or price ≤ 0                                              |
+| `BATCH_LIMIT_EXCEEDED`      | 422                          | false | Batch request contains more than 200 products — returned before any item is processed                                             |
+| `DUPLICATE_CODIGO_IN_BATCH` | 207 `resultados[].errorCode` | false | The same `codigo` appears more than once in the same batch payload — the second occurrence is rejected; the first is processed   |
+| `INVALID_API_KEY`           | 401                          | false | `X-Api-Key` header missing, invalid, expired, or revoked — required for `POST /api/integration/fiscal-authorizations` |
+| `COMPANY_INACTIVE`          | 422                          | false | Company with the given CNPJ exists in Borurio but is marked inactive — contact the ADMIN to reactivate it |
+| `INVALID_CERTIFICATE`       | 422                          | false | Invalid A1 certificate — malformed base64, corrupted PKCS12, wrong password, or no X.509 certificate found in the file |
+| `CNPJ_CERTIFICATE_MISMATCH` | 422                          | false | CNPJ sent in the payload does not match the CNPJ embedded in the X.509 certificate Subject |
+| `CERTIFICATE_EXPIRED`       | 422                          | false | A1 certificate is expired — replace with the renewed certificate and reauthorize |
+| `AUTHORIZATION_REVOKED`     | 401                          | false | OMS token has been administratively revoked — reauthorize with a valid certificate or wait for ADMIN resolution |
+| `CNPJ_NOT_AUTHORIZED`       | 403                          | false | CNPJ provided in `cnpjEmitente` has no active authorization for this OMS client — call `POST /api/integration/fiscal-authorizations` with that CNPJ's certificate before issuing |
+| `CERT_NOT_FOUND_FOR_CNPJ`   | 422                          | false | No active certificate found for the issuing CNPJ — verify that the fiscal authorization was completed for that CNPJ |
+| `EMITTER_ADDRESS_INCOMPLETE` | 422 | false | **(v1.9)** Emitter company registration is missing address data (`logradouro`/`numero`/`bairro`/`codigoMunicipio`/`municipio`/`cep`) — blocked before ever calling SEFAZ. Send the `emit*` fields in `POST /api/app/pedidos` (section 6.3) and retry. |
+| `SEFAZ_REJECTED`            | 422 | false | **(v1.9)** SEFAZ processed the call and rejected the NF-e (cStat ≥ 200). `data.cStat`/`data.xMotivo` carry the real reason. Usually bad data — fix it and call `/emitir` again on the same order. |
+| `SEFAZ_TIMEOUT`             | 503 | **true** | **(v1.9)** Timeout calling SEFAZ — transient network failure. |
+| `SEFAZ_UNAVAILABLE`         | 503 | **true** | **(v1.9)** SEFAZ unreachable (connection refused/DNS) — transient network failure. |
+| `XML_SCHEMA_INVALID`        | 422 | false | **(v1.9)** Generated XML failed local schema validation before being signed/transmitted — a data problem, not a network one. |
 
 > `[OPERATIONAL]` The OMS must use `errorCode` for all conditional logic. The `message` field is intended for human-readable logs only. The HTTP status alone is not sufficient to distinguish between `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND`, and `PRODUCT_INACTIVE`, all of which return HTTP 422.
 
@@ -1159,6 +1196,20 @@ Response header will contain: `X-Request-Id: oms-batch-20260601-001`
 
 > `[CONTRACT]` Test M2 is the most important acceptance criterion for the multi-CNPJ flow: it confirms that the token does not change when a second CNPJ is added to an existing OMS client.
 
+### 9.1c Emitter Address & Reissue Smoke Test (v1.9)
+
+> `[OPERATIONAL]` Run this sequence when first authorizing a new company, or to validate the reissue flow after a rejection.
+
+| # | Request | PASS criterion |
+|---|---|---|
+| R1 | `POST /api/app/pedidos/{id}/emitir` for a new company (address still incomplete) | HTTP 422 · `errorCode: "EMITTER_ADDRESS_INCOMPLETE"` · `retryable: false` · SEFAZ is never called |
+| R2 | `POST /api/app/pedidos` with `emit*` fields filled in, same company | HTTP 200 · company registration completed (check via `GET /api/app/empresas/{id}` if you have ADMIN access) |
+| R3 | `POST /api/app/pedidos/{id}/emitir` for the order created in R2 | HTTP 200 (`AUTORIZADO`/`AGUARDANDO`) or HTTP 422 `SEFAZ_REJECTED` — but **no longer** `EMITTER_ADDRESS_INCOMPLETE` |
+| R4 | If R3 returned `SEFAZ_REJECTED` or the order ended up `ERRO`: `POST /api/app/pedidos/{id}/emitir` **on the same `pedidoId`** | HTTP 200 or a new `SEFAZ_REJECTED` — `chaveNfe` different from the previous attempt · no need to create a new order |
+| R5 | `POST /api/app/pedidos/{id}/emitir` for an `AUTORIZADO` order | HTTP 422 · `errorCode: "INVALID_ORDER_STATUS"` · `retryable: false` |
+
+> `[CONTRACT]` Test R4 is the acceptance criterion for the reissue flow: it confirms `REJEITADO`/`ERRO` are not terminal and the same `pedidoId` can be reused.
+
 ### 9.2 Security Checks
 
 | Request                                                          | Expected result                                           |
@@ -1171,18 +1222,21 @@ Response header will contain: `X-Request-Id: oms-batch-20260601-001`
 
 ### 9.3 Expected Behavior in HOM-SP
 
-> `[OPERATIONAL]` The SEFAZ-SP staging environment (`tpAmb=2`) uses schema `SP_NFE_PL_008i2`, which returns `cStat=225` ("Rejeição: Falha no Schema XML"). **This is a SEFAZ-SP HOM environment limitation and does not occur in PRD.**
+> `[OPERATIONAL]` **v1.9 correction:** earlier versions of this document described `cStat=225` as a "HOM-SP environment limitation" that always returned HTTP 200. That was incomplete — `cStat=225` (`Rejeição: Falha no Schema XML do lote de NFe`) is a real SEFAZ rejection code and **can indicate a genuine data problem** (e.g., emitter registration with an incomplete address — this happened in a real OMS client's staging session). Since v1.9, `cStat≥200` (including 225) results in `REJEITADO` and `POST /emitir` returns HTTP 422 with `errorCode: SEFAZ_REJECTED` — **no longer HTTP 200** (see section 6.4).
 
-Typical result of `POST /api/app/pedidos/{id}/emitir` in HOM-SP:
+> `[OPERATIONAL]` The `verAplic` in the SEFAZ response indicates which processor answered (e.g., `SP_NFE_PL_008i2`, `SP_NFE_PL009_V4`) — it can differ between the batch level (`retEnviNFe`) and the individual protocol level (`protNFe/infProt`) in the same response. That difference alone is not, by itself, evidence of an error or environment limitation — `xMotivo` in `data.xMotivo` is the reliable source for the real rejection reason.
+
+Typical result of `POST /api/app/pedidos/{id}/emitir` in HOM-SP when the NF-e is rejected:
 
 ```
-HTTP 200
-data.chaveNfe:    "35260512..." (44 digits) → transmission reached SEFAZ
-data.soapRetorno: contains cStat=225        → HOM limitation, not a system error
-pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); does not occur in PRD
+HTTP 422
+errorCode: SEFAZ_REJECTED
+data.cStat:   225
+data.xMotivo: "Rejeição: Falha no Schema XML do lote de NFe"
+pedido.status: REJEITADO → can be reissued on the same order after fixing the cause (v1.9)
 ```
 
-> `[CONTRACT]` To validate the complete flow in HOM, inspect the raw `data.soapRetorno` from `/emitir` and `data.consultaSefaz` from `/situacao` — these fields contain the actual SEFAZ response regardless of the final order status.
+> `[CONTRACT]` To validate the complete flow in HOM, inspect the raw `data.soapRetorno` from `/emitir` (when HTTP 200) or `data.cStat`/`data.xMotivo` (when `SEFAZ_REJECTED`), and `data.consultaSefaz` from `/situacao` — these fields contain the actual SEFAZ response regardless of the final order status.
 
 ---
 
@@ -1190,18 +1244,20 @@ pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); do
 
 | # | Observation                                              | Impact                                              |
 |---|----------------------------------------------------------|-----------------------------------------------------|
-| 1 | `cStat=225` is normal behavior in HOM-SP                 | Does not block technical flow validation            |
+| 1 | `cStat=225` is always a real rejection (`SEFAZ_REJECTED`, HTTP 422) — may be bad data, not guaranteed to be an environment quirk | Check `data.xMotivo` for the real reason before assuming it's a HOM peculiarity |
 | 2 | The `"environment"` field in `/ping` reflects the active Spring profile | Use only as a diagnostic indicator, not as a routing discriminator |
 | 3 | Token expires in 1 hour                                  | Implement renewal for long-running flows            |
 | 4 | Paginated order list does not include items              | Always use `GET /{id}` to retrieve items            |
 | 5 | CC-e and cancellation require `nProt` to be available    | Call `/situacao` before cancelling after AGUARDANDO |
 | 6 | Product with `estado=0` is rejected in orders            | Verify `estado` before referencing a product        |
-| 7 | The `ERRO` state is terminal via API                     | Contact support for manual recovery                 |
+| 7 | `REJEITADO` and `ERRO` are no longer terminal (v1.9)      | Reissue on the same order via `/emitir` after fixing the cause — do not create a new order |
 | 8  | AN HOM endpoint may return HTTP 403 on local networks       | SEFAZ federal infrastructure limitation — does not affect PRD or the main OMS flow      |
 | 9  | `POST /batch` always returns HTTP 207 — even when all items succeed | Do not treat HTTP 207 as an error — inspect `resultados[].status` per item |
 | 10 | Every response includes `X-Request-Id` in the response header | Use it to correlate OMS requests with API server logs for troubleshooting |
 | 11 | OMS token does not change when a new CNPJ is added (scenarios B, C, D) | The OMS does not need to update the stored token when expanding CNPJ coverage for a client |
 | 12 | `cnpjEmitente` omitted in OMS order uses the anchor CNPJ (first authorized) | OMS clients with a single CNPJ can omit this field with no impact |
+| 13 | Company auto-created at OMS authorization has no address (only what the certificate carries) | Send `emit*` fields in `POST /api/app/pedidos` (section 6.3) to complete the registration |
+| 14 | Every error now includes the `retryable` field (v1.9) | Use this field to decide automatic retry — do not parse `message` |
 
 ---
 
@@ -1209,6 +1265,7 @@ pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); do
 
 | Version | Date       | Change                                                                                      |
 |---------|------------|---------------------------------------------------------------------------------------------|
+| 1.9     | 2026-07-10 | **Staging session with CC — 3 OMS integration improvements:** (1) `POST /emitir` now accepts reissue on the same order for `REJEITADO`/`ERRO` (not only `RASCUNHO`) — each attempt generates a fresh `chaveNfe`; (2) `POST /api/app/pedidos` accepts an optional emitter address (`emitLogradouro`/`emitNumero`/`emitBairro`/`emitCodigoMunicipio`/`emitMunicipio`/`emitCep`) to auto-complete the company registration when incomplete (companies auto-created via certificate have no address); (3) every error now includes `retryable` (boolean) and new `errorCode` values: `EMITTER_ADDRESS_INCOMPLETE`, `SEFAZ_REJECTED`, `SEFAZ_TIMEOUT`, `SEFAZ_UNAVAILABLE`, `XML_SCHEMA_INVALID`. `POST /emitir` no longer returns HTTP 200 when SEFAZ rejects the NF-e — it returns HTTP 422 `SEFAZ_REJECTED` with `data.cStat`/`data.xMotivo`. Section 9.3 corrected: `cStat=225` is no longer described as a "HOM-only limitation" — it is a real rejection that can indicate bad data (found during a real staging session with an OMS client: emitter registration missing an address). |
 | 1.8     | 2026-07-10 | Stock control is now optional per company (`controleEstoqueAtivo`, internal configuration, active by default). Companies with the flag disabled never receive `INSUFFICIENT_STOCK` in `/emitir` and never have their balance changed at any step (reservation, write-off, reversal, or cancellation). No behavior change for existing companies. |
 | 1.7     | 2026-06-22 | **OMS Multi-CNPJ (V028):** an OMS client (`codigoEmpresaOms`) can authorize multiple CNPJs under a single token. Company auto-created from X.509 Subject (no ADMIN pre-registration required). `cnpjEmitente` field added to order for certificate selection at issuance. Behavior per scenario (A/B/C/D) documented — token never changes in scenarios B, C, D. New `errorCode` values: `COMPANY_INACTIVE`, `CNPJ_NOT_AUTHORIZED`, `CERT_NOT_FOUND_FOR_CNPJ`. Removed: `COMPANY_NOT_FOUND` (company is now auto-created). OMS multi-CNPJ smoke test added (section 9.1b). |
 | 1.6.1   | 2026-06-18 | Documentation fix: `POST /api/integration/fiscal-authorizations` response **does not use** the `Result<>` envelope — DTO returned directly at the root (`token`, `empresaId`, `cnpj`, `razaoSocial`, `tokenExpiraEm`). Sections 3.3 and 8.1 corrected. |

@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                              |
 |------------------------|------------------------------------|
-| Versão                 | 1.3                                |
-| Data                   | 2026-06-22                         |
+| Versão                 | 1.4                                |
+| Data                   | 2026-07-10                         |
 | Ambiente de referência | HOM — URL temporária por sessão (Cloudflare Tunnel) |
 | Relacionado a          | `CHECKLIST_OMS_ONBOARDING.md`      |
 
@@ -29,16 +29,23 @@ Não. O campo `chaveNfe` fica `null` enquanto o pedido estiver em `RASCUNHO`. El
 
 ---
 
-**4. O `POST /emitir` retornou `cStat=225` no `soapRetorno`. Isso é um erro do OMS?**
+**4. O `POST /emitir` retornou `errorCode: "SEFAZ_REJECTED"` com `cStat=225`. Isso é um erro do OMS?**
 
-Não. O `cStat=225` ("Rejeição: Falha no Schema XML") é um comportamento esperado no ambiente de homologação da SEFAZ-SP. Ele ocorre porque o processador `SP_NFE_PL_008i2` do HOM utiliza um schema mais restritivo que o de produção. A integração não tem erro.
+**Depende — não assuma automaticamente que é limitação de ambiente.** Desde a v1.9, `cStat≥200` (incluindo 225) retorna `HTTP 422` com `errorCode: SEFAZ_REJECTED` e `data.cStat`/`data.xMotivo` — não mais `HTTP 200`.
 
-Os indicadores corretos de que o fluxo funcionou são:
+Já foram identificadas **duas causas diferentes** para `cStat=225` com o mesmo `xMotivo` ("Rejeição: Falha no Schema XML do lote de NFe"):
 
+1. **Limitação do processador `SP_NFE_PL_008i2` do HOM-SP** — schema mais restritivo que o de produção. Não é erro da integração, sem ação possível.
+2. **Cadastro do emitente incompleto** (já ocorreu em homologação real, 10-07-2026) — a empresa emitente estava sem endereço. **Isso é um dado a corrigir**, não uma limitação de ambiente.
+
+Como distinguir: se o pedido nem chegou a chamar a SEFAZ, o erro será `errorCode: EMITTER_ADDRESS_INCOMPLETE` (não `SEFAZ_REJECTED`) — a v1.9 já bloqueia a causa 2 preventivamente antes de qualquer chamada à SEFAZ. Se você ainda ver `SEFAZ_REJECTED` com cStat=225, é a causa 1 (ambiente).
+
+Os indicadores corretos de que o fluxo funcionou (`AUTORIZADO` ou `AGUARDANDO`) são:
+
+- `HTTP 200`
 - `data.chaveNfe` com 44 dígitos — confirma que o lote chegou à SEFAZ
-- `pedido.status = "AGUARDANDO"` — comportamento normal em HOM
 
-Esse comportamento não ocorrerá em PRD.
+A causa 1 não ocorrerá em PRD.
 
 ---
 
@@ -127,19 +134,26 @@ Exemplo de payload com idempotência:
 
 Erros de negócio retornam `HTTP 422` com um campo `errorCode` padronizado no corpo da resposta. A OMS deve usar `errorCode` para decidir a ação programática — não o campo `message`, que é legível por humanos e pode mudar entre versões.
 
+> **v1.9:** todo erro agora também inclui o campo booleano `retryable`. `true` = pode reenviar sem alterar nada (falha transitória). `false` = precisa corrigir a causa primeiro. Ver Q21.
+
 Códigos disponíveis:
 
-| `errorCode`              | Situação                                              | HTTP | Ação sugerida para a OMS                          |
-|--------------------------|-------------------------------------------------------|------|---------------------------------------------------|
-| `PRODUCT_NOT_FOUND`      | `produtoId` não existe no Borurio                     | 422  | Sincronizar catálogo de produtos                  |
-| `PRODUCT_INACTIVE`       | Produto existe, mas está inativo (`estado=0`)         | 422  | Reativar produto ou remover do pedido             |
-| `INSUFFICIENT_STOCK`     | Quantidade solicitada excede `estoqueDisponivel`      | 422  | Consultar `/api/app/produtos/{id}/estoque` e ajustar |
-| `INVALID_ORDER_STATUS`   | Operação não permitida no status atual do pedido      | 422  | Verificar `status` via `/api/app/pedidos/{id}/situacao` |
-| `CNPJ_NOT_AUTHORIZED`    | `cnpjEmitente` não tem certificado ativo para este cliente OMS | 403 | Executar Bloco 0B para autorizar o CNPJ |
-| `CERT_NOT_FOUND_FOR_CNPJ`| Certificado do `cnpjEmitente` não encontrado na emissão | 422 | Verificar se o CNPJ foi autorizado via Bloco 0B |
-| `COMPANY_INACTIVE`       | Empresa existe mas está inativa (`ativo=0`)           | 422  | Contatar o administrador do Borurio |
-| `INVALID_API_KEY`        | `X-Api-Key` ausente ou inválida                       | 401  | Verificar a chave recebida no Bloco 0 |
-| `CERTIFICATE_EXPIRED`    | Certificado A1 vencido                                | 422  | Renovar o certificado A1 e reautorizar |
+| `errorCode`              | Situação                                              | HTTP | `retryable` | Ação sugerida para a OMS                          |
+|--------------------------|-------------------------------------------------------|------|-------------|-----------------------------------------------------|
+| `PRODUCT_NOT_FOUND`      | `produtoId` não existe no Borurio                     | 422  | false | Sincronizar catálogo de produtos                  |
+| `PRODUCT_INACTIVE`       | Produto existe, mas está inativo (`estado=0`)         | 422  | false | Reativar produto ou remover do pedido             |
+| `INSUFFICIENT_STOCK`     | Quantidade solicitada excede `estoqueDisponivel`      | 422  | false | Consultar `/api/app/produtos/{id}/estoque` e ajustar |
+| `INVALID_ORDER_STATUS`   | Operação não permitida no status atual do pedido      | 422  | false | Verificar `status` via `/api/app/pedidos/{id}/situacao` |
+| `CNPJ_NOT_AUTHORIZED`    | `cnpjEmitente` não tem certificado ativo para este cliente OMS | 403 | false | Executar Bloco 0B para autorizar o CNPJ |
+| `CERT_NOT_FOUND_FOR_CNPJ`| Certificado do `cnpjEmitente` não encontrado na emissão | 422 | false | Verificar se o CNPJ foi autorizado via Bloco 0B |
+| `COMPANY_INACTIVE`       | Empresa existe mas está inativa (`ativo=0`)           | 422  | false | Contatar o administrador do Borurio |
+| `INVALID_API_KEY`        | `X-Api-Key` ausente ou inválida                       | 401  | false | Verificar a chave recebida no Bloco 0 |
+| `CERTIFICATE_EXPIRED`    | Certificado A1 vencido                                | 422  | false | Renovar o certificado A1 e reautorizar |
+| `EMITTER_ADDRESS_INCOMPLETE` **(v1.9)** | Cadastro do emitente sem endereço — SEFAZ nem foi chamada | 422 | false | Enviar campos `emit*` em `POST /pedidos` (Q22) |
+| `SEFAZ_REJECTED` **(v1.9)**             | SEFAZ processou e rejeitou a NF-e (cStat≥200) | 422 | false | Ver `data.cStat`/`data.xMotivo`; corrigir e reemitir no mesmo pedido (Q21) |
+| `SEFAZ_TIMEOUT` **(v1.9)**              | Timeout na chamada à SEFAZ | 503 | **true** | Reenviar `/emitir` sem alterar nada |
+| `SEFAZ_UNAVAILABLE` **(v1.9)**          | SEFAZ inacessível | 503 | **true** | Reenviar `/emitir` sem alterar nada |
+| `XML_SCHEMA_INVALID` **(v1.9)**         | XML não passou na validação de schema local | 422 | false | Verificar dados do pedido/produto |
 
 Formato de resposta de erro de negócio:
 ```json
@@ -316,6 +330,62 @@ Não. A partir do V028, a empresa é **criada automaticamente** pelo Borurio na 
 - `crt` ← `"1"` (default para Simples Nacional)
 
 Se a empresa já existir no cadastro, ela é usada sem alterações. Se existir mas estiver inativa (`ativo=0`), a autorização é recusada com `COMPANY_INACTIVE`.
+
+---
+
+**21. Um pedido ficou `REJEITADO` ou `ERRO`. Preciso criar um pedido novo pra tentar de novo?**
+
+**Não, desde a v1.9.** `POST /emitir` aceita pedidos em `RASCUNHO`, `REJEITADO` ou `ERRO` — chame o mesmo endpoint, no **mesmo `pedidoId`**, depois de corrigir a causa do erro. Cada nova tentativa gera um número de NF-e (`nNF`) e uma `chaveNfe` novos automaticamente — não há risco de duplicidade na SEFAZ.
+
+Use o campo `retryable` da resposta de erro pra decidir o que fazer antes de tentar de novo:
+- `retryable: true` (`SEFAZ_TIMEOUT`, `SEFAZ_UNAVAILABLE`) — pode chamar `/emitir` de novo sem mudar nada.
+- `retryable: false` (`SEFAZ_REJECTED`, `EMITTER_ADDRESS_INCOMPLETE`, `XML_SCHEMA_INVALID`, etc.) — corrija a causa (ver `data.cStat`/`data.xMotivo` ou o `errorCode`) antes de chamar `/emitir` de novo, senão vai repetir o mesmo erro.
+
+Só `AUTORIZADO` e `CANCELADO` são terminais — `/emitir` nesses casos retorna `HTTP 422` com `errorCode: INVALID_ORDER_STATUS`.
+
+---
+
+**22. Como completo o endereço da empresa emitente se ela foi criada automaticamente sem esse dado?**
+
+Empresas autorizadas via certificado A1 (Bloco 0B) são criadas só com CNPJ, razão social e UF — o certificado não carrega endereço. Se o cadastro estiver incompleto, `/emitir` retorna `EMITTER_ADDRESS_INCOMPLETE` sem sequer chamar a SEFAZ.
+
+Para corrigir, envie os 6 campos abaixo em qualquer `POST /api/app/pedidos` daquele CNPJ:
+
+```json
+{
+  "cnpjEmitente": "54393421000159",
+  "emitLogradouro": "Rua Exemplo",
+  "emitNumero": "100",
+  "emitBairro": "Centro",
+  "emitCodigoMunicipio": "3550308",
+  "emitMunicipio": "São Paulo",
+  "emitCep": "01000000",
+  "destCnpjCpf": "...",
+  "destRazaoSocial": "...",
+  "itens": [...]
+}
+```
+
+O sistema completa **apenas os campos que estiverem faltando** no cadastro — nunca sobrescreve um endereço já preenchido. Não precisa reenviar esses campos em todo pedido depois que o cadastro estiver completo.
+
+---
+
+**23. O que significa o campo `retryable` nas respostas de erro?**
+
+É um booleano que diz se vale a pena chamar o mesmo endpoint de novo sem mudar nada:
+
+- `retryable: true` — falha transitória (rede/indisponibilidade). Reenviar é seguro.
+- `retryable: false` — precisa corrigir alguma coisa primeiro (dado incorreto, cadastro incompleto, estado inválido). Reenviar sem corrigir só repete o mesmo erro.
+
+Não infira isso a partir do texto de `message` (varia e é só pra humano ler) — use sempre o campo `retryable`.
+
+---
+
+**24. `POST /emitir` não retorna mais `HTTP 200` quando a SEFAZ rejeita? Isso muda meu código?**
+
+Sim, desde a v1.9. Antes, uma rejeição da SEFAZ (`cStat≥200`) ainda vinha como `HTTP 200` com o `cStat` embutido dentro de `data.soapRetorno` — era preciso fazer parse do XML pra descobrir. Agora vem como `HTTP 422` com `errorCode: SEFAZ_REJECTED` e `data.cStat`/`data.xMotivo` já estruturados, sem precisar parsear XML.
+
+Se o seu código hoje trata qualquer `HTTP 200` de `/emitir` como sucesso, é necessário ajustar pra também checar o `errorCode` nas respostas 4xx/5xx — ver Q9 e Q21.
 
 ---
 

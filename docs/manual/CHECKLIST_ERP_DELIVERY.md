@@ -2,10 +2,10 @@
 
 | Atributo          | Valor                               |
 |-------------------|-------------------------------------|
-| Versão            | 1.2                                 |
-| Data              | 2026-06-22                          |
-| Sprint            | V028 (multi-CNPJ OMS)               |
-| Ambiente validado | HOM — `https://hom-api.borurio.com` |
+| Versão            | 1.4                                 |
+| Data              | 2026-07-10                          |
+| Sprint            | Estoque opcional + reemissão REJEITADO/ERRO + endereço emitente + errorCode/retryable (v1.9) |
+| Ambiente validado | HOM — túnel Cloudflare efêmero      |
 
 ---
 
@@ -72,6 +72,9 @@
 | Auto-criação de empresa a partir do Subject X.509 na autorização OMS  | Entregue — 22-06-2026         |
 | Validação `cnpjEmitente` OMS em `POST /pedidos` — fail-fast antes de persistir | Entregue — 22-06-2026 |
 | Token determinístico — `emitidoEm` truncado a segundos garante token idêntico em cenários B/C/D | Entregue — 22-06-2026 |
+| **DA-08 — fix PRODUCT_NOT_FOUND multi-CNPJ** — estoque usa `pedido.getEmpresaId()` (âncora), não `empresa.getId()` (fiscal do CNPJ emitente) | **Entregue — 30-06-2026 (commit 117a447)** |
+| **Endereço do emitente via `POST /pedidos`** — completa automaticamente o cadastro da empresa (auto-criada via certificado, sem endereço) quando incompleto | **Entregue — 10-07-2026** |
+| `NfeGeracaoService.validarEnderecoEmitente()` — bloqueia `/emitir` antes da SEFAZ se endereço incompleto (`EMITTER_ADDRESS_INCOMPLETE`) | **Entregue — 10-07-2026** |
 
 ---
 
@@ -109,6 +112,7 @@
 | Consulta de saldo em tempo real via `GET /api/app/produtos/{id}/estoque`                | Entregue |
 | Tabela `estoque_movimento` — auditoria completa de todos os movimentos                  | Entregue |
 | Isolamento multiempresa — `empresa_id` em todos os UPDATEs atômicos                    | Entregue |
+| Controle de estoque opcional por empresa (`controleEstoqueAtivo`) — desativado nunca reserva/baixa/estorna e nunca retorna `INSUFFICIENT_STOCK` | Entregue — 10-07-2026 |
 
 ---
 
@@ -116,10 +120,14 @@
 
 | Item                                | Estado                           |
 |-------------------------------------|----------------------------------|
-| **126/126 testes passando — BUILD SUCCESS** (borurio-web 93 + fiscal 33) | **Passando (22-06-2026)** |
+| **190/190 testes passando — BUILD SUCCESS** (borurio-app + borurio-fiscal + borurio-web) | **Passando (10-07-2026)** |
 | Cenários A/B/C/D de autorização OMS cobertos em `OmsFiscalAuthorizationServiceTest` (14 testes, 8 `@Nested`) | Entregue — 22-06-2026 |
 | Validação `cnpjEmitente` OMS em `PedidoControllerTest` — `@MockBean OmsCertificadoService` | Entregue — 22-06-2026 |
 | A-03 coberto em `NfeEnvioControllerTest` — 401/403/200 para os 4 endpoints deprecated (12 testes) | Entregue — 22-06-2026 |
+| Reemissão REJEITADO/ERRO — `PedidoEmissaoServiceTest` (5 novos cenários) | Entregue — 10-07-2026 |
+| Endereço do emitente via pedido — `PedidoControllerTest` (3 novos cenários) | Entregue — 10-07-2026 |
+| `errorCode`/`retryable` — `GlobalExceptionHandlerTest` (8 cenários), `NfeGeracaoServiceTest` (novo) | Entregue — 10-07-2026 |
+| Revisão de código (8 agentes + 9 verificações) — 4 bugs encontrados e corrigidos | Entregue — 10-07-2026 |
 | Contexto WebMvc isolado por módulo — MockitoExtension para serviços           | Entregue               |
 
 ---
@@ -128,11 +136,11 @@
 
 | Documento                                                         | Estado                                                          |
 |-------------------------------------------------------------------|-----------------------------------------------------------------|
-| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.6 — 22-06-2026 (V028 multi-CNPJ OMS)                        |
-| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.6 — 22-06-2026 (V028 multi-CNPJ OMS)                        |
-| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | **v1.7** — 22-06-2026 (multi-CNPJ; cnpjEmitente; cenários A/B/C/D) |
-| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | **v1.7** — 22-06-2026 (multi-CNPJ; cnpjEmitente; cenários A/B/C/D) |
-| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | **v1.7** — 22-06-2026 (V028 multi-CNPJ; errorCodes atualizados)    |
+| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`) | v2.8 — 10-07-2026 (estoque opcional; reemissão REJEITADO/ERRO; endereço emitente; errorCode/retryable; seção 13.1 corrigida) |
+| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`) | v2.8 — 10-07-2026 (mesmo escopo da versão PT-BR) |
+| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)    | **v1.9** — 10-07-2026 (reemissão; endereço emitente; errorCode/retryable; smoke test 9.1c) |
+| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)          | **v1.9** — 10-07-2026 (mesmo escopo da versão PT-BR) |
+| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)  | **v1.9** — 10-07-2026 (endereço emitente Bloco 4; errorCodes v1.9 no Bloco 5)    |
 | FAQ Smoke Test OMS (`FAQ_SMOKE_TEST_OMS.md`)                       | **v1.3** — 22-06-2026 (multi-CNPJ; Q16–Q20 adicionadas)            |
 | Roteiro entrega time chinês (`ROTEIRO_ENTREGA_TIME_CHINES.md`)     | **v1.2** — 22-06-2026 (OMS sem login; Bloco 2 reescrito)           |
 | Postman collection (10 pastas, 49 requests)                        | Disponível em `docs/postman/` (pendente atualização V028)          |
@@ -183,8 +191,11 @@
 
 ---
 
-## 12. Limitação conhecida HOM/SP
+## 12. Limitação conhecida HOM/SP — corrigido v1.9
 
-`cStat=225` é retornado pelo processador `SP_NFE_PL_008i2` do ambiente de homologação da SEFAZ-SP para todas as NF-e. Causa: o processador usa SHA-1 internamente. O código do Borurio está em conformidade com NT 2019.001 (RSA-SHA256). Esta limitação **não afeta PRD**.
+`cStat=225` **não é sempre** uma limitação de ambiente. Duas causas distintas já identificadas (ver MTF-001 seção 13.1):
 
-Validação em HOM: confirmar que `data.chaveNfe` tem 44 dígitos (lote aceito). O `cStat=225` é comportamento esperado e documentado.
+1. **Processador `SP_NFE_PL_008i2`** — hipótese de divergência SHA-1/RSA-SHA256 entre processadores da SEFAZ-SP. Limitação de ambiente, sem ação corretiva possível sem violar NT 2019.001. Não afeta PRD.
+2. **Cadastro do emitente incompleto** (achado em homologação real, 10-07-2026) — mesmo `cStat=225`, causa raiz é dado (endereço da empresa emitente ausente), não ambiente. Corrigido e agora bloqueado preventivamente via `EMITTER_ADDRESS_INCOMPLETE` antes de chamar a SEFAZ.
+
+Validação em HOM: verificar sempre `data.xMotivo` antes de assumir causa 1. Desde v1.9, `cStat≥200` retorna HTTP 422 `SEFAZ_REJECTED` (não mais HTTP 200) — não usar mais `data.chaveNfe` isoladamente como critério de sucesso.

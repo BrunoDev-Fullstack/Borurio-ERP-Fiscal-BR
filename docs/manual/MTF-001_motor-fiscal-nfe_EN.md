@@ -4,9 +4,9 @@
 ---
 
 **Document:** MTF-001  
-**Version:** 2.6  
+**Version:** 2.8  
 **Issued:** 2026-05-11  
-**Last updated:** 2026-06-22  
+**Last updated:** 2026-07-10  
 **Author:** Bruno Ribeiro — Fullstack Developer / DevSecOps  
 **Status:** VALIDATED IN STAGING (HOM)  
 **Reference branch:** `fix/sefaz-xml-structure`  
@@ -20,6 +20,8 @@
 > - v2.4 (2026-05-21): 3 bugs fixed in `DanfePdfGenerator` — pt_BR monetary formatting in totals, thread-safe `DecimalFormat` per call, conditional protocol label; borurio-web tests 66 → 75 (9 new — fiscal states, inventory RBAC, UsuarioController)
 > - v2.5 (2026-05-26): Recipient Manifestation implemented (events 210200/210210/210220/210240); `cOrgao=91` (AN — Ambiente Nacional, NT 2012.004); `SefazProperties.manifestacaoEvento` with distinct AN URL; `cStat` validation in SEFAZ response (cStat=135/136=success, others=rejection); `xml_retorno` captured even on error; section 12.5 added; integration contract v1.3; borurio-web tests 75 → 82 (7 new — NfeManifestacaoController)
 > - v2.6 (2026-06-22): V028 Multi-CNPJ OMS — `POST /api/integration/fiscal-authorizations`; token per OMS client (`codigoEmpresaOms`); multiple CNPJs under the same token; auto-company-creation from X.509 Subject; deterministic token via `emitidoEm` truncated to seconds; `cnpjEmitente` OMS validation in `POST /pedidos` (fail-fast HTTP 403); `OmsCertificadoService.resolverPorJtiECnpj`; sections 3.1/3.2/9.5/10.6/16 updated; contract v1.7; 114/114 tests
+> - v2.7 (2026-06-30): PRODUCT_NOT_FOUND bug fix in multi-CNPJ flow — `PedidoEmissaoService` separated `empresaId` for stock operations (anchor empresa from the order) from `empresa` for NF-e (fiscal empresa from cnpjEmitente); DA-08 documented; section 9.5 updated with root cause and fix; 126/126 tests
+> - v2.8 (2026-07-10): optional per-company stock control (`controleEstoqueAtivo`, commit 936e771); live staging session with CC — diagnosed a real cStat=225 (incomplete emitter registration, new "cause 2" in section 13.1) and fixed it; 3 improvements requested by CC implemented and tested: (1) reissue of `REJEITADO`/`ERRO` orders on the same `pedidoId`; (2) optional emitter address in `POST /api/app/pedidos` auto-completing the company registration; (3) standardized `errorCode`/`retryable`, `SEFAZ_REJECTED` no longer returns HTTP 200; code review (8 agents + 9 verifications) found and fixed 4 bugs: `chaveNfe` loss on retry, empresa mutation without rollback, incorrect `retryable=true` in the global fallback and in `SEFAZ_REJECTED`; integration contract v1.9; 190/190 tests
 
 ---
 
@@ -108,6 +110,13 @@ The document is intended for:
 | Multi-CNPJ smoke test M1–M4/M6 — approved in HOM                                              | ✓ HOM — 2026-06-22                                          |
 | **126/126 tests passing** (borurio-web 93 + fiscal 33; +12 NfeEnvioControllerTest A-03)       | ✓ Code — 2026-06-22                                         |
 | V025–V028 applied in HOM (Flyway at v028)                                                      | ✓ HOM — 2026-06-22                                          |
+| Optional per-company stock control (`controleEstoqueAtivo`)                                    | ✓ HOM — 2026-07-10                                          |
+| Reissue of `REJEITADO`/`ERRO` orders on the same `pedidoId` (`STATUS_EMISSIVEIS`)              | ✓ Code — 2026-07-10                                         |
+| Optional emitter address in `POST /api/app/pedidos` — auto-completes incomplete registration    | ✓ Code — 2026-07-10                                         |
+| `NfeGeracaoService.validarEnderecoEmitente()` — blocks issuance before SEFAZ if address incomplete | ✓ Code — 2026-07-10                                     |
+| Standardized `errorCode`/`retryable` — `EMITTER_ADDRESS_INCOMPLETE`, `SEFAZ_REJECTED`, `SEFAZ_TIMEOUT`, `SEFAZ_UNAVAILABLE`, `XML_SCHEMA_INVALID` | ✓ Code — 2026-07-10                       |
+| `POST /emitir` no longer returns HTTP 200 when SEFAZ rejects the NF-e                          | ✓ Code — 2026-07-10                                         |
+| **190/190 tests passing** (code review with 4 fixes: chaveNfe loss, empresa mutation without rollback, incorrect retryable) | ✓ Code — 2026-07-10                       |
 
 ### 1.2 What is PENDING
 
@@ -174,7 +183,7 @@ The bridge between the two domains is exclusively the `borurio-web` module. When
 
 ## 3. FISCAL DATA MODEL
 
-### 3.1 Applied migrations (V001–V024)
+### 3.1 Applied migrations (V001–V028)
 
 | Migration  | Description                                                                  |
 |------------|------------------------------------------------------------------------------|
@@ -264,7 +273,7 @@ PedidoController (borurio-web)
     │
     ▼
 PedidoEmissaoService (borurio-web)
-    │  ├─ pedidoService.buscarComItens(id)      → validates status=RASCUNHO
+    │  ├─ pedidoService.buscarComItens(id)      → validates status ∈ {RASCUNHO, REJEITADO, ERRO} (v1.9)
     │  ├─ montarRequest(pedido)                  → NfeEmissaoRequest with fiscal snapshot
     │  ├─ resolverEmpresa(empresaId)              → Empresa from JWT context
     │  │
@@ -272,6 +281,7 @@ PedidoEmissaoService (borurio-web)
     │  │
     ▼  ▼
 NfeGeracaoService (borurio-web)
+    │  ├─ validarEnderecoEmitente(empresa)        → (v1.9) throws EMITTER_ADDRESS_INCOMPLETE BEFORE building XML, if address incomplete
     │  ├─ montarIde / montarEmit / montarDest / montarDet / montarTotal
     │  ├─ nfeXmlBuilder.build(nfe)               → unsigned XML
     │  ├─ sequenciaService.proximoNumero()        → atomic number per serie/CNPJ
@@ -282,14 +292,14 @@ NfeGeracaoService (borurio-web)
     ▼  ▼
 NfeOrquestradorService (borurio-fiscal)
     │  ├─ [1] converterParaDocument()             → parse XML, namespace-aware
-    │  ├─ [2] xsdValidator.validate()             → against xsd/custom/nfe_v4.00_consolidado.xsd
+    │  ├─ [2] xsdValidator.validate()             → against xsd/custom/nfe_v4.00_consolidado.xsd — throws XmlSchemaValidationException (v1.9)
     │  ├─ [3] assinaturaXmlService.assinar()      → XMLDSIG RSA-SHA256 + C14N
     │  └─ [4] nfeTransmitService.transmitirXml()  → SOAP HTTPS → SEFAZ
     │
     ▼
 NfeTransmitServiceImpl (borurio-fiscal)
     │  ├─ criarEnvelopeEnviNFe()                  → batch with 1 NF-e
-    │  ├─ enviarSoap(url, envelope, sslContext)    → HTTPS POST
+    │  ├─ enviarSoap(url, envelope, sslContext)    → HTTPS POST (retried via SefazRetryConfig/resilience4j)
     │  └─ salvarLogSeguro(nfeLog)                  → nfe_log with real user
     │
     ▼
@@ -300,12 +310,13 @@ NfeGeracaoService (response handling)
     │
     ▼
 PedidoEmissaoService (post-issuance)
-    │  ├─ resolverStatus(soapRetorno)              → AUTORIZADO / REJEITADO / AGUARDANDO
-    │  ├─ pedidoService.atualizarStatus()          → pedido.status + chave_nfe
-    │  └─ baixarEstoque()                          → only if AUTORIZADO (cStat=100)
+    │  ├─ resolverStatus(retorno)                  → AUTORIZADO / REJEITADO / AGUARDANDO
+    │  ├─ pedidoService.atualizarStatus()          → pedido.status + chave_nfe (preserves existing chaveNfe if the new attempt fails, v1.9)
+    │  ├─ baixarEstoque()                          → only if AUTORIZADO (cStat=100)
+    │  └─ (v1.9) if REJEITADO: throws BusinessException.sefazRejected(cStat, xMotivo) — HTTP 422, not 200
 ```
 
-If an exception is thrown during `nfeGeracaoService.gerar()`, the service calls `atualizarStatus(id, "ERRO", null)` before rethrowing — the order remains in `ERRO` state and the endpoint returns HTTP 500.
+If an exception is thrown during `nfeGeracaoService.gerar()`, the service calls `traduzirFalhaTransmissao()` (v1.9) to classify the cause before rethrowing: `XmlSchemaValidationException` → `XML_SCHEMA_INVALID` (422); `SocketTimeoutException` → `SEFAZ_TIMEOUT` (503, retryable); `ConnectException`/`UnknownHostException` → `SEFAZ_UNAVAILABLE` (503, retryable); any other unclassified exception → generic HTTP 500 (retryable=false). In every case the order ends up in `ERRO`, preserving any `chaveNfe` it already had.
 
 ### 4.2 Semantic order status
 
@@ -314,9 +325,11 @@ If an exception is thrown during `nfeGeracaoService.gerar()`, the service calls 
 | `RASCUNHO`   | Order created, not yet transmitted                                                 | No               |
 | `AUTORIZADO` | SEFAZ returned `cStat = 100`                                                       | Yes              |
 | `AGUARDANDO` | Batch accepted (`cStat = 104`) without infProt, or failure to parse SEFAZ response | No               |
-| `REJEITADO`  | `cStat >= 200`                                                                     | No               |
-| `ERRO`       | Exception during transmission — HTTP 500 returned to client                        | No               |
+| `REJEITADO`  | `cStat >= 200` — HTTP 422 `SEFAZ_REJECTED` (v1.9, no longer HTTP 200)              | No — reservation reversed |
+| `ERRO`       | Exception during transmission — HTTP 422/500/503 depending on classification (v1.9) | No — reservation reversed |
 | `CANCELADO`  | Cancellation event authorized                                                      | N/A              |
+
+> **v1.9:** `REJEITADO` and `ERRO` are no longer terminal — `PedidoEmissaoService.STATUS_EMISSIVEIS = {RASCUNHO, REJEITADO, ERRO}` allows calling `/emitir` again on the same `pedidoId`. Each new attempt generates a fresh `nNF`/`chaveNfe` via `NfeSequenciaService`, with no duplicate-submission risk to SEFAZ.
 
 ### 4.3 Immutable fiscal snapshot
 
@@ -613,6 +626,66 @@ When `empresaId == null` (user without an associated company, or dev environment
 2. **Backfill** — updates `empresa_id` in `db_user`, `produto`, and `pedido` where `empresa_id IS NULL`
 3. **Admin seed** — creates `admin` user with `role='ADMIN'` if `db_user` is empty
 
+### 9.5 Multi-CNPJ OMS (V028)
+
+The V028 model extends multi-company support to external integrators with multiple issuer CNPJs. An OMS client (`codigoEmpresaOms`) can authorize multiple CNPJs under the **same JWT token**.
+
+#### Authorization flow
+
+```
+POST /api/integration/fiscal-authorizations
+X-Api-Key: {technical-key}
+Body: { codigoEmpresaOms, cnpj, certBase64, certSenha }
+    │
+    ▼
+OmsFiscalAuthorizationService.autorizar()
+    │  ├─ Validates X-Api-Key (SHA-256 → oms_api_key)
+    │  ├─ Decodes and loads PKCS12
+    │  ├─ Extracts X509Certificate, validates expiry and Subject CNPJ
+    │  ├─ Locates or creates empresa from X.509 Subject (auto-creation)
+    │  ├─ Looks up slot in oms_fiscal_authorization by (integrator_id, codigo_oms)
+    │  │
+    │  ├─ CASE A — no slot → INSERT auth + cert; generate new JTI; emitidoEm=now().truncatedTo(SECONDS)
+    │  ├─ CASE B — same CNPJ, same thumbprint → no change; returns existing token
+    │  ├─ CASE C — same CNPJ, different thumbprint → deactivates old cert; INSERT new cert; updates tokenExpiraEm; keeps JTI
+    │  └─ CASE D — new CNPJ → INSERT cert; keeps JTI and token intact
+    │
+    └─ jwtUtil.generateOmsToken(codigoOms, empresaId_anchor, jti, tokenExpiraEm, emitidoEm)
+         payload: { "sub": codigoOms, "eid": empresaId_anchor, "jti": uuid, "tipo": "OMS", "iat": emitidoEm, "exp": tokenExpiraEm }
+```
+
+#### Deterministic token
+
+The JWT `iat` is always `auth.getEmitidoEm()` — stored in the database with second-level precision. This ensures that in scenarios B/C/D, where the JTI is reused, the generated token string is **identical** to the original. Without this guarantee, millisecond differences between `new Date()` and `CURRENT_TIMESTAMP` would produce different tokens on each call.
+
+#### CNPJ resolution at issuance time
+
+In `POST /api/app/pedidos`, the `cnpjEmitente` field selects which OMS certificate to use:
+
+```
+PedidoController.criar()
+    │  ├─ extracts jti from JWT (claim "jti")
+    │  ├─ validates cnpjAutorizadoParaJti(jti, cnpjEmitente) — fail-fast HTTP 403
+    │  └─ persists order with cnpjEmitente in the snapshot
+
+PedidoEmissaoService.emitir()
+    │  └─ OmsCertificadoService.resolverPorJtiECnpj(jti, cnpjEmitente)
+              └─ buscarAtivoPorAuthIdECnpj(authId, cnpjEmitente) → CertificadoContexto
+```
+
+#### Separation of responsibilities: fiscal empresa vs. catalog empresa (DA-08)
+
+The multi-CNPJ flow introduces two distinct "empresa" concepts that **must not be confused**:
+
+| Concept | Source | Used for |
+|---|---|---|
+| **Fiscal empresa (issuer)** | `empresaMapper.buscarPorCnpj(cnpjEmitente)` | NF-e XML (`<emit>`), signing certificate |
+| **Anchor empresa (order)** | `pedido.getEmpresaId()` (token's `eid` claim) | Stock, reservation, write-off, product lookup |
+
+Products are registered using the OMS token, whose `eid` points to the anchor empresa (the OMS client's first authorized CNPJ). Therefore, all catalog and stock operations use `pedido.getEmpresaId()` — not the fiscal empresa's id resolved from the issuer CNPJ.
+
+> **Bug fixed on 2026-06-30 (commit `117a447`):** `PedidoEmissaoService.emitir()` previously resolved `empresaId = empresa.getId()` where `empresa` was obtained via `buscarPorCnpj(cnpjEmitente)`. For the second CNPJ (fiscal empresa `id=2`), this caused `estoqueService.reservarItens()` to look up the product with `empresa_id=2` — but products were registered with `empresa_id=1` (anchor empresa). Result: `PRODUCT_NOT_FOUND`. The fix: `empresaId = pedido.getEmpresaId()` as the primary value for stock operations, with `empresa` (fiscal) used exclusively for XML generation and certificate selection.
+
 ---
 
 ## 10. PER-COMPANY DIGITAL CERTIFICATE
@@ -679,6 +752,24 @@ EmpresaCertificadoService.invalidar(empresaId)
 2. **Filesystem** via `new File(path)`
 
 If neither finds the file, it throws `IllegalStateException`.
+
+### 10.6 OMS Certificate — Loading by JTI and CNPJ (V028)
+
+Complements company-based resolution (`resolverPorEmpresa`) with OMS CNPJ-based resolution:
+
+```
+OmsCertificadoService.resolverPorJtiECnpj(jti, cnpj)
+    │  ├─ omsAuthMapper.buscarPorJti(jti)        → OmsFiscalAuthorization
+    │  ├─ verifies revogado_em == null
+    │  ├─ omsCertMapper.buscarAtivoPorAuthIdECnpj(authId, cnpj) → OmsCompanyCertificate
+    │  └─ carregarContexto(certRow.getEmpresaId(), certRow)
+              ├─ encryptor.decryptBytes(certPfxEnc) → PFX bytes
+              ├─ encryptor.decrypt(certSenhaEnc)    → password
+              ├─ KeyStore.load(pfxBytes, password)
+              └─ CertificadoContexto { empresaId, privateKey, cert, sslContext }
+```
+
+OMS certificates are not cached — revocation is checked on every issuance.
 
 ---
 
@@ -966,7 +1057,9 @@ The AN HOM endpoint (`hom.nfe.fazenda.gov.br`) returns **HTTP 403** for requests
 
 ### 13.1 cStat=225 — "Rejeição: Falha no Schema XML do lote de NFe"
 
-**Observed behavior:**
+> **v1.9 correction (2026-07-10):** this section used to describe cStat=225 as exclusively an environment limitation. A second, distinct, and real root cause was identified during a live staging session with an OMS client on the same day — see "Cause 2" below. **`xMotivo` is always the reliable source for the reason** — do not assume it's an environment quirk without checking `data.xMotivo`/`data.cStat` (exposed since v1.9 via `errorCode: SEFAZ_REJECTED`, see integration contract section 8.2a).
+
+**Cause 1 — SEFAZ SP processor mismatch (original diagnosis, 2026-05-08):**
 
 ```
 retEnviNFe.cStat   = 104   (batch accepted by PL009 processor)
@@ -976,15 +1069,17 @@ verAplic (batch)   = SP_NFE_PL009_V4
 verAplic (infProt) = SP_NFE_PL_008i2
 ```
 
-**Diagnosis:**
+SEFAZ SP uses two distinct processors: `PL009` validates the batch, and `PL_008i2` (an older version) validates each NF-e individually. The most likely hypothesis is that `PL_008i2` internally uses `xmldsig-core-schema_v1.01.xsd` with `fixed="rsa-sha1"`, while the code uses RSA-SHA256 (mandated by NT 2019.001). The xmldsig was fixed to pure W3C on 2026-05-08, but the `verAplic PL_008i2` still shows up sporadically in HOM-SP.
 
-SEFAZ SP uses two distinct processors: `PL009` validates the batch, and `PL_008i2` (an older version) validates each NF-e individually. The most likely hypothesis is that `PL_008i2` internally uses `xmldsig-core-schema_v1.01.xsd` with `fixed="rsa-sha1"`, while the code uses RSA-SHA256 (mandated by NT 2019.001).
+**Cause 2 — incomplete emitter registration (found during staging, 2026-07-10):**
 
-**Investigation status:** CLOSED. This is a limitation of the SEFAZ SP HOM environment. No corrective action is possible in the code without violating NT 2019.001.
+Same `xMotivo` ("Rejeição: Falha no Schema XML do lote de NFe") and same `cStat=225`, but a completely different cause: the emitter company (auto-created via OMS authorization, which only receives CNPJ/razão social/UF from the A1 certificate — see the multi-CNPJ section) had no address (`logradouro`/`numero`/`bairro`/`codigoMunicipio`/`municipio`/`cep` all missing), producing an incomplete `enderEmit` block in the XML. Confirmed by comparing the actual transmitted XML: the `enderDest` block (recipient) was complete, but `enderEmit` (emitter) only had `UF`/`cPais`/`xPais`.
 
-**Impact in HOM:** all NF-e transmitted in HOM-SP return cStat=225. The order ends up as `"REJEITADO"` or `"AGUARDANDO"`. To validate the technical flow, inspect `data.soapRetorno` (SEFAZ response) and confirm the access key was generated (44 digits).
+**Fix:** address completed via `PUT /api/app/empresas/{id}` (or automatically since v1.9, via `emit*` fields in `POST /api/app/pedidos` — see section 4). Additionally, `NfeGeracaoService.validarEnderecoEmitente()` (v1.9) now intercepts this case BEFORE building the XML and calling SEFAZ, returning `EMITTER_ADDRESS_INCOMPLETE` (422) instead of letting SEFAZ reject it on schema grounds.
 
-**Impact in PRD:** none. Does not affect production and does not affect other Brazilian states.
+**Investigation status:** Cause 1 remains a known environment limitation (no corrective code action possible without violating NT 2019.001). Cause 2 was a real data bug, already fixed — should no longer occur for companies with a complete registration, and is now preemptively blocked by `EMITTER_ADDRESS_INCOMPLETE`.
+
+**Impact in HOM/PRD (v1.9 correction):** since v1.9, any `cStat≥200` (including 225) results in `REJEITADO` and `POST /emitir` returns HTTP 422 `SEFAZ_REJECTED` with `data.cStat`/`data.xMotivo` — **no longer HTTP 200 with the order in `AGUARDANDO`** (the previous claim in this section — that the order ended up in `AGUARDANDO` — was incorrect: cStat≥200 has always resulted in `REJEITADO`, never `AGUARDANDO`, even before v1.9). To validate the technical flow, inspect `data.cStat`/`data.xMotivo` (when `SEFAZ_REJECTED`) or `data.soapRetorno` (when HTTP 200), and confirm the access key was generated (44 digits).
 
 ### 13.2 Certificate cache invalidation
 
@@ -1041,7 +1136,7 @@ The `EmpresaCertificadoService` cache is automatically invalidated by `EmpresaCo
 □ 6. Order created with valid destCnpjCpf/destRazaoSocial
 □ 7. POST /{id}/emitir → HTTP 200, data.soapRetorno not empty
 □ 8. Verify chaveNfe: 44 digits (confirms SEFAZ accepted the batch)
-□ 9. In HOM-SP: cStat=225 in soapRetorno is expected — not a system error
+□ 9. In HOM-SP: cStat=225 can occur — check `xMotivo` before assuming it's an environment limitation (v1.9: returns HTTP 422 `SEFAZ_REJECTED`, no longer HTTP 200)
 □ 10. Verify nfe_documento in DB: c_stat, x_motivo, n_prot
 □ 11. Verify nfe_log: empresa_id, usuario populated
 ```
@@ -1148,6 +1243,18 @@ Security checks:
 
 ---
 
+### DA-08: Separation of empresaId for stock vs. empresa for NF-e in the multi-CNPJ flow
+
+**Decision:** in `PedidoEmissaoService.emitir()`, the `empresaId` used for stock operations is derived from `pedido.getEmpresaId()` (anchor empresa registered in the order at creation time), not from `empresa.getId()` where `empresa` is resolved from the `cnpjEmitente`.
+
+**Motivation:** in the multi-CNPJ model, the product catalog belongs to the OMS client as a whole — not to each CNPJ individually. Products are registered via batch using the OMS token whose `eid` points to the anchor empresa. If stock were operated using the fiscal empresa for the issuing CNPJ (which may have a different `id` from the anchor), the lookup `buscarPorIdEEmpresa(produtoId, empresaFiscal.getId())` would return `null` because the product exists under `empresa_id = anchor.getId()`.
+
+**Consequence:** the `empresa` variable in `PedidoEmissaoService` retains two distinct responsibilities: (1) issuer data in the NF-e XML and (2) OMS certificate selection by CNPJ — both correctly served by the fiscal empresa. Only the `empresaId` for stock is decoupled and pinned to the anchor empresa.
+
+**Implemented:** commit `117a447` on 2026-06-30 — 126/126 tests passing.
+
+---
+
 ## 16. ROADMAP TO PRODUCTION
 
 ### Phase 10 — Documentation and Swagger ✓ COMPLETED (2026-05-12)
@@ -1198,7 +1305,7 @@ Security checks:
 
 ---
 
-*Document MTF-001 — version 2.6 — Borurio ERP Fiscal BR*  
+*Document MTF-001 — version 2.8 — Borurio ERP Fiscal BR*  
 *Based on the state validated in HOM on 2026-05-11*  
-*Last updated: 2026-06-22 (V028 multi-CNPJ OMS; hardening A-03/A-04; 126/126 tests; sections 3.1/3.2/11.3/16 updated)*  
+*Last updated: 2026-07-10 (optional per-company stock control; REJEITADO/ERRO reissue; emitter address via order payload; standardized errorCode/retryable; section 13.1 corrected with cStat=225 cause 2; 190/190 tests)*  
 *Next revision: after PRD deployment (Phase 11)*

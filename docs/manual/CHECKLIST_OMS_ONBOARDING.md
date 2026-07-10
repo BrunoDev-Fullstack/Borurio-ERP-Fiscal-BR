@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.7                                      |
-| Data                   | 2026-06-22                               |
+| Versão                 | 1.9                                      |
+| Data                   | 2026-07-10                               |
 | Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | Pronto para execução                     |
@@ -313,8 +313,16 @@ Resposta (campo relevante):
 | `itens[].unidade`            | string  | **obrigatório** — ex: `UN`, `KG`, `PC`, `CX`               |
 | `itens[].origem`             | integer | **obrigatório** — `0`=Nacional · `1`–`8`=Importada          |
 | `itens[].csosn`              | string  | **obrigatório** — ex: `"102"`, `"400"`, `"500"`, `"900"`    |
+| `emitLogradouro`             | string  | opcional — endereço do emitente (v1.9, ver nota abaixo)     |
+| `emitNumero`                 | string  | opcional                                                    |
+| `emitBairro`                 | string  | opcional                                                    |
+| `emitCodigoMunicipio`        | string  | opcional — código IBGE 7 dígitos                            |
+| `emitMunicipio`              | string  | opcional                                                    |
+| `emitCep`                    | string  | opcional                                                    |
 
 > **Atenção:** Os campos fiscais acima são obrigatórios e devem ser enviados pelo OMS em cada item. O sistema **não** copia dados fiscais do produto cadastrado. Se algum campo estiver ausente, o pedido é rejeitado com **HTTP 400**.
+
+> **Endereço do emitente (v1.9):** empresas autorizadas via certificado A1 (Bloco 0B) são criadas automaticamente só com CNPJ/razão social/UF — sem endereço, porque o certificado não carrega esse dado. Se o cadastro estiver incompleto, `/emitir` bloqueia com `EMITTER_ADDRESS_INCOMPLETE` (ver Bloco 5). Envie os 6 campos `emit*` acima em qualquer `POST /api/app/pedidos` pra completar automaticamente **apenas os campos ausentes** do cadastro — não sobrescreve endereço já preenchido. Não precisa reenviar em todo pedido depois de completo.
 
 - [ ] Confirmar `data.status` = `"RASCUNHO"` na resposta
 - [ ] Confirmar `data.id` retornado — guardar o `id` do pedido
@@ -358,10 +366,13 @@ Formato de resposta de erro de negócio:
 
 ## Bloco 5 — Emissão NF-e
 
+> **v1.9:** `/emitir` aceita pedidos em `RASCUNHO`, `REJEITADO` ou `ERRO` — reemissão usa o **mesmo `pedidoId`**, não cria pedido novo. Uma rejeição da SEFAZ não retorna mais `HTTP 200` — retorna `HTTP 422` com `errorCode: SEFAZ_REJECTED`.
+
 - [ ] **[BLOQUEANTE]** `POST /api/app/pedidos/{id}/emitir` (sem body)
-- [ ] Confirmar que `data.chaveNfe` tem exatamente **44 dígitos** — este é o indicador que o lote foi aceito pela SEFAZ
+- [ ] Se `HTTP 200`: confirmar que `data.chaveNfe` tem exatamente **44 dígitos** — o lote foi aceito e autorizado ou está aguardando
+- [ ] Se `HTTP 422` com `errorCode: EMITTER_ADDRESS_INCOMPLETE`: cadastro da empresa emitente sem endereço — enviar campos `emit*` (Bloco 4) e repetir
+- [ ] Se `HTTP 422` com `errorCode: SEFAZ_REJECTED`: verificar `data.cStat`/`data.xMotivo` — corrigir a causa e chamar `/emitir` de novo **no mesmo pedido**
 - [ ] Guardar `data.soapRetorno` para diagnóstico se necessário
-- [ ] Confirmar que não ocorreu `HTTP 500` (status `ERRO`)
 
 **Comportamento de estoque durante a emissão:**
 
@@ -376,17 +387,21 @@ Formato de resposta de erro de negócio:
 
 **Empresas sem controle de estoque:** para clientes OMS configurados internamente com `controleEstoqueAtivo=false`, nenhuma linha da tabela acima ocorre — `/emitir` nunca reserva, baixa nem estorna estoque, e `INSUFFICIENT_STOCK` nunca é retornado. Configuração feita pelo Borurio, não pelo OMS.
 
-**Comportamento esperado em HOM/SP:**
+**Comportamento esperado em HOM/SP (corrigido v1.9):**
 
 | Situação                     | O que observar                                                                             |
 |------------------------------|--------------------------------------------------------------------------------------------|
-| Lote aceito pela SEFAZ       | `chaveNfe` com 44 dígitos                                                                  |
-| `cStat=225` no `soapRetorno` | **Normal em HOM/SP** — limitação do processador `SP_NFE_PL_008i2`. Não é falha do sistema. |
-| `cStat=100` no `soapRetorno` | AUTORIZADO — será validado em PRD com infraestrutura pronta, usando o A1 real da Jcho Factory Ltda (`tpAmb=1`) |
-| `HTTP 422` + `errorCode: "INVALID_ORDER_STATUS"` | Pedido não está em `RASCUNHO` — verificar `status` antes de tentar novamente |
-| `HTTP 500`                                        | Exceção durante transmissão — pedido vai para `ERRO`                         |
+| Lote aceito e autorizado pela SEFAZ | `HTTP 200` · `chaveNfe` com 44 dígitos                                              |
+| `cStat=225` (`SEFAZ_REJECTED`) | **Não assumir automaticamente que é limitação de ambiente** — verificar `data.xMotivo`. Já ocorreu em homologação real por cadastro de emitente incompleto (10-07-2026). `HTTP 422`, `retryable: false`. |
+| `cStat=100`                  | `AUTORIZADO` — validado em PRD com infraestrutura pronta, usando o A1 real da Jcho Factory Ltda (`tpAmb=1`) |
+| `HTTP 422` + `errorCode: "INVALID_ORDER_STATUS"` | Pedido não está em `RASCUNHO`/`REJEITADO`/`ERRO` — verificar `status` antes de tentar novamente |
+| `HTTP 422` + `errorCode: "SEFAZ_REJECTED"`        | SEFAZ processou e rejeitou — ver `data.cStat`/`data.xMotivo`; corrigir e reemitir no mesmo pedido |
+| `HTTP 422` + `errorCode: "EMITTER_ADDRESS_INCOMPLETE"` | Cadastro do emitente incompleto — SEFAZ nem foi chamada; completar endereço (Bloco 4) |
+| `HTTP 503` + `errorCode: "SEFAZ_TIMEOUT"`/`"SEFAZ_UNAVAILABLE"` | Falha de rede transitória — `retryable: true`, seguro reemitir sem alterar nada |
+| `HTTP 500`                                        | Exceção não classificada — pedido vai para `ERRO`, `retryable: false`        |
 
-- [ ] Tentar emitir pedido com `status != "RASCUNHO"` → confirmar `HTTP 422` com `"errorCode": "INVALID_ORDER_STATUS"`
+- [ ] Tentar emitir pedido com `status` = `AUTORIZADO`/`AGUARDANDO`/`CANCELADO` → confirmar `HTTP 422` com `"errorCode": "INVALID_ORDER_STATUS"`
+- [ ] (v1.9) Se um pedido ficar `REJEITADO` ou `ERRO`: chamar `/emitir` de novo **no mesmo `pedidoId`** → confirmar que não precisa criar pedido novo e que `chaveNfe` retornada é diferente da tentativa anterior
 
 ---
 
@@ -403,15 +418,15 @@ Formato de resposta de erro de negócio:
 | `RASCUNHO`   | Criado, não transmitido             | Emitir                    |
 | `AUTORIZADO` | cStat=100 — aprovado pela SEFAZ     | Cancelar / CC-e           |
 | `AGUARDANDO` | cStat=104 ou resposta não parseável | Consultar novamente       |
-| `REJEITADO`  | cStat ≥ 200 — SEFAZ recusou         | Nenhuma — fluxo encerrado |
-| `ERRO`       | Exceção durante transmissão         | Investigar logs           |
+| `REJEITADO`  | cStat ≥ 200 — SEFAZ recusou         | Emitir de novo (mesmo pedido, v1.9) |
+| `ERRO`       | Exceção durante transmissão         | Emitir de novo (mesmo pedido, v1.9) |
 | `CANCELADO`  | Cancelamento autorizado             | Nenhuma — imutável        |
 
 ---
 
 ## Bloco 7 — Operações pós-autorização (opcional em HOM)
 
-Estes itens só são executáveis quando `status = "AUTORIZADO"`. Em HOM/SP o status será `AGUARDANDO` (cStat=225), então os testes abaixo são realizáveis somente se o ambiente retornar cStat=100.
+Estes itens só são executáveis quando `status = "AUTORIZADO"`. Em HOM/SP o pedido pode ficar `REJEITADO` (cStat=225 — ver Bloco 5), então os testes abaixo são realizáveis somente se o ambiente retornar cStat=100.
 
 - [ ] `POST /api/app/pedidos/{id}/cancelar` com `{"justificativa": "<texto mínimo 15 chars>"}`
 - [ ] `POST /api/app/pedidos/{id}/cce` com `{"correcao": "<texto mínimo 15 chars>"}`
