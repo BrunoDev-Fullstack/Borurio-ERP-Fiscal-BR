@@ -72,8 +72,14 @@ public class PedidoEmissaoService {
                 : (EmpresaContextHolder.get() != null ? EmpresaContextHolder.get()
                    : (empresa != null ? empresa.getId() : null));
 
+        // Empresa âncora (dona do estoque) decide se o fluxo controla estoque — não confundir
+        // com `empresa`, que pode ser outro CNPJ do mesmo cliente OMS (fluxo multi-CNPJ).
+        boolean controlaEstoque = controlaEstoque(empresaId);
+
         // Reserva ANTES da chamada SEFAZ — lança IllegalStateException (→ 422) se insuficiente
-        estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
+        if (controlaEstoque) {
+            estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
+        }
 
         NfeEmissaoRequest req = montarRequest(pedido);
 
@@ -85,17 +91,21 @@ public class PedidoEmissaoService {
             result = nfeGeracaoService.gerar(req, empresa);
         } catch (Exception e) {
             pedidoService.atualizarStatus(pedidoId, "ERRO", null);
-            desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            if (controlaEstoque) {
+                desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            }
             throw e;
         }
 
         String novoStatus = resolverStatus(result.getSoapRetorno());
         pedidoService.atualizarStatus(pedidoId, novoStatus, result.getChaveNfe());
 
-        if ("AUTORIZADO".equals(novoStatus)) {
-            estoqueService.baixaDefinitivaItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
-        } else if ("REJEITADO".equals(novoStatus)) {
-            desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
+        if (controlaEstoque) {
+            if ("AUTORIZADO".equals(novoStatus)) {
+                estoqueService.baixaDefinitivaItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            } else if ("REJEITADO".equals(novoStatus)) {
+                desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            }
         }
         // AGUARDANDO: reserva mantida (Opção A — liberar manualmente ou no próximo ciclo de consulta)
 
@@ -166,6 +176,15 @@ public class PedidoEmissaoService {
             log.warn("[PedidoEmissao] Falha ao resolver empresa | empresaId={} | erro={}", empresaId, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Empresa não encontrada ou flag nula → controla estoque (comportamento atual/seguro).
+     * Só desativa quando a empresa âncora existe e tem controleEstoqueAtivo explicitamente false.
+     */
+    private boolean controlaEstoque(Long empresaId) {
+        Empresa e = resolverEmpresa(empresaId);
+        return e == null || e.controlaEstoque();
     }
 
     private String resolverCriadoPor() {

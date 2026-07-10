@@ -27,6 +27,7 @@ public class EmpresaResponse {
     private LocalDateTime atualizadoEm;
     private String certPath;
     private String certTipo;
+    private Boolean controleEstoqueAtivo;
 
     public static EmpresaResponse from(Empresa e) {
         EmpresaResponse r = new EmpresaResponse();
@@ -49,6 +50,7 @@ public class EmpresaResponse {
         r.setAtualizadoEm(e.getAtualizadoEm());
         r.setCertPath(e.getCertPath());
         r.setCertTipo(e.getCertTipo());
+        r.setControleEstoqueAtivo(e.getControleEstoqueAtivo());
         return r;
     }
 }

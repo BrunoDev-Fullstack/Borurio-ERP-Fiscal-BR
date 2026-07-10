@@ -374,6 +374,8 @@ Formato de resposta de erro de negócio:
 | Status → `AGUARDANDO`         | Reserva mantida — `estoqueDisponivel` permanece bloqueado       |
 | Status → `CANCELADO`          | Estorno — `estoqueTotal += qtd`                                 |
 
+**Empresas sem controle de estoque:** para clientes OMS configurados internamente com `controleEstoqueAtivo=false`, nenhuma linha da tabela acima ocorre — `/emitir` nunca reserva, baixa nem estorna estoque, e `INSUFFICIENT_STOCK` nunca é retornado. Configuração feita pelo Borurio, não pelo OMS.
+
 **Comportamento esperado em HOM/SP:**
 
 | Situação                     | O que observar                                                                             |

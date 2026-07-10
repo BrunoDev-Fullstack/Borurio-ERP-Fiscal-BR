@@ -1016,7 +1016,7 @@ Content-Type: application/json
 | `errorCode`            | HTTP | Trigger                                                                               |
 |------------------------|------|---------------------------------------------------------------------------------------|
 | `INVALID_ORDER_STATUS` | 422  | Order is not in the expected state for the operation (e.g., not `RASCUNHO` for `/emitir`, not `AUTORIZADO` for `/cancelar` or `/cce`) |
-| `INSUFFICIENT_STOCK`   | 422  | Available stock (`estoqueDisponivel`) is less than the requested quantity for an item |
+| `INSUFFICIENT_STOCK`   | 422  | Available stock (`estoqueDisponivel`) is less than the requested quantity for an item — does not occur for companies with stock control disabled (see note below) |
 | `PRODUCT_NOT_FOUND`    | 422  | An item references a `produtoId` that does not exist for the authenticated company    |
 | `PRODUCT_INACTIVE`          | 422                          | An item references a product with `estado = 0` (inactive)                                                                         |
 | `VALIDATION_ERROR`          | 207 `resultados[].errorCode` | Batch item failed field validation — invalid NCM, blank required field, or price ≤ 0                                              |
@@ -1032,6 +1032,8 @@ Content-Type: application/json
 | `CERT_NOT_FOUND_FOR_CNPJ`   | 422                          | No active certificate found for the issuing CNPJ — verify that the fiscal authorization was completed for that CNPJ |
 
 > `[OPERATIONAL]` The OMS must use `errorCode` for all conditional logic. The `message` field is intended for human-readable logs only. The HTTP status alone is not sufficient to distinguish between `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND`, and `PRODUCT_INACTIVE`, all of which return HTTP 422.
+
+> `[CONTRACT]` Stock control is optional per company. By default, every company validates, reserves, and writes off stock normally in `/emitir` — unchanged behavior. For OMS clients that don't track stock, Borurio can disable this validation per company (internal configuration, not exposed via the integration API). When disabled, `/emitir` never returns `INSUFFICIENT_STOCK` and the product balance is never changed at any step (issuance, rejection, or cancellation).
 
 ---
 
@@ -1207,6 +1209,7 @@ pedido.status:    "AGUARDANDO" → normal in HOM (batch accepted, cStat=104); do
 
 | Version | Date       | Change                                                                                      |
 |---------|------------|---------------------------------------------------------------------------------------------|
+| 1.8     | 2026-07-10 | Stock control is now optional per company (`controleEstoqueAtivo`, internal configuration, active by default). Companies with the flag disabled never receive `INSUFFICIENT_STOCK` in `/emitir` and never have their balance changed at any step (reservation, write-off, reversal, or cancellation). No behavior change for existing companies. |
 | 1.7     | 2026-06-22 | **OMS Multi-CNPJ (V028):** an OMS client (`codigoEmpresaOms`) can authorize multiple CNPJs under a single token. Company auto-created from X.509 Subject (no ADMIN pre-registration required). `cnpjEmitente` field added to order for certificate selection at issuance. Behavior per scenario (A/B/C/D) documented — token never changes in scenarios B, C, D. New `errorCode` values: `COMPANY_INACTIVE`, `CNPJ_NOT_AUTHORIZED`, `CERT_NOT_FOUND_FOR_CNPJ`. Removed: `COMPANY_NOT_FOUND` (company is now auto-created). OMS multi-CNPJ smoke test added (section 9.1b). |
 | 1.6.1   | 2026-06-18 | Documentation fix: `POST /api/integration/fiscal-authorizations` response **does not use** the `Result<>` envelope — DTO returned directly at the root (`token`, `empresaId`, `cnpj`, `razaoSocial`, `tokenExpiraEm`). Sections 3.3 and 8.1 corrected. |
 | 1.6     | 2026-06-17 | OMS Session via A1 Certificate — `POST /api/integration/fiscal-authorizations` with `X-Api-Key` header; no user login for the OMS; one technical token per company; reauthorization (certificate replacement) and revocation documented. New `errorCode` values: `INVALID_API_KEY`, `COMPANY_NOT_FOUND`, `INVALID_CERTIFICATE`, `CNPJ_CERTIFICATE_MISMATCH`, `CERTIFICATE_EXPIRED`, `AUTHORIZATION_REVOKED`. |

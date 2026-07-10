@@ -187,6 +187,7 @@ public class OmsFiscalAuthorizationService {
         empresa.setCrt("1");
         empresa.setSerieNfePadrao("1");
         empresa.setAtivo(true);
+        empresa.setControleEstoqueAtivo(true);
         empresaMapper.inserir(empresa);
         log.info("[OmsAuth] Empresa auto-criada | cnpj={} | razaoSocial={}", cnpj, empresa.getRazaoSocial());
         return empresa;

@@ -1014,7 +1014,7 @@ Content-Type: application/json
 | `errorCode`            | HTTP | Gatilho                                                                                        |
 |------------------------|------|------------------------------------------------------------------------------------------------|
 | `INVALID_ORDER_STATUS` | 422  | Pedido não está no estado esperado para a operação (ex: não é `RASCUNHO` para `/emitir`; não é `AUTORIZADO` para `/cancelar` ou `/cce`) |
-| `INSUFFICIENT_STOCK`   | 422  | Estoque disponível (`estoqueDisponivel`) é inferior à quantidade solicitada para o item        |
+| `INSUFFICIENT_STOCK`   | 422  | Estoque disponível (`estoqueDisponivel`) é inferior à quantidade solicitada para o item — não ocorre para empresas com controle de estoque desativado (ver nota abaixo) |
 | `PRODUCT_NOT_FOUND`    | 422  | Um item referencia `produtoId` que não existe para a empresa autenticada                      |
 | `PRODUCT_INACTIVE`          | 422                          | Um item referencia produto com `estado = 0` (inativo)                                                                               |
 | `VALIDATION_ERROR`          | 207 `resultados[].errorCode` | Item do batch falhou na validação de campos — NCM inválido, campo obrigatório vazio ou preço ≤ 0                                     |
@@ -1030,6 +1030,8 @@ Content-Type: application/json
 | `CERT_NOT_FOUND_FOR_CNPJ`   | 422                          | Nenhum certificado ativo encontrado para o CNPJ emitente — verificar se a autorização fiscal foi realizada para esse CNPJ |
 
 > `[OPERACIONAL]` O OMS deve usar `errorCode` para toda lógica condicional. O campo `message` é destinado a logs legíveis por humanos. O HTTP status isolado não é suficiente para distinguir `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND` e `PRODUCT_INACTIVE`, que todos retornam HTTP 422.
+
+> `[CONTRATO]` Controle de estoque é opcional por empresa. Por padrão, toda empresa valida, reserva e baixa estoque normalmente em `/emitir` — comportamento inalterado. Para clientes OMS que não trabalham com controle de estoque, o Borurio pode desativar essa validação por empresa (configuração interna, não exposta via API de integração). Quando desativado, `/emitir` nunca retorna `INSUFFICIENT_STOCK` e o saldo do produto não é alterado em nenhuma etapa (emissão, rejeição ou cancelamento).
 
 ---
 
@@ -1205,6 +1207,7 @@ pedido.status:    "AGUARDANDO" → normal em HOM (lote aceito, cStat=104); não 
 
 | Versão | Data       | Alteração                                                                                      |
 |--------|------------|-----------------------------------------------------------------------------------------------|
+| 1.8    | 10-07-2026 | Controle de estoque passa a ser opcional por empresa (`controleEstoqueAtivo`, configuração interna, default ativo). Empresas com a flag desativada nunca recebem `INSUFFICIENT_STOCK` em `/emitir` e não têm saldo alterado em nenhuma etapa (reserva, baixa, estorno ou cancelamento). Nenhuma mudança de comportamento para empresas existentes. |
 | 1.7    | 22-06-2026 | **OMS Multi-CNPJ (V028):** um cliente OMS (`codigoEmpresaOms`) pode autorizar múltiplos CNPJs com um único token. Empresa auto-criada a partir do Subject X.509 (sem pré-cadastro ADMIN). Campo `cnpjEmitente` adicionado ao pedido para seleção do certificado na emissão. Comportamento por cenário (A/B/C/D) documentado — token nunca muda nos cenários B, C, D. Novos `errorCode`: `COMPANY_INACTIVE`, `CNPJ_NOT_AUTHORIZED`, `CERT_NOT_FOUND_FOR_CNPJ`. Removido: `COMPANY_NOT_FOUND` (empresa agora auto-criada). Smoke test OMS multi-CNPJ adicionado (seção 9.1b). |
 | 1.6.1  | 18-06-2026 | Correção de documentação: resposta de `POST /api/integration/fiscal-authorizations` **não usa** o envelope `Result<>` — DTO retornado diretamente na raiz (campos `token`, `empresaId`, `cnpj`, `razaoSocial`, `tokenExpiraEm`). Seções 3.3 e 8.1 corrigidas. |
 | 1.6    | 17-06-2026 | Sessão OMS por Certificado A1 — `POST /api/integration/fiscal-authorizations` com header `X-Api-Key`; sem login de usuário para o OMS; token técnico por empresa; reautorização (troca de certificado) e revogação documentadas. Novos `errorCode`: `INVALID_API_KEY`, `COMPANY_NOT_FOUND`, `INVALID_CERTIFICATE`, `CNPJ_CERTIFICATE_MISMATCH`, `CERTIFICATE_EXPIRED`, `AUTHORIZATION_REVOKED`. |

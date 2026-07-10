@@ -85,6 +85,7 @@ public class StartupListener {
             nova.setCep(emitente.getCep() != null ? emitente.getCep().replaceAll("\\D", "") : null);
             nova.setSerieNfePadrao("1");
             nova.setAtivo(true);
+            nova.setControleEstoqueAtivo(true);
 
             empresaMapper.inserir(nova);
             log.info("[Startup] Empresa default criada | id={} | cnpj={}", nova.getId(), cnpj);

@@ -43,6 +43,7 @@ public class EmpresaServiceImpl implements EmpresaService {
         if (empresa.getCrt() == null) empresa.setCrt("1");
         if (empresa.getSerieNfePadrao() == null) empresa.setSerieNfePadrao("1");
         if (empresa.getAtivo() == null) empresa.setAtivo(true);
+        if (empresa.getControleEstoqueAtivo() == null) empresa.setControleEstoqueAtivo(true);
         empresaMapper.inserir(empresa);
         return empresa;
     }

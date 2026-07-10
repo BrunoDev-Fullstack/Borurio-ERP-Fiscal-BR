@@ -1,7 +1,9 @@
 package br.com.borurio.web.service;
 
+import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.exception.BusinessException;
+import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.config.EmitenteProperties;
@@ -39,6 +41,7 @@ public class PedidoOperacaoService {
     private final NfeCceService cceService;
     private final EmitenteProperties emitente;
     private final EstoqueService estoqueService;
+    private final EmpresaMapper empresaMapper;
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
@@ -49,7 +52,8 @@ public class PedidoOperacaoService {
                                   NfeCancelamentoService cancelamentoService,
                                   NfeCceService cceService,
                                   EmitenteProperties emitente,
-                                  EstoqueService estoqueService) {
+                                  EstoqueService estoqueService,
+                                  EmpresaMapper empresaMapper) {
         this.pedidoService     = pedidoService;
         this.documentoService  = documentoService;
         this.transmitService   = transmitService;
@@ -57,6 +61,7 @@ public class PedidoOperacaoService {
         this.cceService        = cceService;
         this.emitente          = emitente;
         this.estoqueService    = estoqueService;
+        this.empresaMapper     = empresaMapper;
     }
 
     // -------------------------------------------------------------------------
@@ -137,7 +142,7 @@ public class PedidoOperacaoService {
 
         pedidoService.atualizarStatus(pedidoId, "CANCELADO", chave);
 
-        if (pedido.getItens() != null && !pedido.getItens().isEmpty()) {
+        if (pedido.getItens() != null && !pedido.getItens().isEmpty() && controlaEstoque(pedido.getEmpresaId())) {
             Authentication auth = SecurityContextHolder.getContext().getAuthentication();
             String criadoPor = auth != null ? auth.getName() : "sistema";
             try {
@@ -191,5 +196,17 @@ public class PedidoOperacaoService {
                     "Execute /emitir primeiro.");
         }
         return chave;
+    }
+
+    /** Empresa não encontrada ou id nulo → controla estoque (default seguro). */
+    private boolean controlaEstoque(Long empresaId) {
+        if (empresaId == null) return true;
+        try {
+            Empresa e = empresaMapper.buscarPorId(empresaId);
+            return e == null || e.controlaEstoque();
+        } catch (Exception e) {
+            log.warn("[PedidoOperacao] Falha ao resolver empresa | empresaId={} | erro={}", empresaId, e.getMessage());
+            return true;
+        }
     }
 }

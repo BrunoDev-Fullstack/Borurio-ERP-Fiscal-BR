@@ -44,4 +44,11 @@ public class Empresa {
     private String certPath;
     private String certSenha;
     private String certTipo;
+
+    private Boolean controleEstoqueAtivo;
+
+    /** Flag nula ou empresa ausente → controla estoque (default seguro). */
+    public boolean controlaEstoque() {
+        return !Boolean.FALSE.equals(controleEstoqueAtivo);
+    }
 }

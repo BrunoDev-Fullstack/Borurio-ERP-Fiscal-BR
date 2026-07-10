@@ -27,7 +27,8 @@ public interface EmpresaMapper {
                    atualizado_em     AS atualizadoEm,
                    cert_path         AS certPath,
                    cert_senha        AS certSenha,
-                   cert_tipo         AS certTipo
+                   cert_tipo         AS certTipo,
+                   controle_estoque_ativo AS controleEstoqueAtivo
             FROM empresa
             """;
 
@@ -45,7 +46,8 @@ public interface EmpresaMapper {
                 cnpj, razao_social, nome_fantasia, ie, crt, uf,
                 logradouro, numero, bairro, municipio, codigo_municipio, cep,
                 serie_nfe_padrao, ativo,
-                cert_path, cert_senha, cert_tipo
+                cert_path, cert_senha, cert_tipo,
+                controle_estoque_ativo
             ) VALUES (
                 #{cnpj}, #{razaoSocial}, #{nomeFantasia, jdbcType=VARCHAR},
                 #{ie, jdbcType=VARCHAR}, #{crt}, #{uf},
@@ -54,7 +56,8 @@ public interface EmpresaMapper {
                 #{codigoMunicipio, jdbcType=VARCHAR}, #{cep, jdbcType=VARCHAR},
                 #{serieNfePadrao}, #{ativo},
                 #{certPath, jdbcType=VARCHAR}, #{certSenha, jdbcType=VARCHAR},
-                #{certTipo, jdbcType=VARCHAR}
+                #{certTipo, jdbcType=VARCHAR},
+                #{controleEstoqueAtivo}
             )
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
@@ -78,6 +81,7 @@ public interface EmpresaMapper {
                 cert_path         = #{certPath, jdbcType=VARCHAR},
                 cert_senha        = #{certSenha, jdbcType=VARCHAR},
                 cert_tipo         = #{certTipo, jdbcType=VARCHAR},
+                controle_estoque_ativo = #{controleEstoqueAtivo},
                 atualizado_em     = NOW()
             WHERE id = #{id}
             """)
