@@ -95,6 +95,7 @@ public class NfeGeracaoService {
 
     public NfeGeracaoResult gerar(NfeEmissaoRequest req, Empresa empresa) throws Exception {
         validarRequest(req);
+        validarEnderecoEmitente(empresa);
 
         String ufEmitente   = empresa != null && empresa.getUf() != null
                 ? empresa.getUf() : emitente.getUf();
@@ -411,6 +412,27 @@ public class NfeGeracaoService {
                 throw new IllegalArgumentException("Valor unitário inválido no item: " + item.getCodigoProduto());
             validarNcmNaTabela(item.getNcm(), item.getCodigoProduto());
         }
+    }
+
+    /**
+     * Intercepta ANTES de montar/transmitir o XML: evita round-trip desnecessário à SEFAZ
+     * quando o cadastro do emitente não tem os dados obrigatórios de endereço.
+     */
+    private void validarEnderecoEmitente(Empresa empresa) {
+        if (empresa == null) return;
+        boolean incompleto = isBlank(empresa.getLogradouro())
+                || isBlank(empresa.getNumero())
+                || isBlank(empresa.getBairro())
+                || isBlank(empresa.getCodigoMunicipio())
+                || isBlank(empresa.getMunicipio())
+                || isBlank(empresa.getCep());
+        if (incompleto) {
+            throw br.com.borurio.app.exception.BusinessException.emitterAddressIncomplete();
+        }
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     private void validarNcmNaTabela(String ncm, String codigoProduto) {

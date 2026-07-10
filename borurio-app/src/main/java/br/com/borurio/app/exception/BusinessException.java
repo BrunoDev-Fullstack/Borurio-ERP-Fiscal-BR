@@ -1,24 +1,44 @@
 package br.com.borurio.app.exception;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 /**
  * Exceção de negócio com errorCode identificável pelo consumidor da API.
- * O GlobalExceptionHandler retorna { code, message, data: null, errorCode } no envelope.
+ * O GlobalExceptionHandler retorna { code, message, data, errorCode, retryable, requestId } no envelope.
  */
 public class BusinessException extends RuntimeException {
 
     private final String errorCode;
     private final int httpStatus;
+    private final boolean retryable;
+    private final Map<String, Object> data;
 
     public BusinessException(String errorCode, String message, int httpStatus) {
+        this(errorCode, message, httpStatus, false, null);
+    }
+
+    public BusinessException(String errorCode, String message, int httpStatus, boolean retryable) {
+        this(errorCode, message, httpStatus, retryable, null);
+    }
+
+    public BusinessException(String errorCode, String message, int httpStatus,
+                              boolean retryable, Map<String, Object> data) {
         super(message);
         this.errorCode  = errorCode;
         this.httpStatus = httpStatus;
+        this.retryable  = retryable;
+        this.data       = data;
     }
 
     public String getErrorCode()  { return errorCode; }
     public int    getHttpStatus() { return httpStatus; }
+
+    /** Indica ao consumidor da API se a mesma operação pode ser reenviada sem alterar dados. */
+    public boolean isRetryable() { return retryable; }
+
+    /** Dados estruturados adicionais (ex.: cStat/xMotivo de uma rejeição SEFAZ). Pode ser null. */
+    public Map<String, Object> getData() { return data; }
 
     // -------------------------------------------------------------------------
     // Factory methods — mantêm mensagens consistentes com o contrato de integração
@@ -124,5 +144,60 @@ public class BusinessException extends RuntimeException {
                 "Nenhum certificado ativo encontrado para CNPJ=" + cnpj
                         + ". Verifique se a autorização fiscal foi realizada para este CNPJ.",
                 422);
+    }
+
+    // -------------------------------------------------------------------------
+    // Emissão de NF-e — códigos padronizados de retry (Requisito 4)
+    // -------------------------------------------------------------------------
+
+    /** Cadastro do emitente sem endereço completo — não adianta retry sem corrigir o dado. */
+    public static BusinessException emitterAddressIncomplete() {
+        return new BusinessException(
+                "EMITTER_ADDRESS_INCOMPLETE",
+                "Cadastro do emitente incompleto.",
+                422,
+                false);
+    }
+
+    /**
+     * SEFAZ rejeitou a NF-e (cStat >= 200) — na maioria dos casos é dado incorreto
+     * (NCM/CFOP/CSOSN/schema), não falha transitória. retryable=false: reenviar sem corrigir
+     * a causa (exposta em data.cStat/data.xMotivo) só repete a mesma rejeição. O pedido pode
+     * ser reemitido pelo mesmo /emitir depois de corrigido (ver STATUS_EMISSIVEIS).
+     */
+    public static BusinessException sefazRejected(int cStat, String xMotivo) {
+        return new BusinessException(
+                "SEFAZ_REJECTED",
+                "NF-e rejeitada pela SEFAZ: " + xMotivo,
+                422,
+                false,
+                Map.of("cStat", cStat, "xMotivo", xMotivo != null ? xMotivo : ""));
+    }
+
+    /** Timeout de rede na chamada à SEFAZ — falha transitória, retry é seguro. */
+    public static BusinessException sefazTimeout() {
+        return new BusinessException(
+                "SEFAZ_TIMEOUT",
+                "Tempo limite excedido ao transmitir a NF-e para a SEFAZ.",
+                503,
+                true);
+    }
+
+    /** SEFAZ inacessível (conexão recusada/DNS) — falha transitória, retry é seguro. */
+    public static BusinessException sefazUnavailable() {
+        return new BusinessException(
+                "SEFAZ_UNAVAILABLE",
+                "SEFAZ temporariamente indisponível.",
+                503,
+                true);
+    }
+
+    /** XML gerado não passou na validação de schema local — retry só ajuda se os dados forem corrigidos. */
+    public static BusinessException xmlSchemaInvalid(String detail) {
+        return new BusinessException(
+                "XML_SCHEMA_INVALID",
+                "XML da NF-e não passou na validação de schema: " + detail,
+                422,
+                false);
     }
 }

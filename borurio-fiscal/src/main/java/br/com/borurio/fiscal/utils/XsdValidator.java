@@ -1,5 +1,6 @@
 package br.com.borurio.fiscal.utils;
 
+import br.com.borurio.fiscal.exception.XmlSchemaValidationException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
@@ -53,13 +54,13 @@ public class XsdValidator {
             System.out.println("XML VALIDADO COM SUCESSO");
 
         } catch (SAXParseException e) {
-            throw new Exception(
+            throw new XmlSchemaValidationException(
                     "Erro XSD na linha " + e.getLineNumber() +
                             ", coluna " + e.getColumnNumber() +
                             ": " + e.getMessage(), e
             );
         } catch (SAXException e) {
-            throw new Exception("Falha de conformidade XML/XSD: " + e.getMessage(), e);
+            throw new XmlSchemaValidationException("Falha de conformidade XML/XSD: " + e.getMessage(), e);
         } catch (Exception e) {
             throw new Exception("Erro ao validar XML da NF-e: " + e.getMessage(), e);
         }

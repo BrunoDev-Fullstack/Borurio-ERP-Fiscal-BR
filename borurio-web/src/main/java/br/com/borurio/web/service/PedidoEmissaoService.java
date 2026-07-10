@@ -29,9 +29,20 @@ import java.util.List;
  *   cStat≥200  → REJEITADO   + desfaz reserva de estoque
  *   lote aceito sem infProt → AGUARDANDO (reserva mantida — Opção A)
  *   exceção     → ERRO       + desfaz reserva de estoque
+ *
+ * Reemissão: pedidos em REJEITADO ou ERRO podem chamar emitir() novamente —
+ * cada tentativa gera nNF/chave novos via NfeSequenciaService, sem risco de duplicidade na SEFAZ.
+ *
+ * emitir() lança BusinessException (não retorna 200 disfarçado de sucesso) quando:
+ *   REJEITADO         → SEFAZ_REJECTED (cStat/xMotivo no campo `data`, retryable=false — geralmente é dado incorreto)
+ *   timeout de rede    → SEFAZ_TIMEOUT (retryable=true)
+ *   SEFAZ inacessível  → SEFAZ_UNAVAILABLE (retryable=true)
+ *   schema inválido    → XML_SCHEMA_INVALID (retryable=false)
  */
 @Service
 public class PedidoEmissaoService {
+
+    private static final List<String> STATUS_EMISSIVEIS = List.of("RASCUNHO", "REJEITADO", "ERRO");
 
     private static final Logger log = LoggerFactory.getLogger(PedidoEmissaoService.class);
 
@@ -56,9 +67,10 @@ public class PedidoEmissaoService {
     public NfeGeracaoResult emitir(Long pedidoId) throws Exception {
         Pedido pedido = pedidoService.buscarComItens(pedidoId);
 
-        if (!"RASCUNHO".equals(pedido.getStatus())) {
+        if (!STATUS_EMISSIVEIS.contains(pedido.getStatus())) {
             throw BusinessException.invalidOrderStatus(
-                    "Pedido não está em RASCUNHO. Status atual: " + pedido.getStatus());
+                    "Pedido não pode ser emitido no status atual: " + pedido.getStatus()
+                            + ". Permitido apenas para RASCUNHO, REJEITADO ou ERRO.");
         }
         if (pedido.getItens() == null || pedido.getItens().isEmpty()) {
             throw new IllegalArgumentException("Pedido sem itens não pode ser emitido.");
@@ -90,14 +102,17 @@ public class PedidoEmissaoService {
         try {
             result = nfeGeracaoService.gerar(req, empresa);
         } catch (Exception e) {
-            pedidoService.atualizarStatus(pedidoId, "ERRO", null);
+            // Preserva a chaveNfe já persistida (ex.: retry de um pedido REJEITADO que já
+            // tinha uma chave real conhecida pela SEFAZ) — nunca zera com um UPDATE incondicional.
+            pedidoService.atualizarStatus(pedidoId, "ERRO", pedido.getChaveNfe());
             if (controlaEstoque) {
                 desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
             }
-            throw e;
+            throw traduzirFalhaTransmissao(e);
         }
 
-        String novoStatus = resolverStatus(result.getSoapRetorno());
+        NfeSefazRetorno retorno = parseRetornoSeguro(result.getSoapRetorno());
+        String novoStatus = resolverStatus(retorno);
         pedidoService.atualizarStatus(pedidoId, novoStatus, result.getChaveNfe());
 
         if (controlaEstoque) {
@@ -112,6 +127,12 @@ public class PedidoEmissaoService {
         log.info("[PedidoEmissao] Concluído | pedidoId={} | status={} | chave={}",
                 pedidoId, novoStatus, result.getChaveNfe());
 
+        // A SEFAZ processou a chamada (HTTP 200 internamente), mas rejeitou a NF-e — não é sucesso
+        // para quem integra. Expõe cStat/xMotivo estruturados em vez de mascarar como 200 OK.
+        if ("REJEITADO".equals(novoStatus) && retorno != null) {
+            throw BusinessException.sefazRejected(retorno.getCStat(), retorno.getXMotivo());
+        }
+
         return result;
     }
 
@@ -119,16 +140,42 @@ public class PedidoEmissaoService {
     // Resolução de status baseada no cStat real da SEFAZ
     // -------------------------------------------------------------------------
 
-    private String resolverStatus(String soapRetorno) {
+    private NfeSefazRetorno parseRetornoSeguro(String soapRetorno) {
         try {
-            NfeSefazRetorno retorno = retornoParser.parse(soapRetorno);
-            if (retorno.isAutorizada()) return "AUTORIZADO";   // cStat=100
-            if (retorno.getCStat() >= 200) return "REJEITADO"; // cStat 2xx–9xx
-            return "AGUARDANDO"; // cStat=104: lote aceito, aguardando autorização individual
+            return retornoParser.parse(soapRetorno);
         } catch (Exception e) {
-            log.warn("[PedidoEmissao] Falha ao parsear retorno para status | erro={}", e.getMessage());
-            return "AGUARDANDO";
+            log.warn("[PedidoEmissao] Falha ao parsear retorno SEFAZ | erro={}", e.getMessage());
+            return null;
         }
+    }
+
+    private String resolverStatus(NfeSefazRetorno retorno) {
+        if (retorno == null) return "AGUARDANDO";
+        if (retorno.isAutorizada()) return "AUTORIZADO";   // cStat=100
+        if (retorno.getCStat() >= 200) return "REJEITADO"; // cStat 2xx–9xx
+        return "AGUARDANDO"; // cStat=104: lote aceito, aguardando autorização individual
+    }
+
+    /**
+     * Traduz falhas técnicas de transmissão em códigos padronizados (Requisito 4),
+     * distinguindo o que vale a pena retry (timeout/indisponibilidade) do que não
+     * (schema inválido — precisa corrigir o dado antes de tentar de novo).
+     */
+    private Exception traduzirFalhaTransmissao(Exception e) {
+        if (e instanceof br.com.borurio.fiscal.exception.XmlSchemaValidationException) {
+            return BusinessException.xmlSchemaInvalid(e.getMessage());
+        }
+        Throwable causa = e;
+        while (causa != null) {
+            if (causa instanceof java.net.SocketTimeoutException) {
+                return BusinessException.sefazTimeout();
+            }
+            if (causa instanceof java.net.ConnectException || causa instanceof java.net.UnknownHostException) {
+                return BusinessException.sefazUnavailable();
+            }
+            causa = causa.getCause();
+        }
+        return e;
     }
 
     // -------------------------------------------------------------------------

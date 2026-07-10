@@ -30,6 +30,18 @@ public class Pedido {
     private String destCep;
     private String naturezaOperacao;
     private String serieNfe;
+
+    /**
+     * Endereço do emitente — recebido opcionalmente no payload de criação do pedido (fluxo OMS).
+     * Não é persistido no pedido: usado apenas para completar o cadastro da Empresa quando incompleto.
+     */
+    private String emitLogradouro;
+    private String emitNumero;
+    private String emitBairro;
+    private String emitCodigoMunicipio;
+    private String emitMunicipio;
+    private String emitCep;
+
     private String status;
     private String chaveNfe;
     private BigDecimal valorTotal;

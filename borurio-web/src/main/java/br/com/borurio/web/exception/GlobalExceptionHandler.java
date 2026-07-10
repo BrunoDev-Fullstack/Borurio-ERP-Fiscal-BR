@@ -25,8 +25,9 @@ public class GlobalExceptionHandler {
     /** Erro de negócio com errorCode identificável pelo OMS. */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Map<String, Object>> handleBusiness(BusinessException e) {
-        log.warn("[API] Business error: errorCode={} | {}", e.getErrorCode(), e.getMessage());
-        Map<String, Object> body = errorBody(e.getHttpStatus(), e.getMessage(), null);
+        log.warn("[API] Business error: errorCode={} | retryable={} | {}",
+                e.getErrorCode(), e.isRetryable(), e.getMessage());
+        Map<String, Object> body = errorBody(e.getHttpStatus(), e.getMessage(), e.getData(), e.isRetryable());
         body.put("errorCode", e.getErrorCode());
         return ResponseEntity.status(e.getHttpStatus()).body(body);
     }
@@ -90,7 +91,12 @@ public class GlobalExceptionHandler {
                 .body(errorBody(403, "Acesso negado", null));
     }
 
-    /** Fallback — erros não mapeados. */
+    /**
+     * Fallback — erros não mapeados, em qualquer endpoint da API (não só NF-e). retryable=false
+     * por padrão: sem saber a causa, não dá pra garantir que reenviar é seguro (pode ser bug
+     * determinístico ou operação não-idempotente). Endpoints com retry realmente seguro devem
+     * lançar um BusinessException tipado (ex.: SEFAZ_TIMEOUT) em vez de cair neste fallback.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception e) {
         log.error("[API] Unhandled error", e);
@@ -103,10 +109,15 @@ public class GlobalExceptionHandler {
     // -------------------------------------------------------------------------
 
     private Map<String, Object> errorBody(int code, String message, Object data) {
+        return errorBody(code, message, data, false);
+    }
+
+    private Map<String, Object> errorBody(int code, String message, Object data, boolean retryable) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("code",    code);
-        body.put("message", message);
-        body.put("data",    data);
+        body.put("code",      code);
+        body.put("message",   message);
+        body.put("data",      data);
+        body.put("retryable", retryable);
         String rid = MDC.get("requestId");
         if (rid != null) body.put("requestId", rid);
         return body;

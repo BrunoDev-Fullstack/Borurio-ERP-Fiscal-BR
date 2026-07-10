@@ -98,18 +98,20 @@ public class PedidoController {
                 && pedido.getCnpjEmitente() != null
                 && !pedido.getCnpjEmitente().isBlank();
 
+        Empresa empresaParaEndereco = null;
+
         if (cnpjEnviadoPeloOms) {
             // Valida antecipadamente que o CNPJ está autorizado para este cliente OMS.
             // Falha rápida: evita criar pedido com CNPJ sem certificado ativo.
             if (!omsCertificadoService.cnpjAutorizadoParaJti(jtiOms, pedido.getCnpjEmitente())) {
                 throw BusinessException.cnpjNotAuthorizedForOmsClient(pedido.getCnpjEmitente());
             }
-        }
-
-        if (!cnpjEnviadoPeloOms) {
+            empresaParaEndereco = empresaService.buscarPorCnpj(pedido.getCnpjEmitente());
+        } else {
             if (empresaId != null) {
                 Empresa empresa = empresaService.buscarPorId(empresaId);
                 pedido.setCnpjEmitente(empresa.getCnpj().replaceAll("\\D", ""));
+                empresaParaEndereco = empresa;
             } else {
                 pedido.setCnpjEmitente(emitente.getCnpj().replaceAll("\\D", ""));
             }
@@ -117,19 +119,65 @@ public class PedidoController {
 
         List<PedidoItem> itens = pedido.getItens();
         pedido.setItens(null);
-        return ResultUtil.success(
-                PedidoResponse.from(pedidoService.criar(pedido, itens != null ? itens : List.of())));
+        Pedido criado = pedidoService.criar(pedido, itens != null ? itens : List.of());
+
+        // Só atualiza o cadastro da empresa DEPOIS que o pedido foi criado com sucesso —
+        // evita mutar a empresa numa requisição cuja criação do pedido falha em seguida.
+        atualizarEnderecoEmitenteSeNecessario(empresaParaEndereco, pedido);
+
+        return ResultUtil.success(PedidoResponse.from(criado));
+    }
+
+    /**
+     * Preenche o endereço da empresa emitente a partir do payload do pedido, quando o cadastro
+     * estiver incompleto. Só completa campos ausentes — nunca sobrescreve endereço já cadastrado.
+     */
+    private void atualizarEnderecoEmitenteSeNecessario(Empresa empresa, Pedido pedido) {
+        if (empresa == null) return;
+
+        boolean enderecoIncompleto = isBlank(empresa.getLogradouro())
+                || isBlank(empresa.getNumero())
+                || isBlank(empresa.getBairro())
+                || isBlank(empresa.getCodigoMunicipio())
+                || isBlank(empresa.getMunicipio())
+                || isBlank(empresa.getCep());
+
+        boolean enderecoRecebido = !isBlank(pedido.getEmitLogradouro())
+                || !isBlank(pedido.getEmitNumero())
+                || !isBlank(pedido.getEmitBairro())
+                || !isBlank(pedido.getEmitCodigoMunicipio())
+                || !isBlank(pedido.getEmitMunicipio())
+                || !isBlank(pedido.getEmitCep());
+
+        if (!enderecoIncompleto || !enderecoRecebido) return;
+
+        if (isBlank(empresa.getLogradouro()))      empresa.setLogradouro(pedido.getEmitLogradouro());
+        if (isBlank(empresa.getNumero()))          empresa.setNumero(pedido.getEmitNumero());
+        if (isBlank(empresa.getBairro()))          empresa.setBairro(pedido.getEmitBairro());
+        if (isBlank(empresa.getCodigoMunicipio())) empresa.setCodigoMunicipio(pedido.getEmitCodigoMunicipio());
+        if (isBlank(empresa.getMunicipio()))       empresa.setMunicipio(pedido.getEmitMunicipio());
+        if (isBlank(empresa.getCep()))              empresa.setCep(pedido.getEmitCep());
+
+        empresaService.atualizar(empresa.getId(), empresa);
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     @PostMapping("/{id}/emitir")
     @Operation(
             summary = "Emite NF-e — pedido muda para AUTORIZADO, AGUARDANDO ou REJEITADO",
             description = "Transmite a NF-e 4.00 à SEFAZ a partir do snapshot fiscal dos itens. Não requer body. " +
-                          "Retorna `chaveNfe` com 44 dígitos (critério de aceitação do lote) e `soapRetorno` com a resposta SOAP bruta. " +
-                          "**HTTP 200 não significa autorização** — indica apenas que a chamada à SEFAZ foi processada. " +
-                          "O status real da NF-e é obtido via `GET /{id}/situacao`. " +
-                          "Em HOM/SP: `cStat=225` no `soapRetorno` é comportamento normal do processador `SP_NFE_PL_008i2` — não é falha do sistema. " +
-                          "Precondição: pedido deve estar em `RASCUNHO`. Qualquer outro estado retorna HTTP 422."
+                          "HTTP 200 só ocorre quando a SEFAZ aceita (`AUTORIZADO`) ou ainda está processando (`AGUARDANDO`) — " +
+                          "retorna `chaveNfe` com 44 dígitos e `soapRetorno` com a resposta SOAP bruta. " +
+                          "**Rejeição da SEFAZ não é HTTP 200**: retorna HTTP 422 com `errorCode=SEFAZ_REJECTED`, " +
+                          "`retryable=false` (geralmente é dado incorreto, não falha transitória) e `data.cStat`/`data.xMotivo` com o motivo real. " +
+                          "Falhas de rede retornam `SEFAZ_TIMEOUT`/`SEFAZ_UNAVAILABLE` (retryable=true, HTTP 503); " +
+                          "schema local inválido retorna `XML_SCHEMA_INVALID` (retryable=false, HTTP 422); " +
+                          "cadastro do emitente incompleto retorna `EMITTER_ADDRESS_INCOMPLETE` (retryable=false, HTTP 422) sem chamar a SEFAZ. " +
+                          "Precondição: pedido deve estar em `RASCUNHO`, `REJEITADO` ou `ERRO`. Cada nova tentativa gera `chaveNfe` nova. " +
+                          "Qualquer outro estado (`AUTORIZADO`, `AGUARDANDO`, `CANCELADO`) retorna HTTP 422 com `errorCode=INVALID_ORDER_STATUS`."
     )
     public Result<Map<String, String>> emitir(@PathVariable Long id) throws Exception {
         NfeGeracaoResult result = pedidoEmissaoService.emitir(id);
@@ -146,6 +194,7 @@ public class PedidoController {
                           "O campo `consultaSefaz` (XML bruto) está **sempre presente**. " +
                           "Os campos `cStat`, `xMotivo`, `nProt` e `dhRecbto` são condicionais — presentes apenas se o documento foi registrado internamente. " +
                           "Máquina de estados: `RASCUNHO` → `AGUARDANDO` → `AUTORIZADO` | `REJEITADO` | `ERRO` | `CANCELADO`. " +
+                          "`REJEITADO` e `ERRO` podem chamar `/emitir` novamente (reemissão); `AUTORIZADO` e `CANCELADO` são terminais. " +
                           "Precondição: pedido deve ter `chaveNfe` definida (ter passado por `/emitir`). Retorna HTTP 422 caso contrário."
     )
     public Result<Object> situacao(@PathVariable Long id) throws Exception {
