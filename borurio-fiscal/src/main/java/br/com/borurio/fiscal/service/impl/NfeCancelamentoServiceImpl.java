@@ -5,6 +5,7 @@ import br.com.borurio.fiscal.config.SefazProperties;
 import br.com.borurio.fiscal.dto.NfeCancelamentoRequest;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.service.AssinaturaXmlService;
+import br.com.borurio.fiscal.service.CertificadoContexto;
 import br.com.borurio.fiscal.service.CertificadoService;
 import br.com.borurio.fiscal.service.NfeCancelamentoService;
 import br.com.borurio.fiscal.service.NfeLogService;
@@ -68,11 +69,17 @@ public class NfeCancelamentoServiceImpl implements NfeCancelamentoService {
 
     @Override
     public String cancelar(NfeCancelamentoRequest req) throws Exception {
+        return cancelar(req, null, null, null);
+    }
+
+    @Override
+    public String cancelar(NfeCancelamentoRequest req, String cnpjEmitente, String uf,
+                            CertificadoContexto certContexto) throws Exception {
         validar(req);
 
         String chave     = req.getChaveNfe().replaceAll("\\D", "");
-        String cnpj      = emitente.getCnpj().replaceAll("\\D", "");
-        String cUF       = resolverCUF();
+        String cnpj      = (cnpjEmitente != null ? cnpjEmitente : emitente.getCnpj()).replaceAll("\\D", "");
+        String cUF       = resolverCUF(uf);
         String nSeq      = "01";
         String idEvento  = "ID110111" + chave + nSeq;
         String dhEvento  = LocalDateTime.now()
@@ -81,8 +88,10 @@ public class NfeCancelamentoServiceImpl implements NfeCancelamentoService {
         String xmlEvento = montarEnvEvento(idEvento, cUF, cnpj, chave,
                 dhEvento, nSeq, req.getNProtocolo(), req.getJustificativa());
 
-        log.info("[Cancelamento] Assinando evento | chave={} | tpAmb={}", chave, tpAmb);
-        String xmlAssinado = assinaturaXmlService.assinarEvento(xmlEvento);
+        log.info("[Cancelamento] Assinando evento | chave={} | tpAmb={} | cnpj={}", chave, tpAmb, cnpj);
+        String xmlAssinado = certContexto != null
+                ? assinaturaXmlService.assinarEvento(xmlEvento, certContexto)
+                : assinaturaXmlService.assinarEvento(xmlEvento);
 
         String soapEnvelope = montarSoap(xmlAssinado);
         String urlWs        = sefazProperties.getRecepcaoEvento();
@@ -90,7 +99,7 @@ public class NfeCancelamentoServiceImpl implements NfeCancelamentoService {
         log.info("[Cancelamento] Enviando para SEFAZ | url={}", urlWs);
 
         try {
-            String resposta = enviarSoap(urlWs, soapEnvelope);
+            String resposta = enviarSoap(urlWs, soapEnvelope, certContexto);
             registrarLog(chave, cnpj, "SUCCESS", "Cancelamento transmitido", xmlAssinado, resposta);
             log.info("[Cancelamento] Resposta SEFAZ recebida | chave={}", chave);
             return resposta;
@@ -141,8 +150,8 @@ public class NfeCancelamentoServiceImpl implements NfeCancelamentoService {
                "</soap12:Envelope>";
     }
 
-    private String enviarSoap(String urlWs, String envelope) throws Exception {
-        SSLContext ssl = certificadoService.getSslContext();
+    private String enviarSoap(String urlWs, String envelope, CertificadoContexto certContexto) throws Exception {
+        SSLContext ssl = certContexto != null ? certContexto.sslContext() : certificadoService.getSslContext();
         URL url = new URL(urlWs);
         HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
         conn.setSSLSocketFactory(ssl.getSocketFactory());
@@ -189,8 +198,8 @@ public class NfeCancelamentoServiceImpl implements NfeCancelamentoService {
         }
     }
 
-    private String resolverCUF() {
-        String uf = emitente.getUf();
+    private String resolverCUF(String ufOverride) {
+        String uf = ufOverride != null ? ufOverride : emitente.getUf();
         if (uf == null || uf.isBlank()) return "35"; // SP fallback
         String cuf = UF_PARA_CUF.get(uf.toUpperCase());
         return cuf != null ? cuf : "35";

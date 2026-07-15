@@ -67,6 +67,14 @@ public class AssinaturaXmlService {
         return assinarElemento(doc, infEvento, eventoContainer, null);
     }
 
+    /** Assina evento fiscal (cancelamento, CC-e) com o certificado de uma empresa específica (multi-CNPJ). */
+    public String assinarEvento(String xmlEvento, CertificadoContexto ctx) throws Exception {
+        Document doc = parseXml(xmlEvento);
+        Element infEvento = localizarElementoPorTag(doc, "infEvento");
+        Element eventoContainer = (Element) infEvento.getParentNode();
+        return assinarElemento(doc, infEvento, eventoContainer, ctx);
+    }
+
     /**
      * Assina inutNFe: localiza infInut, assina e insere Signature em inutNFe raiz.
      */
@@ -75,6 +83,14 @@ public class AssinaturaXmlService {
         Element infInut = localizarElementoPorTag(doc, "infInut");
         Element inutContainer = (Element) infInut.getParentNode();
         return assinarElemento(doc, infInut, inutContainer, null);
+    }
+
+    /** Assina inutNFe com o certificado de uma empresa específica (multi-CNPJ). */
+    public String assinarInutilizacao(String xmlInut, CertificadoContexto ctx) throws Exception {
+        Document doc = parseXml(xmlInut);
+        Element infInut = localizarElementoPorTag(doc, "infInut");
+        Element inutContainer = (Element) infInut.getParentNode();
+        return assinarElemento(doc, infInut, inutContainer, ctx);
     }
 
     private String assinarElemento(Document doc, Element elementoParaAssinar,

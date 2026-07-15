@@ -5,6 +5,7 @@ import br.com.borurio.fiscal.config.SefazProperties;
 import br.com.borurio.fiscal.dto.NfeInutilizacaoRequest;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.service.AssinaturaXmlService;
+import br.com.borurio.fiscal.service.CertificadoContexto;
 import br.com.borurio.fiscal.service.CertificadoService;
 import br.com.borurio.fiscal.service.NfeInutilizacaoService;
 import br.com.borurio.fiscal.service.NfeLogService;
@@ -68,10 +69,16 @@ public class NfeInutilizacaoServiceImpl implements NfeInutilizacaoService {
 
     @Override
     public String inutilizar(NfeInutilizacaoRequest req) throws Exception {
+        return inutilizar(req, null, null, null);
+    }
+
+    @Override
+    public String inutilizar(NfeInutilizacaoRequest req, String cnpjEmitente, String uf,
+                              CertificadoContexto certContexto) throws Exception {
         validar(req);
 
-        String cnpj   = apenasDigitos(emitente.getCnpj());
-        String cUF    = resolverCUF();
+        String cnpj   = apenasDigitos(cnpjEmitente != null ? cnpjEmitente : emitente.getCnpj());
+        String cUF    = resolverCUF(uf);
         String ano    = req.getAno().trim();
         String serie  = padLeft(req.getSerie(), 3);
         String nNFIni = padLeft(req.getNNFIni(), 9);
@@ -86,8 +93,10 @@ public class NfeInutilizacaoServiceImpl implements NfeInutilizacaoService {
         String xmlInut = montarInutNFe(idInut, cUF, ano, cnpj, serie, nNFIni, nNFFin,
                 req.getJustificativa());
 
-        log.info("[Inutilizacao] Assinando inutNFe | id={} | tpAmb={}", idInut, tpAmb);
-        String xmlAssinado = assinaturaXmlService.assinarInutilizacao(xmlInut);
+        log.info("[Inutilizacao] Assinando inutNFe | id={} | tpAmb={} | cnpj={}", idInut, tpAmb, cnpj);
+        String xmlAssinado = certContexto != null
+                ? assinaturaXmlService.assinarInutilizacao(xmlInut, certContexto)
+                : assinaturaXmlService.assinarInutilizacao(xmlInut);
 
         String soapEnvelope = montarSoap(xmlAssinado);
         String urlWs        = sefazProperties.getInutilizacao();
@@ -98,7 +107,7 @@ public class NfeInutilizacaoServiceImpl implements NfeInutilizacaoService {
         log.info("[Inutilizacao] Enviando para SEFAZ | url={}", urlWs);
 
         try {
-            String resposta = enviarSoap(urlWs, soapEnvelope);
+            String resposta = enviarSoap(urlWs, soapEnvelope, certContexto);
             registrarLog(idInut, cnpj, "SUCCESS", "Inutilização transmitida com sucesso",
                     xmlAssinado, resposta);
             log.info("[Inutilizacao] Resposta SEFAZ recebida | id={}", idInut);
@@ -144,8 +153,8 @@ public class NfeInutilizacaoServiceImpl implements NfeInutilizacaoService {
                "</soap12:Envelope>";
     }
 
-    private String enviarSoap(String urlWs, String envelope) throws Exception {
-        SSLContext ssl = certificadoService.getSslContext();
+    private String enviarSoap(String urlWs, String envelope, CertificadoContexto certContexto) throws Exception {
+        SSLContext ssl = certContexto != null ? certContexto.sslContext() : certificadoService.getSslContext();
         URL url = new URL(urlWs);
         HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
         conn.setSSLSocketFactory(ssl.getSocketFactory());
@@ -227,8 +236,8 @@ public class NfeInutilizacaoServiceImpl implements NfeInutilizacaoService {
     // Helpers
     // -------------------------------------------------------------------------
 
-    private String resolverCUF() {
-        String uf = emitente.getUf();
+    private String resolverCUF(String ufOverride) {
+        String uf = ufOverride != null ? ufOverride : emitente.getUf();
         if (uf == null || uf.isBlank()) return "35";
         String cuf = UF_PARA_CUF.get(uf.toUpperCase());
         return cuf != null ? cuf : "35";

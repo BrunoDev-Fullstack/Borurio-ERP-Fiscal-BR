@@ -5,6 +5,7 @@ import br.com.borurio.fiscal.config.SefazProperties;
 import br.com.borurio.fiscal.dto.NfeCceRequest;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.service.AssinaturaXmlService;
+import br.com.borurio.fiscal.service.CertificadoContexto;
 import br.com.borurio.fiscal.service.CertificadoService;
 import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.fiscal.service.NfeLogService;
@@ -78,11 +79,17 @@ public class NfeCceServiceImpl implements NfeCceService {
 
     @Override
     public String corrigir(NfeCceRequest req) throws Exception {
+        return corrigir(req, null, null, null);
+    }
+
+    @Override
+    public String corrigir(NfeCceRequest req, String cnpjEmitente, String uf,
+                            CertificadoContexto certContexto) throws Exception {
         validar(req);
 
         String chave = req.getChaveNfe().replaceAll("\\D", "");
-        String cnpj  = emitente.getCnpj().replaceAll("\\D", "");
-        String cUF   = resolverCUF();
+        String cnpj  = (cnpjEmitente != null ? cnpjEmitente : emitente.getCnpj()).replaceAll("\\D", "");
+        String cUF   = resolverCUF(uf);
 
         int nSeq = resolverSequencia(chave, req.getSequencia());
 
@@ -94,8 +101,10 @@ public class NfeCceServiceImpl implements NfeCceService {
         String xmlEvento = montarEnvEvento(idEvento, cUF, cnpj, chave,
                 dhEvento, nSeqPadded, req.getCorrecao().trim());
 
-        log.info("[CC-e] Assinando | chave={} | seq={} | tpAmb={}", chave, nSeq, tpAmb);
-        String xmlAssinado = assinaturaXmlService.assinarEvento(xmlEvento);
+        log.info("[CC-e] Assinando | chave={} | seq={} | tpAmb={} | cnpj={}", chave, nSeq, tpAmb, cnpj);
+        String xmlAssinado = certContexto != null
+                ? assinaturaXmlService.assinarEvento(xmlEvento, certContexto)
+                : assinaturaXmlService.assinarEvento(xmlEvento);
 
         String soapEnvelope = montarSoap(xmlAssinado);
         String urlWs        = sefazProperties.getRecepcaoEvento();
@@ -103,7 +112,7 @@ public class NfeCceServiceImpl implements NfeCceService {
         log.info("[CC-e] Enviando para SEFAZ | url={}", urlWs);
 
         try {
-            String resposta = enviarSoap(urlWs, soapEnvelope);
+            String resposta = enviarSoap(urlWs, soapEnvelope, certContexto);
             registrarLog(chave, cnpj, "SUCCESS",
                     "CC-e transmitida | seq=" + nSeq, xmlAssinado, resposta);
             log.info("[CC-e] Resposta SEFAZ OK | chave={} | seq={}", chave, nSeq);
@@ -180,8 +189,8 @@ public class NfeCceServiceImpl implements NfeCceService {
                "</soap12:Envelope>";
     }
 
-    private String enviarSoap(String urlWs, String envelope) throws Exception {
-        SSLContext ssl = certificadoService.getSslContext();
+    private String enviarSoap(String urlWs, String envelope, CertificadoContexto certContexto) throws Exception {
+        SSLContext ssl = certContexto != null ? certContexto.sslContext() : certificadoService.getSslContext();
         URL url = new URL(urlWs);
         HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
         conn.setSSLSocketFactory(ssl.getSocketFactory());
@@ -245,8 +254,8 @@ public class NfeCceServiceImpl implements NfeCceService {
             throw new IllegalArgumentException("Sequência deve estar entre 1 e " + MAX_CCE + ".");
     }
 
-    private String resolverCUF() {
-        String uf = emitente.getUf();
+    private String resolverCUF(String ufOverride) {
+        String uf = ufOverride != null ? ufOverride : emitente.getUf();
         if (uf == null || uf.isBlank()) return "35";
         String cuf = UF_PARA_CUF.get(uf.toUpperCase());
         return cuf != null ? cuf : "35";

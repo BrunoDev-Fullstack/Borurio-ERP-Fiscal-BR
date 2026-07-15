@@ -6,7 +6,6 @@ import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
-import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeCancelamentoRequest;
 import br.com.borurio.fiscal.dto.NfeCceRequest;
 import br.com.borurio.fiscal.entity.NfeDocumento;
@@ -28,6 +27,11 @@ import java.util.Optional;
 /**
  * Operações fiscais vinculadas ao pedido: consulta situação, cancelamento, CC-e.
  * Requer que o pedido tenha chaveNfe preenchida (status AUTORIZADO ou AGUARDANDO).
+ *
+ * Toda operação resolve a empresa e o certificado corretos via FiscalContextoResolver a
+ * partir do próprio pedido — nunca usa configuração global. Isso garante que cancelamento,
+ * CC-e e consulta de uma NF-e emitida por um CNPJ nunca usem, nem por engano, o certificado
+ * ou o contexto de outro CNPJ do mesmo cliente OMS.
  */
 @Service
 public class PedidoOperacaoService {
@@ -39,9 +43,9 @@ public class PedidoOperacaoService {
     private final NfeTransmitService transmitService;
     private final NfeCancelamentoService cancelamentoService;
     private final NfeCceService cceService;
-    private final EmitenteProperties emitente;
     private final EstoqueService estoqueService;
     private final EmpresaMapper empresaMapper;
+    private final FiscalContextoResolver contextoResolver;
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
@@ -51,17 +55,17 @@ public class PedidoOperacaoService {
                                   NfeTransmitService transmitService,
                                   NfeCancelamentoService cancelamentoService,
                                   NfeCceService cceService,
-                                  EmitenteProperties emitente,
                                   EstoqueService estoqueService,
-                                  EmpresaMapper empresaMapper) {
+                                  EmpresaMapper empresaMapper,
+                                  FiscalContextoResolver contextoResolver) {
         this.pedidoService     = pedidoService;
         this.documentoService  = documentoService;
         this.transmitService   = transmitService;
         this.cancelamentoService = cancelamentoService;
         this.cceService        = cceService;
-        this.emitente          = emitente;
         this.estoqueService    = estoqueService;
         this.empresaMapper     = empresaMapper;
+        this.contextoResolver  = contextoResolver;
     }
 
     // -------------------------------------------------------------------------
@@ -72,6 +76,7 @@ public class PedidoOperacaoService {
     public Map<String, Object> consultarSituacao(Long pedidoId) throws Exception {
         Pedido pedido = pedidoService.buscarPorId(pedidoId);
         String chave  = validarChave(pedido);
+        validarCnpjDocumento(chave, pedido);
 
         Optional<NfeDocumento> docOpt = documentoService.buscarPorChave(chave);
 
@@ -88,7 +93,14 @@ public class PedidoOperacaoService {
             resp.put("dhRecbto", doc.getDhRecbto());
         });
 
-        String uf = emitente.getUf() != null ? emitente.getUf() : "SP";
+        // UF resolvida pela empresa emitente real do pedido — contextoResolver.resolver()
+        // já lança exceção se a empresa não puder ser resolvida, então ctx.empresa() aqui
+        // nunca é nulo. O fallback "SP" cobre só o caso de dado incompleto (empresa resolvida
+        // mas sem UF cadastrada) — é uma consulta somente leitura à SEFAZ-SP (única UF
+        // operada hoje), não uma assinatura/transmissão, então esse fallback estreito não
+        // representa o mesmo risco de integridade que existiria em cancelamento/CC-e.
+        FiscalContexto ctx = contextoResolver.resolver(pedido);
+        String uf = ctx.empresa().getUf() != null ? ctx.empresa().getUf() : "SP";
         try {
             resp.put("consultaSefaz", transmitService.consultarNfe(chave, uf, tpAmb));
         } catch (Exception e) {
@@ -97,7 +109,8 @@ public class PedidoOperacaoService {
             resp.put("consultaSefaz", null);
         }
 
-        log.info("[PedidoOperacao] Situação consultada | pedidoId={} | chave={}", pedidoId, chave);
+        log.info("[PedidoOperacao] Situação consultada | pedidoId={} | chave={} | cnpj={}",
+                pedidoId, chave, ctx.empresa().getCnpj());
         return resp;
     }
 
@@ -119,6 +132,7 @@ public class PedidoOperacaoService {
                     "Status atual: " + pedido.getStatus());
         }
         String chave = validarChave(pedido);
+        validarCnpjDocumento(chave, pedido);
 
         NfeDocumento doc = documentoService.buscarPorChave(chave)
                 .orElseThrow(() -> new IllegalStateException(
@@ -135,10 +149,16 @@ public class PedidoOperacaoService {
         req.setNProtocolo(doc.getNProt());
         req.setJustificativa(justificativa.trim());
 
-        log.info("[PedidoOperacao] Cancelando NF-e | pedidoId={} | chave={} | nProt={}",
-                pedidoId, chave, doc.getNProt());
+        // Resolve empresa/certificado real do pedido — contextoResolver lança exceção em vez
+        // de cair no emitente/certificado global se a resolução falhar.
+        FiscalContexto ctx = contextoResolver.resolver(pedido);
+        String cnpjEmitente = ctx.empresa().getCnpj();
+        String ufEmitente    = ctx.empresa().getUf();
 
-        String retorno = cancelamentoService.cancelar(req);
+        log.info("[PedidoOperacao] Cancelando NF-e | pedidoId={} | chave={} | nProt={} | cnpj={}",
+                pedidoId, chave, doc.getNProt(), cnpjEmitente);
+
+        String retorno = cancelamentoService.cancelar(req, cnpjEmitente, ufEmitente, ctx.certificado());
 
         pedidoService.atualizarStatus(pedidoId, "CANCELADO", chave);
 
@@ -175,13 +195,19 @@ public class PedidoOperacaoService {
                     "Status atual: " + pedido.getStatus());
         }
         String chave = validarChave(pedido);
+        validarCnpjDocumento(chave, pedido);
 
         NfeCceRequest req = new NfeCceRequest();
         req.setChaveNfe(chave);
         req.setCorrecao(correcao.trim());
 
-        log.info("[PedidoOperacao] CC-e | pedidoId={} | chave={}", pedidoId, chave);
-        return cceService.corrigir(req);
+        // Mesmo contexto real do pedido usado no cancelamento — nunca o emitente global.
+        FiscalContexto ctx = contextoResolver.resolver(pedido);
+        String cnpjEmitente = ctx.empresa().getCnpj();
+        String ufEmitente    = ctx.empresa().getUf();
+
+        log.info("[PedidoOperacao] CC-e | pedidoId={} | chave={} | cnpj={}", pedidoId, chave, cnpjEmitente);
+        return cceService.corrigir(req, cnpjEmitente, ufEmitente, ctx.certificado());
     }
 
     // -------------------------------------------------------------------------
@@ -196,6 +222,26 @@ public class PedidoOperacaoService {
                     "Execute /emitir primeiro.");
         }
         return chave;
+    }
+
+    /**
+     * Integridade fiscal multiempresa: confere que o CNPJ embutido na própria chave de acesso
+     * (posições 6-19, ground truth do que foi de fato transmitido à SEFAZ) bate com o CNPJ do
+     * pedido. Protege contra operar um documento com o contexto de outro CNPJ por
+     * inconsistência de dado — falha explícita em vez de seguir silenciosamente.
+     */
+    private void validarCnpjDocumento(String chave, Pedido pedido) {
+        String cnpjChave = extrairCnpjDaChave(chave);
+        String cnpjPedido = pedido.getCnpjEmitente() != null
+                ? pedido.getCnpjEmitente().replaceAll("\\D", "") : null;
+        if (cnpjPedido != null && !cnpjPedido.equals(cnpjChave)) {
+            throw BusinessException.documentoCnpjDivergente(cnpjChave, cnpjPedido);
+        }
+    }
+
+    /** Chave de acesso NF-e: cUF(2) + AAMM(4) + CNPJ(14) + mod(2) + serie(3) + nNF(9) + tpEmis(1) + cNF(8) + cDV(1). */
+    private String extrairCnpjDaChave(String chave) {
+        return chave.length() >= 20 ? chave.substring(6, 20) : null;
     }
 
     /** Empresa não encontrada ou id nulo → controla estoque (default seguro). */

@@ -85,6 +85,20 @@ public class BusinessException extends RuntimeException {
                 true);
     }
 
+    /**
+     * O CNPJ embutido na chave de acesso da NF-e não corresponde ao CNPJ da empresa resolvida
+     * para a operação. A execução deve falhar explicitamente para impedir o uso de certificado
+     * ou contexto fiscal de outra empresa.
+     */
+    public static BusinessException documentoCnpjDivergente(String cnpjDocumento, String cnpjResolvido) {
+        return new BusinessException(
+                "DOCUMENTO_CNPJ_DIVERGENTE",
+                "O CNPJ da chave de acesso (" + cnpjDocumento + ") não corresponde ao CNPJ "
+                        + "da empresa resolvida para esta operação (" + cnpjResolvido + ").",
+                422,
+                false);
+    }
+
     public static BusinessException batchLimitExceeded() {
         return new BusinessException(
                 "BATCH_LIMIT_EXCEEDED",
