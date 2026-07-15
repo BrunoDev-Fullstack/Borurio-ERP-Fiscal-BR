@@ -27,11 +27,12 @@ public class AssinaturaXmlService {
 
     private static final Logger log = LoggerFactory.getLogger(AssinaturaXmlService.class);
 
-    // Algoritmos exigidos pela NF-e 4.00 (NT 2019.001)
+    // Algoritmos exigidos pelo schema oficial XMLDSig da NF-e (fixed="rsa-sha1"/"sha1"
+    // em xmldsig-core-schema_v1.01.xsd, confirmado no pacote PL_010e_v1.02 vigente)
     private static final String C14N_INCLUSIVO   = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
     private static final String C14N_EXCLUSIVO   = "http://www.w3.org/2001/10/xml-exc-c14n#";
-    private static final String DIGEST_SHA256    = "http://www.w3.org/2001/04/xmlenc#sha256";
-    private static final String SIGN_RSA_SHA256  = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+    private static final String DIGEST_SHA1      = "http://www.w3.org/2000/09/xmldsig#sha1";
+    private static final String SIGN_RSA_SHA1    = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
 
     private final CertificadoService certificadoService;
 
@@ -97,12 +98,12 @@ public class AssinaturaXmlService {
 
         Reference reference = sigFactory.newReference(
                 "#" + id,
-                sigFactory.newDigestMethod(DIGEST_SHA256, null),
+                sigFactory.newDigestMethod(DIGEST_SHA1, null),
                 transforms, null, null);
 
         SignedInfo signedInfo = sigFactory.newSignedInfo(
                 sigFactory.newCanonicalizationMethod(C14N_INCLUSIVO, (C14NMethodParameterSpec) null),
-                sigFactory.newSignatureMethod(SIGN_RSA_SHA256, null),
+                sigFactory.newSignatureMethod(SIGN_RSA_SHA1, null),
                 Collections.singletonList(reference));
 
         KeyInfoFactory kif = sigFactory.getKeyInfoFactory();

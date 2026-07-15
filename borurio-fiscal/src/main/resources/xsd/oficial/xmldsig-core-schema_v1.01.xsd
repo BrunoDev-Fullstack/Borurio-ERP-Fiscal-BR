@@ -1,231 +1,111 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <!--
 ==============================================================================
-xmldsig-core-schema_v1.01.xsd — Schema XMLDSig para NF-e 4.00
-______________________________________________________________________________
-Propósito:
-  Schema W3C XML Digital Signature compatível com NT 2019.001 (RSA-SHA256
-  obrigatório a partir de 2020) e com ambientes que ainda aceitam RSA-SHA1.
-  Sem restrições "fixed" nos atributos Algorithm — aceita qualquer URI válida.
+xmldsig-core-schema_v1.01.xsd — cópia fiel do schema oficial da SEFAZ
 
-Base técnica:
-  - W3C Recommendation: XML Signature Syntax and Processing (Second Edition)
-  - NT 2019.001: RSA-SHA256 mandatório para NF-e (vigente desde 01/07/2020)
-  - Compatível com NF-e 4.00 / Leiaute PL_010b
+Fonte: pacote "PL_010e_v1.02" (VERSÕES OFICIAIS em uso), baixado em 14/07/2026
+diretamente de https://www.nfe.fazenda.gov.br (Documentos > Esquemas XML).
+Conteúdo idêntico ao original, sem nenhuma alteração.
 
-Histórico:
-  - Versão SEFAZ original: fixed="rsa-sha1" (pré-NT2019.001)
-  - SP_NFE_PL_008i2 (ambiente HOM SP): ainda usa versão SHA-1 fixed internamente
-    → cStat=225 em HOM SP é limitação de infraestrutura SEFAZ, não do código
-  - Esta versão: sem fixed, aceita SHA-1 e SHA-256 na validação local
-
-Projeto: Borurio ERP Fiscal BR
+Confirma fixed="http://www.w3.org/2000/09/xmldsig#rsa-sha1" em SignatureMethod
+e fixed="http://www.w3.org/2000/09/xmldsig#sha1" em DigestMethod — mesma regra
+presente em toda a série histórica de pacotes (PL_008i2 até PL_010e_v1.02).
 ==============================================================================
 -->
-<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           xmlns="http://www.w3.org/2000/09/xmldsig#"
-           targetNamespace="http://www.w3.org/2000/09/xmldsig#"
-           elementFormDefault="qualified"
-           attributeFormDefault="unqualified">
-
-    <!-- =============================================================
-         1. ELEMENTOS PRINCIPAIS
-         ============================================================= -->
-    <xs:element name="Signature" type="SignatureType"/>
-
-    <xs:complexType name="SignatureType">
-        <xs:sequence>
-            <xs:element name="SignedInfo" type="SignedInfoType"/>
-            <xs:element name="SignatureValue" type="SignatureValueType"/>
-            <xs:element name="KeyInfo" type="KeyInfoType" minOccurs="0"/>
-            <xs:element name="Object" type="ObjectType" minOccurs="0" maxOccurs="unbounded"/>
-        </xs:sequence>
-        <xs:attribute name="Id" type="xs:ID" use="optional"/>
-    </xs:complexType>
-
-    <xs:complexType name="SignatureValueType">
-        <xs:simpleContent>
-            <xs:extension base="xs:base64Binary">
-                <xs:attribute name="Id" type="xs:ID" use="optional"/>
-            </xs:extension>
-        </xs:simpleContent>
-    </xs:complexType>
-
-    <xs:complexType name="SignedInfoType">
-        <xs:sequence>
-            <xs:element name="CanonicalizationMethod" type="CanonicalizationMethodType"/>
-            <xs:element name="SignatureMethod" type="SignatureMethodType"/>
-            <xs:element name="Reference" type="ReferenceType" maxOccurs="unbounded"/>
-        </xs:sequence>
-        <xs:attribute name="Id" type="xs:ID" use="optional"/>
-    </xs:complexType>
-
-    <!-- =============================================================
-         2. MÉTODOS DE CANONICALIZAÇÃO E ASSINATURA
-         Sem "fixed": aceita C14N inclusivo/exclusivo, RSA-SHA1, RSA-SHA256, etc.
-         ============================================================= -->
-    <xs:complexType name="CanonicalizationMethodType" mixed="true">
-        <xs:sequence minOccurs="0" maxOccurs="unbounded">
-            <xs:any namespace="##any" processContents="lax"/>
-        </xs:sequence>
-        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
-    </xs:complexType>
-
-    <xs:complexType name="SignatureMethodType" mixed="true">
-        <xs:sequence>
-            <xs:element name="HMACOutputLength" type="xs:integer" minOccurs="0"/>
-            <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
-        </xs:sequence>
-        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
-    </xs:complexType>
-
-    <!-- =============================================================
-         3. REFERÊNCIAS E DIGESTS
-         URI opcional (W3C) — NF-e sempre envia URI="#NFe..."
-         ============================================================= -->
-    <xs:complexType name="ReferenceType">
-        <xs:sequence>
-            <xs:element name="Transforms" type="TransformsType" minOccurs="0"/>
-            <xs:element name="DigestMethod" type="DigestMethodType"/>
-            <xs:element name="DigestValue" type="xs:base64Binary"/>
-        </xs:sequence>
-        <xs:attribute name="Id" type="xs:ID" use="optional"/>
-        <xs:attribute name="URI" type="xs:anyURI" use="optional"/>
-        <xs:attribute name="Type" type="xs:anyURI" use="optional"/>
-    </xs:complexType>
-
-    <xs:complexType name="TransformsType">
-        <xs:sequence>
-            <xs:element name="Transform" type="TransformType" maxOccurs="unbounded"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="TransformType" mixed="true">
-        <xs:sequence minOccurs="0" maxOccurs="unbounded">
-            <xs:any namespace="##any" processContents="lax"/>
-        </xs:sequence>
-        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
-    </xs:complexType>
-
-    <xs:complexType name="DigestMethodType" mixed="true">
-        <xs:sequence minOccurs="0" maxOccurs="unbounded">
-            <xs:any namespace="##any" processContents="lax"/>
-        </xs:sequence>
-        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
-    </xs:complexType>
-
-    <!-- =============================================================
-         4. ESTRUTURAS DE CHAVES E CERTIFICADOS
-         ============================================================= -->
-    <xs:complexType name="KeyInfoType" mixed="true">
-        <xs:choice maxOccurs="unbounded">
-            <xs:element name="KeyName" type="xs:string" minOccurs="0"/>
-            <xs:element name="KeyValue" type="KeyValueType" minOccurs="0"/>
-            <xs:element name="RetrievalMethod" type="RetrievalMethodType" minOccurs="0"/>
-            <xs:element name="X509Data" type="X509DataType" minOccurs="0"/>
-            <xs:element name="PGPData" type="PGPDataType" minOccurs="0"/>
-            <xs:element name="SPKIData" type="SPKIDataType" minOccurs="0"/>
-            <xs:element name="MgmtData" type="xs:string" minOccurs="0"/>
-            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
-        </xs:choice>
-        <xs:attribute name="Id" type="xs:ID" use="optional"/>
-    </xs:complexType>
-
-    <xs:complexType name="KeyValueType" mixed="true">
-        <xs:choice>
-            <xs:element name="DSAKeyValue" type="DSAKeyValueType" minOccurs="0"/>
-            <xs:element name="RSAKeyValue" type="RSAKeyValueType" minOccurs="0"/>
-            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
-        </xs:choice>
-    </xs:complexType>
-
-    <xs:complexType name="DSAKeyValueType">
-        <xs:sequence>
-            <xs:element name="P" type="xs:base64Binary" minOccurs="0"/>
-            <xs:element name="Q" type="xs:base64Binary" minOccurs="0"/>
-            <xs:element name="G" type="xs:base64Binary" minOccurs="0"/>
-            <xs:element name="Y" type="xs:base64Binary"/>
-            <xs:element name="J" type="xs:base64Binary" minOccurs="0"/>
-            <xs:element name="Seed" type="xs:base64Binary" minOccurs="0"/>
-            <xs:element name="PgenCounter" type="xs:base64Binary" minOccurs="0"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="RSAKeyValueType">
-        <xs:sequence>
-            <xs:element name="Modulus" type="xs:base64Binary"/>
-            <xs:element name="Exponent" type="xs:base64Binary"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <!-- =============================================================
-         5. ESTRUTURAS COMPLEMENTARES
-         ============================================================= -->
-    <xs:complexType name="RetrievalMethodType">
-        <xs:sequence>
-            <xs:element name="Transforms" type="TransformsType" minOccurs="0"/>
-        </xs:sequence>
-        <xs:attribute name="URI" type="xs:anyURI" use="optional"/>
-        <xs:attribute name="Type" type="xs:anyURI" use="optional"/>
-    </xs:complexType>
-
-    <xs:complexType name="X509DataType">
-        <xs:choice maxOccurs="unbounded">
-            <xs:element name="X509IssuerSerial" type="X509IssuerSerialType" minOccurs="0"/>
-            <xs:element name="X509SKI" type="xs:base64Binary" minOccurs="0"/>
-            <xs:element name="X509SubjectName" type="xs:string" minOccurs="0"/>
-            <xs:element name="X509Certificate" type="xs:base64Binary" minOccurs="0"/>
-            <xs:element name="X509CRL" type="xs:base64Binary" minOccurs="0"/>
-            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
-        </xs:choice>
-    </xs:complexType>
-
-    <xs:complexType name="X509IssuerSerialType">
-        <xs:sequence>
-            <xs:element name="X509IssuerName" type="xs:string"/>
-            <xs:element name="X509SerialNumber" type="xs:integer"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <xs:complexType name="PGPDataType">
-        <xs:choice>
-            <xs:sequence>
-                <xs:element name="PGPKeyID" type="xs:base64Binary"/>
-                <xs:element name="PGPKeyPacket" type="xs:base64Binary" minOccurs="0"/>
-                <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
-            </xs:sequence>
-            <xs:sequence>
-                <xs:element name="PGPKeyPacket" type="xs:base64Binary"/>
-                <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
-            </xs:sequence>
-        </xs:choice>
-    </xs:complexType>
-
-    <xs:complexType name="SPKIDataType">
-        <xs:sequence maxOccurs="unbounded">
-            <xs:element name="SPKISexp" type="xs:base64Binary"/>
-            <xs:any namespace="##other" processContents="lax" minOccurs="0"/>
-        </xs:sequence>
-    </xs:complexType>
-
-    <!-- =============================================================
-         6. TIPOS SIMPLES NOMEADOS
-         DigestValueType exportado porque leiauteNFe_v4.00.xsd usa ds:DigestValueType
-         ============================================================= -->
-    <xs:simpleType name="DigestValueType">
-        <xs:restriction base="xs:base64Binary"/>
-    </xs:simpleType>
-
-    <!-- =============================================================
-         7. OBJETO GENÉRICO
-         ============================================================= -->
-    <xs:complexType name="ObjectType" mixed="true">
-        <xs:sequence minOccurs="0" maxOccurs="unbounded">
-            <xs:any namespace="##any" processContents="lax"/>
-        </xs:sequence>
-        <xs:attribute name="Id" type="xs:ID" use="optional"/>
-        <xs:attribute name="MimeType" type="xs:string" use="optional"/>
-        <xs:attribute name="Encoding" type="xs:anyURI" use="optional"/>
-    </xs:complexType>
-
-</xs:schema>
+<!-- ***************************************************-->
+<!-- ***   Schema específico para assinaturas XML    ***-->
+<!-- *** a partir de certificados do padrão (X509)   ***-->
+<!-- *** ICP-Brasil - Projeto Nota Fiscal Eletrônica ***-->
+<!-- ***************************************************-->
+<!-- Schema for XML Signatures-->
+<schema xmlns="http://www.w3.org/2001/XMLSchema" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" targetNamespace="http://www.w3.org/2000/09/xmldsig#" elementFormDefault="qualified" attributeFormDefault="unqualified" version="0.1">
+	<element name="Signature" type="ds:SignatureType"/>
+	<complexType name="SignatureType">
+		<sequence>
+			<element name="SignedInfo" type="ds:SignedInfoType"/>
+			<element name="SignatureValue" type="ds:SignatureValueType"/>
+			<element name="KeyInfo" type="ds:KeyInfoType"/>
+		</sequence>
+		<attribute name="Id" type="ID" use="optional"/>
+	</complexType>
+	<complexType name="SignatureValueType">
+		<simpleContent>
+			<extension base="base64Binary">
+				<attribute name="Id" type="ID" use="optional"/>
+			</extension>
+		</simpleContent>
+	</complexType>
+	<complexType name="SignedInfoType">
+		<sequence>
+			<element name="CanonicalizationMethod">
+				<complexType>
+					<attribute name="Algorithm" type="anyURI" use="required" fixed="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+				</complexType>
+			</element>
+			<element name="SignatureMethod">
+				<complexType>
+					<attribute name="Algorithm" type="anyURI" use="required" fixed="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
+				</complexType>
+			</element>
+			<element name="Reference" type="ds:ReferenceType"/>
+		</sequence>
+		<attribute name="Id" type="ID" use="optional"/>
+	</complexType>
+	<complexType name="ReferenceType">
+		<sequence>
+			<element name="Transforms" type="ds:TransformsType">
+				<!-- Garante a unicidade do atributo -->
+				<unique name="unique_Transf_Alg">
+					<selector xpath="./*"/>
+					<field xpath="@Algorithm"/>
+				</unique>
+			</element>
+			<element name="DigestMethod">
+				<complexType>
+					<attribute name="Algorithm" type="anyURI" use="required" fixed="http://www.w3.org/2000/09/xmldsig#sha1"/>
+				</complexType>
+			</element>
+			<element name="DigestValue" type="ds:DigestValueType"/>
+		</sequence>
+		<attribute name="Id" type="ID" use="optional"/>
+		<attribute name="URI" use="required">
+			<simpleType>
+				<restriction base="anyURI">
+					<minLength value="2"/>
+				</restriction>
+			</simpleType>
+		</attribute>
+		<attribute name="Type" type="anyURI" use="optional"/>
+	</complexType>
+	<complexType name="TransformsType">
+		<sequence>
+			<element name="Transform" type="ds:TransformType" minOccurs="2" maxOccurs="2"/>
+		</sequence>
+	</complexType>
+	<complexType name="TransformType">
+		<sequence minOccurs="0" maxOccurs="unbounded">
+			<element name="XPath" type="string"/>
+		</sequence>
+		<attribute name="Algorithm" type="ds:TTransformURI" use="required"/>
+	</complexType>
+	<complexType name="KeyInfoType">
+		<sequence>
+			<element name="X509Data" type="ds:X509DataType"/>
+		</sequence>
+		<attribute name="Id" type="ID" use="optional"/>
+	</complexType>
+	<complexType name="X509DataType">
+		<sequence>
+			<element name="X509Certificate" type="base64Binary"/>
+		</sequence>
+	</complexType>
+	<simpleType name="DigestValueType">
+		<restriction base="base64Binary"/>
+	</simpleType>
+	<simpleType name="TTransformURI">
+		<restriction base="anyURI">
+			<enumeration value="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+			<enumeration value="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+		</restriction>
+	</simpleType>
+</schema>

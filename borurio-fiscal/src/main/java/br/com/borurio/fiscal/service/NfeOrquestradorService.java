@@ -68,7 +68,7 @@ public class NfeOrquestradorService {
         // 2. Validar XSD antes de assinar
         xsdValidator.validate(document, "xsd/custom/nfe_v4.00_consolidado.xsd");
 
-        // 3. Assinar XML (XMLDSIG RSA-SHA256 — obrigatório NF-e 4.00)
+        // 3. Assinar XML (XMLDSIG RSA-SHA1 — conforme schema oficial xmldsig-core-schema_v1.01.xsd)
         String xmlAssinado = ctx != null
                 ? assinaturaXmlService.assinar(xmlNfe, ctx)
                 : assinaturaXmlService.assinar(xmlNfe);

@@ -90,7 +90,7 @@ public class NfePipelineLocalTest {
     }
 
     @Test
-    @DisplayName("Deve assinar XML NF-e com RSA-SHA256 sem SOAP e sem certificado A1 real")
+    @DisplayName("Deve assinar XML NF-e com RSA-SHA1 sem SOAP e sem certificado A1 real")
     void deveAssinarXmlLocalSemSoap() throws Exception {
 
         assumeTestCertificateAvailable();
@@ -119,15 +119,15 @@ public class NfePipelineLocalTest {
         assertTrue(xmlAssinado.contains("SignatureValue"),
                 "O XML assinado deve conter o elemento <SignatureValue>.");
 
-        assertTrue(xmlAssinado.contains("rsa-sha256"),
-                "A assinatura deve usar RSA-SHA256 conforme NF-e 4.00.");
-        assertTrue(xmlAssinado.contains("xmlenc#sha256"),
-                "O digest deve usar SHA-256 conforme NF-e 4.00.");
+        assertTrue(xmlAssinado.contains("xmldsig#rsa-sha1"),
+                "A assinatura deve usar RSA-SHA1 conforme schema oficial xmldsig-core-schema_v1.01.xsd.");
+        assertTrue(xmlAssinado.contains("xmldsig#sha1"),
+                "O digest deve usar SHA-1 conforme schema oficial xmldsig-core-schema_v1.01.xsd.");
 
-        assertFalse(xmlAssinado.contains("xmldsig#rsa-sha1"),
-                "A assinatura NÃO deve usar RSA-SHA1 (obsoleto para NF-e 4.00).");
-        assertFalse(xmlAssinado.contains("xmldsig#sha1"),
-                "O digest NÃO deve usar SHA-1 (obsoleto para NF-e 4.00).");
+        assertFalse(xmlAssinado.contains("rsa-sha256"),
+                "A assinatura NÃO deve usar RSA-SHA256 (fora do schema oficial fixed=\"rsa-sha1\").");
+        assertFalse(xmlAssinado.contains("xmlenc#sha256"),
+                "O digest NÃO deve usar SHA-256 (fora do schema oficial fixed=\"sha1\").");
     }
 
     @Test
@@ -171,14 +171,14 @@ public class NfePipelineLocalTest {
                 "[Etapa 2] XML assinado é nulo — assinatura falhou.");
         assertTrue(xmlAssinado.contains("<Signature"),
                 "[Etapa 2] Bloco <Signature> ausente — assinatura não foi aplicada.");
-        assertTrue(xmlAssinado.contains("rsa-sha256"),
-                "[Etapa 2] Algoritmo RSA-SHA256 não encontrado no XML assinado.");
+        assertTrue(xmlAssinado.contains("xmldsig#rsa-sha1"),
+                "[Etapa 2] Algoritmo RSA-SHA1 não encontrado no XML assinado.");
         assertTrue(xmlAssinado.contains("DigestValue"),
                 "[Etapa 2] <DigestValue> ausente no XML assinado.");
         assertTrue(xmlAssinado.contains("SignatureValue"),
                 "[Etapa 2] <SignatureValue> ausente no XML assinado.");
-        assertFalse(xmlAssinado.contains("xmldsig#rsa-sha1"),
-                "[Etapa 2] RSA-SHA1 detectado — algoritmo obsoleto não permitido.");
+        assertFalse(xmlAssinado.contains("rsa-sha256"),
+                "[Etapa 2] RSA-SHA256 detectado — fora do schema oficial fixed=\"rsa-sha1\".");
     }
 
     @Test
