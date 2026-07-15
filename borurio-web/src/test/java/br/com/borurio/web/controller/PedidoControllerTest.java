@@ -17,6 +17,7 @@ import br.com.borurio.web.service.PedidoOperacaoService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -30,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -380,6 +383,190 @@ class PedidoControllerTest {
                 .andExpect(status().isOk());
 
         verify(empresaService, never()).atualizar(anyLong(), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // P0.3 — série padrão da empresa emitente correta (multi-CNPJ)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser
+    void criar_semSerieNfe_usaSeriePadraoDaEmpresaDoCnpjDoPedido() throws Exception {
+        EmpresaContextHolder.setJtiAuth("jti-oms-teste");
+        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", "22418179000134"))
+                .thenReturn(true);
+
+        Empresa empresaB = new Empresa();
+        empresaB.setId(8L);
+        empresaB.setCnpj("22418179000134");
+        empresaB.setSerieNfePadrao("2");
+        when(empresaService.buscarPorCnpj("22418179000134")).thenReturn(empresaB);
+
+        Pedido retorno = new Pedido();
+        retorno.setId(1L);
+        retorno.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(retorno);
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "cnpjEmitente": "22418179000134",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
+        verify(pedidoService).criar(captor.capture(), any());
+        assertEquals("2", captor.getValue().getSerieNfe());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_comSerieNfeExplicita_preservaSerieRecebidaMesmoComSeriePadraoDiferente() throws Exception {
+        EmpresaContextHolder.setJtiAuth("jti-oms-teste");
+        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", "22418179000134"))
+                .thenReturn(true);
+
+        Empresa empresaB = new Empresa();
+        empresaB.setId(8L);
+        empresaB.setCnpj("22418179000134");
+        empresaB.setSerieNfePadrao("2");
+        when(empresaService.buscarPorCnpj("22418179000134")).thenReturn(empresaB);
+
+        Pedido retorno = new Pedido();
+        retorno.setId(1L);
+        retorno.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(retorno);
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "cnpjEmitente": "22418179000134",
+                                  "serieNfe": "3",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
+        verify(pedidoService).criar(captor.capture(), any());
+        assertEquals("3", captor.getValue().getSerieNfe());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_semSerieNfe_empresaSemSeriePadrao_deixaParaFallbackDoService() throws Exception {
+        EmpresaContextHolder.setJtiAuth("jti-oms-teste");
+        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", "22418179000134"))
+                .thenReturn(true);
+
+        Empresa empresaSemSerie = new Empresa();
+        empresaSemSerie.setId(8L);
+        empresaSemSerie.setCnpj("22418179000134");
+        // serieNfePadrao propositalmente não setado (null)
+        when(empresaService.buscarPorCnpj("22418179000134")).thenReturn(empresaSemSerie);
+
+        Pedido retorno = new Pedido();
+        retorno.setId(1L);
+        retorno.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(retorno);
+
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "cnpjEmitente": "22418179000134",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        // Controller não resolveu nada aqui — o fallback "1" é responsabilidade do
+        // PedidoServiceImpl.criar() (não mockado em profundidade neste teste de controller).
+        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
+        verify(pedidoService).criar(captor.capture(), any());
+        assertNull(captor.getValue().getSerieNfe());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_doisCnpjsDiferentes_cadaUmUsaSuaPropriaSeriePadrao() throws Exception {
+        String cnpjA = "54393421000159";
+        String cnpjB = "22418179000134";
+
+        Empresa empresaA = new Empresa();
+        empresaA.setId(1L);
+        empresaA.setCnpj(cnpjA);
+        empresaA.setSerieNfePadrao("1");
+
+        Empresa empresaB = new Empresa();
+        empresaB.setId(8L);
+        empresaB.setCnpj(cnpjB);
+        empresaB.setSerieNfePadrao("2");
+
+        when(empresaService.buscarPorCnpj(cnpjA)).thenReturn(empresaA);
+        when(empresaService.buscarPorCnpj(cnpjB)).thenReturn(empresaB);
+
+        Pedido retornoA = new Pedido();
+        retornoA.setId(1L);
+        retornoA.setStatus("RASCUNHO");
+        Pedido retornoB = new Pedido();
+        retornoB.setId(2L);
+        retornoB.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(retornoA).thenReturn(retornoB);
+
+        // Pedido da empresa A
+        EmpresaContextHolder.setJtiAuth("jti-oms-teste");
+        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", cnpjA)).thenReturn(true);
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "cnpjEmitente": "%s",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP"
+                                }
+                                """.formatted(cnpjA)))
+                .andExpect(status().isOk());
+
+        // Pedido da empresa B, mesma sessão de teste
+        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", cnpjB)).thenReturn(true);
+        mockMvc.perform(post("/api/app/pedidos")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "cnpjEmitente": "%s",
+                                  "destCnpjCpf": "12345678000195",
+                                  "destRazaoSocial": "Cliente Teste",
+                                  "destUf": "SP"
+                                }
+                                """.formatted(cnpjB)))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
+        verify(pedidoService, org.mockito.Mockito.times(2)).criar(captor.capture(), any());
+        List<Pedido> capturados = captor.getAllValues();
+
+        Pedido pedidoDaEmpresaA = capturados.stream().filter(p -> cnpjA.equals(p.getCnpjEmitente())).findFirst().orElseThrow();
+        Pedido pedidoDaEmpresaB = capturados.stream().filter(p -> cnpjB.equals(p.getCnpjEmitente())).findFirst().orElseThrow();
+
+        assertEquals("1", pedidoDaEmpresaA.getSerieNfe(), "pedido da empresa A precisa usar a série padrão de A");
+        assertEquals("2", pedidoDaEmpresaB.getSerieNfe(), "pedido da empresa B precisa usar a série padrão de B, nunca a de A");
     }
 
     // -------------------------------------------------------------------------

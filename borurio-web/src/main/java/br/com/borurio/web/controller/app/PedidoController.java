@@ -117,6 +117,8 @@ public class PedidoController {
             }
         }
 
+        resolverSerieNfeSeAusente(pedido, empresaParaEndereco);
+
         List<PedidoItem> itens = pedido.getItens();
         pedido.setItens(null);
         Pedido criado = pedidoService.criar(pedido, itens != null ? itens : List.of());
@@ -126,6 +128,22 @@ public class PedidoController {
         atualizarEnderecoEmitenteSeNecessario(empresaParaEndereco, pedido);
 
         return ResultUtil.success(PedidoResponse.from(criado));
+    }
+
+    /**
+     * Resolve a série padrão da empresa emitente correta quando o pedido não informa série
+     * explicitamente — nunca sobrescreve uma série já enviada no payload. `empresaParaEndereco`
+     * já é a empresa emissora certa nos dois fluxos (CNPJ do pedido no multi-CNPJ OMS, ou
+     * empresaId no fluxo interno), então a série padrão usada aqui pertence sempre ao CNPJ
+     * correto, nunca ao cliente OMS "âncora" em geral. Se a empresa não puder ser resolvida
+     * aqui (ex.: emissão pelo emitente global, sem empresa cadastrada) ou não tiver série
+     * padrão configurada, o fallback legado "1" em PedidoServiceImpl.criar() continua valendo
+     * como último recurso.
+     */
+    private void resolverSerieNfeSeAusente(Pedido pedido, Empresa empresaParaEndereco) {
+        if (!isBlank(pedido.getSerieNfe())) return;
+        if (empresaParaEndereco == null || isBlank(empresaParaEndereco.getSerieNfePadrao())) return;
+        pedido.setSerieNfe(empresaParaEndereco.getSerieNfePadrao());
     }
 
     /**

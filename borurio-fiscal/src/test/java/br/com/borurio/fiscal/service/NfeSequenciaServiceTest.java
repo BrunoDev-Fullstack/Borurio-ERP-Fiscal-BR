@@ -7,6 +7,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -75,5 +87,345 @@ public class NfeSequenciaServiceTest {
 
         assertEquals(11, service.proximoNumero(CNPJ, "1"));
         assertEquals(4,  service.proximoNumero(CNPJ, "2"));
+    }
+
+    // -------------------------------------------------------------------------
+    // P0.3 — inicializarBaseline (onboarding de CNPJ com histórico em outro ERP)
+    //
+    // Regra estrita: cobre só a PRIMEIRA configuração de uma sequência nova.
+    //   inexistente        → cria
+    //   igual ao existente → idempotente
+    //   diferente do existente (maior OU menor) → erro explícito, nunca escreve
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Baseline em sequência inexistente cria o registro com o valor informado")
+    void baselineEmSequenciaInexistente_cria() {
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+
+        service.inicializarBaseline(CNPJ, SERIE, 100);
+
+        verify(mapper).inserir(argThat(seq ->
+                seq.getCnpjEmitente().equals(CNPJ) &&
+                seq.getSerie().equals(SERIE) &&
+                seq.getUltimoNumero() == 100));
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("Baseline idêntico ao valor já existente é idempotente — não escreve")
+    void baselineIgualAoExistente_idempotente() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(100);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        service.inicializarBaseline(CNPJ, SERIE, 100);
+
+        verify(mapper, never()).inserir(any());
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("Baseline diferente do valor já existente lança erro explícito — nunca escreve, nunca regride, nunca avança")
+    void baselineDiferenteDeSequenciaExistente_lancaErro() {
+        // Caso 1: valor informado MENOR que o existente (regressão)
+        NfeSequencia existente120 = new NfeSequencia();
+        existente120.setCnpjEmitente(CNPJ);
+        existente120.setSerie(SERIE);
+        existente120.setUltimoNumero(120);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente120);
+
+        IllegalStateException ex1 = assertThrows(IllegalStateException.class,
+                () -> service.inicializarBaseline(CNPJ, SERIE, 90));
+        assertTrue(ex1.getMessage().contains("120"));
+        assertTrue(ex1.getMessage().contains("90"));
+
+        // Caso 2: valor informado MAIOR que o existente (avanço silencioso — também proibido)
+        NfeSequencia existente50 = new NfeSequencia();
+        existente50.setCnpjEmitente(CNPJ);
+        existente50.setSerie(SERIE);
+        existente50.setUltimoNumero(50);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente50);
+
+        IllegalStateException ex2 = assertThrows(IllegalStateException.class,
+                () -> service.inicializarBaseline(CNPJ, SERIE, 100));
+        assertTrue(ex2.getMessage().contains("50"));
+        assertTrue(ex2.getMessage().contains("100"));
+
+        // Nenhum dos dois casos gravou nada.
+        verify(mapper, never()).inserir(any());
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("Baseline negativo é rejeitado antes de tocar o mapper")
+    void baselineNegativo_rejeitado() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.inicializarBaseline(CNPJ, SERIE, -1));
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    @DisplayName("CNPJ nulo ou vazio é rejeitado antes de tocar o mapper")
+    void cnpjNuloOuVazio_rejeitado() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.inicializarBaseline(null, SERIE, 100));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.inicializarBaseline("  ", SERIE, 100));
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    @DisplayName("Série nula ou vazia é rejeitada antes de tocar o mapper")
+    void serieNulaOuVazia_rejeitada() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.inicializarBaseline(CNPJ, null, 100));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.inicializarBaseline(CNPJ, "  ", 100));
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    @DisplayName("Dois CNPJs diferentes têm baselines independentes")
+    void baselineDoisCnpjsIndependentes() {
+        String cnpjB = "22418179000134";
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+        when(mapper.buscarParaAtualizar(cnpjB, SERIE)).thenReturn(null);
+
+        service.inicializarBaseline(CNPJ, SERIE, 100);
+        service.inicializarBaseline(cnpjB, SERIE, 50);
+
+        verify(mapper).inserir(argThat(seq -> seq.getCnpjEmitente().equals(CNPJ) && seq.getUltimoNumero() == 100));
+        verify(mapper).inserir(argThat(seq -> seq.getCnpjEmitente().equals(cnpjB) && seq.getUltimoNumero() == 50));
+    }
+
+    // -------------------------------------------------------------------------
+    // Determinismo real: baseline 100 → próxima alocação real é 101
+    // Usa o mapper falho com estado (definido mais abaixo) em vez de mocks sem memória,
+    // pra provar a cadeia de ponta a ponta, não só o comentário de intenção.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Baseline 100 seguido de proximoNumero() retorna exatamente 101")
+    void baselineSeguidoDeProximoNumero_retorna101() {
+        NfeSequenciaMapperComLockDeLinha mapperReal = new NfeSequenciaMapperComLockDeLinha();
+        NfeSequenciaService servicoReal = new NfeSequenciaServiceImpl(mapperReal);
+
+        try {
+            servicoReal.inicializarBaseline(CNPJ, SERIE, 100);
+        } finally {
+            mapperReal.liberarTransacaoDaThreadAtual();
+        }
+
+        int proximo;
+        try {
+            proximo = servicoReal.proximoNumero(CNPJ, SERIE);
+        } finally {
+            mapperReal.liberarTransacaoDaThreadAtual();
+        }
+
+        assertEquals(101, proximo);
+    }
+
+    // -------------------------------------------------------------------------
+    // Concorrência real — mapper falso simulando SELECT ... FOR UPDATE
+    // -------------------------------------------------------------------------
+
+    /**
+     * Simula o comportamento real do banco (SELECT ... FOR UPDATE + SERIALIZABLE): a leitura
+     * bloqueia até a "transação" anterior no mesmo CNPJ+série liberar o lock. O lock só é
+     * liberado quando o teste chama liberarTransacaoDaThreadAtual() no finally — mesma
+     * semântica do @Transactional real do Spring, que libera o lock da linha no commit,
+     * independente de ter havido escrita ou não (ex.: caminho idempotente do baseline).
+     */
+    static class NfeSequenciaMapperComLockDeLinha implements NfeSequenciaMapper {
+        private final Map<String, NfeSequencia> dados = new ConcurrentHashMap<>();
+        private final Map<String, ReentrantLock> locks = new ConcurrentHashMap<>();
+        private final ThreadLocal<ReentrantLock> lockDaThread = new ThreadLocal<>();
+        final List<Integer> valoresGravados = new CopyOnWriteArrayList<>();
+
+        private String chave(String cnpj, String serie) { return cnpj + "|" + serie; }
+
+        @Override
+        public NfeSequencia buscarParaAtualizar(String cnpjEmitente, String serie) {
+            ReentrantLock lock = locks.computeIfAbsent(chave(cnpjEmitente, serie), k -> new ReentrantLock());
+            lock.lock();
+            lockDaThread.set(lock);
+            NfeSequencia atual = dados.get(chave(cnpjEmitente, serie));
+            if (atual == null) return null;
+            NfeSequencia copia = new NfeSequencia();
+            copia.setCnpjEmitente(atual.getCnpjEmitente());
+            copia.setSerie(atual.getSerie());
+            copia.setUltimoNumero(atual.getUltimoNumero());
+            return copia;
+        }
+
+        @Override
+        public void inserir(NfeSequencia seq) {
+            dados.put(chave(seq.getCnpjEmitente(), seq.getSerie()), copiar(seq));
+            valoresGravados.add(seq.getUltimoNumero());
+        }
+
+        @Override
+        public void atualizarNumero(NfeSequencia seq) {
+            dados.put(chave(seq.getCnpjEmitente(), seq.getSerie()), copiar(seq));
+            valoresGravados.add(seq.getUltimoNumero());
+        }
+
+        private NfeSequencia copiar(NfeSequencia seq) {
+            NfeSequencia copia = new NfeSequencia();
+            copia.setCnpjEmitente(seq.getCnpjEmitente());
+            copia.setSerie(seq.getSerie());
+            copia.setUltimoNumero(seq.getUltimoNumero());
+            return copia;
+        }
+
+        /** Chamar no finally de cada "transação" simulada — equivalente ao commit do Spring. */
+        void liberarTransacaoDaThreadAtual() {
+            ReentrantLock lock = lockDaThread.get();
+            if (lock != null) {
+                lockDaThread.remove();
+                lock.unlock();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Concorrência A: baseline concluído ANTES → 9 alocações concorrentes produzem exatamente 101..109")
+    void concorrencia_baselineConcluidoAntes_novePosicoesExatas() throws Exception {
+        NfeSequenciaMapperComLockDeLinha mapperReal = new NfeSequenciaMapperComLockDeLinha();
+        NfeSequenciaService servicoReal = new NfeSequenciaServiceImpl(mapperReal);
+
+        // Baseline roda de forma síncrona e completa ANTES de qualquer concorrência — sem isso,
+        // nada garante que proximoNumero() não aloque a partir de 1 numa corrida com o baseline.
+        try {
+            servicoReal.inicializarBaseline(CNPJ, SERIE, 100);
+        } finally {
+            mapperReal.liberarTransacaoDaThreadAtual();
+        }
+
+        int numThreads = 9;
+        ExecutorService pool = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch largada = new CountDownLatch(1);
+        Set<Integer> numerosAlocados = ConcurrentHashMap.newKeySet();
+
+        for (int i = 0; i < numThreads; i++) {
+            pool.submit(() -> {
+                try {
+                    largada.await();
+                    try {
+                        numerosAlocados.add(servicoReal.proximoNumero(CNPJ, SERIE));
+                    } finally {
+                        mapperReal.liberarTransacaoDaThreadAtual();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+        }
+        largada.countDown();
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+
+        Set<Integer> esperado = Set.of(101, 102, 103, 104, 105, 106, 107, 108, 109);
+        assertEquals(esperado, numerosAlocados,
+                "as 9 alocações concorrentes pós-baseline devem ser exatamente 101..109, sem número abaixo de 101");
+    }
+
+    @Test
+    @DisplayName("Concorrência B: duas inicializações concorrentes com o MESMO valor — idempotente, estado final único")
+    void concorrencia_duasInicializacoesMesmoValor_idempotente() throws Exception {
+        NfeSequenciaMapperComLockDeLinha mapperReal = new NfeSequenciaMapperComLockDeLinha();
+        NfeSequenciaService servicoReal = new NfeSequenciaServiceImpl(mapperReal);
+
+        int numThreads = 2;
+        ExecutorService pool = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch largada = new CountDownLatch(1);
+        AtomicInteger falhas = new AtomicInteger(0);
+
+        for (int i = 0; i < numThreads; i++) {
+            pool.submit(() -> {
+                try {
+                    largada.await();
+                    try {
+                        servicoReal.inicializarBaseline(CNPJ, SERIE, 100);
+                    } catch (Exception e) {
+                        falhas.incrementAndGet();
+                    } finally {
+                        mapperReal.liberarTransacaoDaThreadAtual();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+        }
+        largada.countDown();
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+
+        assertEquals(0, falhas.get(), "duas inicializações com o mesmo valor nunca deveriam lançar erro");
+        assertEquals(100, servicoReal.proximoNumero(CNPJ, SERIE) - 1, "estado final precisa ser exatamente 100");
+    }
+
+    @Test
+    @DisplayName("Concorrência C: duas inicializações concorrentes com valores DIFERENTES — só uma vence, a outra falha explicitamente")
+    void concorrencia_duasInicializacoesValoresDiferentes_somenteUmaVence() throws Exception {
+        NfeSequenciaMapperComLockDeLinha mapperReal = new NfeSequenciaMapperComLockDeLinha();
+        NfeSequenciaService servicoReal = new NfeSequenciaServiceImpl(mapperReal);
+
+        CountDownLatch largada = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        AtomicInteger sucessos = new AtomicInteger(0);
+        AtomicInteger falhas = new AtomicInteger(0);
+
+        Runnable tarefa100 = () -> {
+            try {
+                largada.await();
+                try {
+                    servicoReal.inicializarBaseline(CNPJ, SERIE, 100);
+                    sucessos.incrementAndGet();
+                } catch (IllegalStateException e) {
+                    falhas.incrementAndGet();
+                } finally {
+                    mapperReal.liberarTransacaoDaThreadAtual();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        Runnable tarefa150 = () -> {
+            try {
+                largada.await();
+                try {
+                    servicoReal.inicializarBaseline(CNPJ, SERIE, 150);
+                    sucessos.incrementAndGet();
+                } catch (IllegalStateException e) {
+                    falhas.incrementAndGet();
+                } finally {
+                    mapperReal.liberarTransacaoDaThreadAtual();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+
+        pool.submit(tarefa100);
+        pool.submit(tarefa150);
+        largada.countDown();
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+
+        assertEquals(1, sucessos.get(), "exatamente uma das duas configurações deveria vencer");
+        assertEquals(1, falhas.get(), "a outra precisa falhar explicitamente, nunca sobrescrever silenciosamente");
+
+        // O estado final é 100 OU 150 — nunca um valor corrompido/misturado.
+        int estadoFinal = servicoReal.proximoNumero(CNPJ, SERIE) - 1;
+        assertTrue(estadoFinal == 100 || estadoFinal == 150,
+                "estado final precisa ser exatamente um dos dois valores propostos: " + estadoFinal);
     }
 }

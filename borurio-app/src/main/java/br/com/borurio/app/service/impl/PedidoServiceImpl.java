@@ -56,6 +56,9 @@ public class PedidoServiceImpl implements PedidoService {
             }
         }
 
+        // Último recurso: PedidoController já tenta resolver a série padrão da empresa emitente
+        // correta (Empresa.serieNfePadrao) antes de chegar aqui. Só cai em "1" quando nem a
+        // série nem a empresa/série padrão puderam ser resolvidas (ex.: emitente global legado).
         if (pedido.getSerieNfe() == null || pedido.getSerieNfe().isBlank()) pedido.setSerieNfe("1");
         if (pedido.getNaturezaOperacao() == null || pedido.getNaturezaOperacao().isBlank()) {
             pedido.setNaturezaOperacao("VENDA DE MERCADORIA");
