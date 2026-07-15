@@ -123,6 +123,23 @@ public interface PedidoMapper {
                         @Param("status") String status,
                         @Param("chaveNfe") String chaveNfe);
 
+    /**
+     * Claim atômico de emissão (P0.1) — só transiciona pra EMITINDO se o pedido ainda
+     * estiver num status emissível no momento exato do UPDATE. rowsAffected=1 significa
+     * que esta chamada venceu a corrida; rowsAffected=0 significa que outra requisição já
+     * reivindicou a emissão (ou o status mudou entre a leitura em PedidoEmissaoService e
+     * esta tentativa). Os três valores do IN precisam continuar sincronizados com
+     * PedidoEmissaoService.STATUS_EMISSIVEIS.
+     */
+    @Update("""
+            UPDATE pedido SET
+                status           = 'EMITINDO',
+                data_atualizacao = NOW()
+            WHERE id = #{id}
+            AND status IN ('RASCUNHO', 'REJEITADO', 'ERRO')
+            """)
+    int reivindicarParaEmissao(@Param("id") Long id);
+
     @Update("""
             UPDATE pedido SET
                 numero           = #{numero},

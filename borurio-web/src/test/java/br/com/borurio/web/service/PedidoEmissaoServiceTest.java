@@ -11,13 +11,21 @@ import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import br.com.borurio.app.exception.BusinessException;
 
@@ -46,6 +54,10 @@ class PedidoEmissaoServiceTest {
         service = new PedidoEmissaoService(
                 pedidoService, nfeGeracaoService, retornoParser, estoqueService, empresaMapper);
         EmpresaContextHolder.clear();
+        // Default "feliz" pro claim atômico (P0.1) — testes que não mexem nisso continuam
+        // passando; os testes de concorrência/claim sobrescrevem explicitamente por teste.
+        // lenient(): os testes que barram antes do claim (status inválido) nunca chamam isso.
+        lenient().when(pedidoService.reivindicarParaEmissao(anyLong())).thenReturn(true);
     }
 
     @AfterEach
@@ -195,6 +207,8 @@ class PedidoEmissaoServiceTest {
         BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
         assertEquals("INVALID_ORDER_STATUS", ex.getErrorCode());
         verifyNoInteractions(nfeGeracaoService);
+        // Status já inválido no SELECT inicial — nem tenta o claim atômico.
+        verify(pedidoService, never()).reivindicarParaEmissao(any());
     }
 
     @Test
@@ -204,6 +218,7 @@ class PedidoEmissaoServiceTest {
 
         assertThrows(BusinessException.class, () -> service.emitir(99L));
         verifyNoInteractions(nfeGeracaoService);
+        verify(pedidoService, never()).reivindicarParaEmissao(any());
     }
 
     @Test
@@ -213,6 +228,103 @@ class PedidoEmissaoServiceTest {
 
         assertThrows(BusinessException.class, () -> service.emitir(99L));
         verifyNoInteractions(nfeGeracaoService);
+        verify(pedidoService, never()).reivindicarParaEmissao(any());
+    }
+
+    // -------------------------------------------------------------------------
+    // P0.1 — claim atômico e concorrência
+    // -------------------------------------------------------------------------
+
+    @Test
+    void emitir_claimPerdido_lancaEmissaoEmAndamentoENaoTocaSefaz() {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.reivindicarParaEmissao(99L)).thenReturn(false);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("EMISSAO_EM_ANDAMENTO", ex.getErrorCode());
+        assertTrue(ex.isRetryable(), "corrida é falha transitória — retry deve ser seguro");
+        assertEquals(409, ex.getHttpStatus());
+        verifyNoInteractions(nfeGeracaoService);
+        verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
+        // Nenhuma tentativa de mudar status — quem perdeu o claim não é dono do pedido.
+        verify(pedidoService, never()).atualizarStatus(eq(99L), anyString(), any());
+    }
+
+    @Test
+    void emitir_itensVazios_revertePraErroAposClaim() {
+        Pedido pedido = pedidoRascunho();
+        pedido.setItens(List.of());
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+
+        assertThrows(IllegalArgumentException.class, () -> service.emitir(99L));
+
+        // Claim foi conquistado (EMITINDO), mas a falha de validação — antes de qualquer nNF
+        // alocado — precisa devolver o pedido a um status emissível, senão fica preso.
+        verify(pedidoService).reivindicarParaEmissao(99L);
+        verify(pedidoService).atualizarStatus(99L, "ERRO", pedido.getChaveNfe());
+        verifyNoInteractions(nfeGeracaoService);
+    }
+
+    @Test
+    @DisplayName("2 threads simultâneas no mesmo pedido — só uma chega ao motor fiscal")
+    void emitir_duasThreadsSimultaneas_apenasUmaProssegue() throws Exception {
+        executarConcorrenciaMesmoPedido(2);
+    }
+
+    @Test
+    @DisplayName("10 threads simultâneas no mesmo pedido — só uma chega ao motor fiscal")
+    void emitir_dezThreadsSimultaneas_apenasUmaProssegue() throws Exception {
+        executarConcorrenciaMesmoPedido(10);
+    }
+
+    /**
+     * Simula, no nível de serviço, a garantia atômica que o UPDATE condicional real
+     * (PedidoMapper.reivindicarParaEmissao) dá no banco: apenas a primeira chamada concorrente
+     * "vence" o claim. Não prova que o MySQL serializa a UPDATE (isso é garantia do motor
+     * relacional, papel do banco, não da JVM) — prova que PedidoEmissaoService reage
+     * corretamente a essa garantia sem introduzir uma corrida própria em cima dela.
+     */
+    private void executarConcorrenciaMesmoPedido(int numThreads) throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        AtomicBoolean claimTomado = new AtomicBoolean(false);
+        when(pedidoService.reivindicarParaEmissao(99L))
+                .thenAnswer(inv -> claimTomado.compareAndSet(false, true));
+
+        ExecutorService pool = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch largada = new CountDownLatch(1);
+        List<Future<Boolean>> futuros = new ArrayList<>();
+
+        for (int i = 0; i < numThreads; i++) {
+            futuros.add(pool.submit(() -> {
+                largada.await();
+                try {
+                    service.emitir(99L);
+                    return true;
+                } catch (BusinessException e) {
+                    assertEquals("EMISSAO_EM_ANDAMENTO", e.getErrorCode());
+                    return false;
+                }
+            }));
+        }
+        largada.countDown();
+
+        int sucessos = 0;
+        for (Future<Boolean> f : futuros) {
+            if (f.get(10, TimeUnit.SECONDS)) sucessos++;
+        }
+        pool.shutdown();
+
+        assertEquals(1, sucessos,
+                "exatamente uma das " + numThreads + " chamadas concorrentes deveria vencer o claim");
+        verify(nfeGeracaoService, times(1)).gerar(any(), any());
     }
 
     private br.com.borurio.fiscal.dto.NfeSefazRetorno autorizada() {

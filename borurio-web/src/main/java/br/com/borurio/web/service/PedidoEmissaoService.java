@@ -33,7 +33,15 @@ import java.util.List;
  * Reemissão: pedidos em REJEITADO ou ERRO podem chamar emitir() novamente —
  * cada tentativa gera nNF/chave novos via NfeSequenciaService, sem risco de duplicidade na SEFAZ.
  *
+ * Concorrência (P0.1): antes de tocar no sequenciador, emitir() reivindica o pedido com um
+ * claim atômico (RASCUNHO/REJEITADO/ERRO → EMITINDO via UPDATE condicional). Só a chamada que
+ * vence o claim prossegue; qualquer outra chamada concorrente pro mesmo pedidoId — retry de
+ * rede, corrida real — recebe EMISSAO_EM_ANDAMENTO em vez de alocar um segundo nNF. EMITINDO
+ * nunca é um status terminal: toda falha depois do claim (validação, estoque, SEFAZ) devolve o
+ * pedido para ERRO antes de propagar a exceção, então ele nunca fica preso em EMITINDO.
+ *
  * emitir() lança BusinessException (não retorna 200 disfarçado de sucesso) quando:
+ *   claim perdido       → EMISSAO_EM_ANDAMENTO (retryable=true — outra emissão já está em curso)
  *   REJEITADO         → SEFAZ_REJECTED (cStat/xMotivo no campo `data`, retryable=false — geralmente é dado incorreto)
  *   timeout de rede    → SEFAZ_TIMEOUT (retryable=true)
  *   SEFAZ inacessível  → SEFAZ_UNAVAILABLE (retryable=true)
@@ -72,25 +80,48 @@ public class PedidoEmissaoService {
                     "Pedido não pode ser emitido no status atual: " + pedido.getStatus()
                             + ". Permitido apenas para RASCUNHO, REJEITADO ou ERRO.");
         }
-        if (pedido.getItens() == null || pedido.getItens().isEmpty()) {
-            throw new IllegalArgumentException("Pedido sem itens não pode ser emitido.");
+
+        // Claim atômico (P0.1) — o SELECT acima já confirmou status emissível, mas não protege
+        // a janela entre leitura e escrita. Esta UPDATE condicional (RASCUNHO/REJEITADO/ERRO →
+        // EMITINDO) é o ponto real de exclusão mútua: duas chamadas concorrentes pro mesmo
+        // pedido (retry de rede, corrida real) só deixam UMA prosseguir. A outra recebe
+        // EMISSAO_EM_ANDAMENTO em vez de alocar um segundo nNF e gerar uma segunda NF-e.
+        if (!pedidoService.reivindicarParaEmissao(pedidoId)) {
+            throw BusinessException.emissaoEmAndamento(pedidoId);
         }
 
-        String criadoPor = resolverCriadoPor();
-        Empresa empresa  = resolverEmpresaParaEmissao(pedido);
-        // empresa é usado apenas para XML e certificado (CNPJ emitente correto no fluxo multi-CNPJ).
-        // Estoque e baixas usam o empresaId do pedido — empresa-âncora onde os produtos foram cadastrados.
-        Long empresaId   = pedido.getEmpresaId() != null ? pedido.getEmpresaId()
-                : (EmpresaContextHolder.get() != null ? EmpresaContextHolder.get()
-                   : (empresa != null ? empresa.getId() : null));
+        String criadoPor;
+        Empresa empresa;
+        Long empresaId;
+        boolean controlaEstoque;
+        try {
+            if (pedido.getItens() == null || pedido.getItens().isEmpty()) {
+                throw new IllegalArgumentException("Pedido sem itens não pode ser emitido.");
+            }
 
-        // Empresa âncora (dona do estoque) decide se o fluxo controla estoque — não confundir
-        // com `empresa`, que pode ser outro CNPJ do mesmo cliente OMS (fluxo multi-CNPJ).
-        boolean controlaEstoque = controlaEstoque(empresaId);
+            criadoPor = resolverCriadoPor();
+            empresa   = resolverEmpresaParaEmissao(pedido);
+            // empresa é usado apenas para XML e certificado (CNPJ emitente correto no fluxo multi-CNPJ).
+            // Estoque e baixas usam o empresaId do pedido — empresa-âncora onde os produtos foram cadastrados.
+            empresaId = pedido.getEmpresaId() != null ? pedido.getEmpresaId()
+                    : (EmpresaContextHolder.get() != null ? EmpresaContextHolder.get()
+                       : (empresa != null ? empresa.getId() : null));
 
-        // Reserva ANTES da chamada SEFAZ — lança IllegalStateException (→ 422) se insuficiente
-        if (controlaEstoque) {
-            estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            // Empresa âncora (dona do estoque) decide se o fluxo controla estoque — não confundir
+            // com `empresa`, que pode ser outro CNPJ do mesmo cliente OMS (fluxo multi-CNPJ).
+            controlaEstoque = controlaEstoque(empresaId);
+
+            // Reserva ANTES da chamada SEFAZ — lança IllegalStateException (→ 422) se insuficiente
+            if (controlaEstoque) {
+                estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            }
+        } catch (Exception e) {
+            // Falha antes de qualquer chamada à SEFAZ (itens vazios, empresa/certificado não
+            // resolvido, estoque insuficiente) — nenhum nNF foi alocado ainda, mas o pedido já
+            // está em EMITINDO por causa do claim acima e precisa voltar a um status emissível,
+            // senão fica preso pra sempre (EMITINDO não está em STATUS_EMISSIVEIS).
+            pedidoService.atualizarStatus(pedidoId, "ERRO", pedido.getChaveNfe());
+            throw e;
         }
 
         NfeEmissaoRequest req = montarRequest(pedido);

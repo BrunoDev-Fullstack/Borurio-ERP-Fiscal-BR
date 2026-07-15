@@ -144,6 +144,11 @@ public class PedidoServiceImpl implements PedidoService {
         pedidoMapper.atualizarStatus(id, status, chaveNfe);
     }
 
+    @Override
+    public boolean reivindicarParaEmissao(Long id) {
+        return pedidoMapper.reivindicarParaEmissao(id) == 1;
+    }
+
     // -------------------------------------------------------------------------
     // Privado
     // -------------------------------------------------------------------------

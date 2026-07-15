@@ -177,7 +177,9 @@ public class PedidoController {
                           "schema local inválido retorna `XML_SCHEMA_INVALID` (retryable=false, HTTP 422); " +
                           "cadastro do emitente incompleto retorna `EMITTER_ADDRESS_INCOMPLETE` (retryable=false, HTTP 422) sem chamar a SEFAZ. " +
                           "Precondição: pedido deve estar em `RASCUNHO`, `REJEITADO` ou `ERRO`. Cada nova tentativa gera `chaveNfe` nova. " +
-                          "Qualquer outro estado (`AUTORIZADO`, `AGUARDANDO`, `CANCELADO`) retorna HTTP 422 com `errorCode=INVALID_ORDER_STATUS`."
+                          "Qualquer outro estado (`AUTORIZADO`, `AGUARDANDO`, `CANCELADO`) retorna HTTP 422 com `errorCode=INVALID_ORDER_STATUS`. " +
+                          "**Concorrência:** chamadas simultâneas pro mesmo pedido (retry de rede, corrida) — só uma prossegue; " +
+                          "as demais recebem HTTP 409 com `errorCode=EMISSAO_EM_ANDAMENTO` (`retryable=true`), nunca uma segunda NF-e."
     )
     public Result<Map<String, String>> emitir(@PathVariable Long id) throws Exception {
         NfeGeracaoResult result = pedidoEmissaoService.emitir(id);

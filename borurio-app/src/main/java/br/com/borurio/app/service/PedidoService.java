@@ -25,4 +25,11 @@ public interface PedidoService {
     PageResponse<Pedido> listarPaginado(Long empresaId, int page, int size);
 
     void atualizarStatus(Long id, String status, String chaveNfe);
+
+    /**
+     * Reivindica atomicamente o pedido pra emissão (RASCUNHO/REJEITADO/ERRO → EMITINDO).
+     * Retorna true se esta chamada venceu a corrida; false se outra requisição concorrente
+     * já assumiu a emissão ou o status não é mais emissível. Ver PedidoMapper.reivindicarParaEmissao.
+     */
+    boolean reivindicarParaEmissao(Long id);
 }

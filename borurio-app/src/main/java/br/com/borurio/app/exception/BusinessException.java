@@ -70,6 +70,21 @@ public class BusinessException extends RuntimeException {
         return new BusinessException("INVALID_ORDER_STATUS", message, 422);
     }
 
+    /**
+     * Outra requisição já reivindicou a emissão deste pedido (claim atômico perdido) — corrida
+     * real (retry duplicado, chamada simultânea), não erro de dado. retryable=true: a emissão
+     * em andamento deve terminar em instantes; consultar GET /pedidos/{id}/situacao ou tentar
+     * de novo depois resolve sem risco de duas NF-e para o mesmo pedido.
+     */
+    public static BusinessException emissaoEmAndamento(Long pedidoId) {
+        return new BusinessException(
+                "EMISSAO_EM_ANDAMENTO",
+                "Já existe uma emissão em andamento para o pedido " + pedidoId
+                        + ". Aguarde a conclusão ou consulte a situação antes de tentar novamente.",
+                409,
+                true);
+    }
+
     public static BusinessException batchLimitExceeded() {
         return new BusinessException(
                 "BATCH_LIMIT_EXCEEDED",
