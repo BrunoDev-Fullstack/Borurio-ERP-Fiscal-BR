@@ -23,6 +23,7 @@ public class Ide {
 
     private String indFinal;
     private String indPres;
+    private String indIntermed;
 
     private String procEmi;
     private String verProc;
@@ -76,6 +77,9 @@ public class Ide {
 
     public String getIndPres() { return indPres; }
     public void setIndPres(String indPres) { this.indPres = indPres; }
+
+    public String getIndIntermed() { return indIntermed; }
+    public void setIndIntermed(String indIntermed) { this.indIntermed = indIntermed; }
 
     public String getProcEmi() { return procEmi; }
     public void setProcEmi(String procEmi) { this.procEmi = procEmi; }

@@ -223,6 +223,7 @@ public class NfeGeracaoService {
         ide.setFinNFe("1");
         ide.setIndFinal(resolverIndFinalPadrao(empresa));
         ide.setIndPres("9");
+        ide.setIndIntermed("0"); // 0 = venda direta, sem intermediador/marketplace (emitente vende em nome próprio)
         ide.setProcEmi("0");
         ide.setVerProc("1.0.0");
         return ide;

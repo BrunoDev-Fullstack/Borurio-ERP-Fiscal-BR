@@ -218,4 +218,24 @@ class NfeGeracaoServiceTest {
         verify(nfeXmlBuilder).build(captor.capture());
         assertEquals("1", captor.getValue().getInfNFe().getIde().getIndFinal());
     }
+
+    // -------------------------------------------------------------------------
+    // P0.5 — indIntermed presente no XML final para o fluxo atual (venda direta)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void gerar_xmlFinalContemIndIntermedNoValorAtualDeVendaDireta() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+
+        Empresa empresa = empresaValida(12L, "1");
+
+        service.gerar(requestValido(), empresa);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture());
+        assertEquals("0", captor.getValue().getInfNFe().getIde().getIndIntermed(),
+                "indIntermed deve estar presente no XML com o valor provisório atual (\"0\" = venda direta) — "
+                        + "esse valor não representa regra de negócio fechada, só o comportamento vigente do fluxo atual");
+    }
 }

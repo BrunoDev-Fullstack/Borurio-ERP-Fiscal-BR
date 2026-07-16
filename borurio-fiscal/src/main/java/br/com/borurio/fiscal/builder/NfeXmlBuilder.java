@@ -54,6 +54,7 @@ public class NfeXmlBuilder {
             append(doc, ideEl, "finNFe",   ide.getFinNFe());
             append(doc, ideEl, "indFinal", ide.getIndFinal());
             append(doc, ideEl, "indPres",  ide.getIndPres());
+            append(doc, ideEl, "indIntermed", ide.getIndIntermed());
             append(doc, ideEl, "procEmi",  ide.getProcEmi());
             append(doc, ideEl, "verProc",  ide.getVerProc());
 
