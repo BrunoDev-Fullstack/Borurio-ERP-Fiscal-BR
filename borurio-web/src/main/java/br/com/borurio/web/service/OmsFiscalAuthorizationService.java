@@ -186,6 +186,7 @@ public class OmsFiscalAuthorizationService {
         empresa.setUf(extrairUfDoCertificado(x509));
         empresa.setCrt("1");
         empresa.setSerieNfePadrao("1");
+        empresa.setIndFinalPadrao("1");
         empresa.setAtivo(true);
         empresa.setControleEstoqueAtivo(true);
         empresaMapper.inserir(empresa);

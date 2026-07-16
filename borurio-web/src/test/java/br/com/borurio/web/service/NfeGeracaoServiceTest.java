@@ -4,8 +4,10 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.fiscal.builder.NfeXmlBuilder;
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.domain.nfe.NFe;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
+import br.com.borurio.fiscal.dto.NfeSefazRetorno;
 import br.com.borurio.fiscal.service.NcmService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
 import br.com.borurio.fiscal.service.NfeLogService;
@@ -15,6 +17,7 @@ import br.com.borurio.fiscal.service.NfeSequenciaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -77,6 +80,30 @@ class NfeGeracaoServiceTest {
         return e;
     }
 
+    private Empresa empresaValida(Long id, String indFinalPadrao) {
+        Empresa e = new Empresa();
+        e.setId(id);
+        e.setCnpj("22418179000134");
+        e.setRazaoSocial("J ZHENG BIJOUTERIAS");
+        e.setUf("SP");
+        e.setLogradouro("Rua Teste");
+        e.setNumero("100");
+        e.setBairro("Centro");
+        e.setCodigoMunicipio("3550308");
+        e.setMunicipio("São Paulo");
+        e.setCep("01000000");
+        e.setIndFinalPadrao(indFinalPadrao);
+        return e;
+    }
+
+    private NfeSefazRetorno retornoAutorizado() {
+        NfeSefazRetorno r = new NfeSefazRetorno();
+        r.setCStat(100);
+        r.setXMotivo("Autorizado o uso da NF-e");
+        r.setNProt("135260000000000");
+        return r;
+    }
+
     @Test
     void gerar_empresaComEnderecoIncompleto_lancaBusinessExceptionSemChamarSefaz() {
         when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
@@ -88,5 +115,107 @@ class NfeGeracaoServiceTest {
         assertFalse(ex.isRetryable());
         verifyNoInteractions(nfeOrquestradorService);
         verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    // -------------------------------------------------------------------------
+    // P0.4 — indFinal como padrão configurável da empresa emitente (não mais heurística CPF/CNPJ)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void resolverIndFinalPadrao_empresaComPadrao1_retorna1() {
+        assertEquals("1", service.resolverIndFinalPadrao(empresaValida(1L, "1")));
+    }
+
+    @Test
+    void resolverIndFinalPadrao_empresaComPadrao0_retorna0() {
+        assertEquals("0", service.resolverIndFinalPadrao(empresaValida(2L, "0")));
+    }
+
+    @Test
+    void resolverIndFinalPadrao_valorNulo_fallback1DeCompatibilidade() {
+        assertEquals("1", service.resolverIndFinalPadrao(empresaValida(3L, null)));
+    }
+
+    @Test
+    void resolverIndFinalPadrao_valorVazio_fallback1DeCompatibilidade() {
+        assertEquals("1", service.resolverIndFinalPadrao(empresaValida(4L, "")));
+    }
+
+    @Test
+    void resolverIndFinalPadrao_empresaNula_fallback1DoFluxoLegado() {
+        assertEquals("1", service.resolverIndFinalPadrao(null));
+    }
+
+    @Test
+    void resolverIndFinalPadrao_valorInvalido_lancaBusinessExceptionSemNormalizar() {
+        Empresa empresa = empresaValida(5L, "2");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.resolverIndFinalPadrao(empresa));
+
+        assertEquals("IND_FINAL_PADRAO_INVALIDO", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
+    }
+
+    @Test
+    void resolverIndFinalPadrao_empresasIndependentes_naoInterferemEntreSi() {
+        Empresa empresaRevenda = empresaValida(6L, "0");
+        Empresa empresaConsumidorFinal = empresaValida(7L, "1");
+
+        assertEquals("0", service.resolverIndFinalPadrao(empresaRevenda));
+        assertEquals("1", service.resolverIndFinalPadrao(empresaConsumidorFinal));
+        // Repetir na ordem inversa garante que não há estado compartilhado entre resoluções.
+        assertEquals("1", service.resolverIndFinalPadrao(empresaConsumidorFinal));
+        assertEquals("0", service.resolverIndFinalPadrao(empresaRevenda));
+    }
+
+    @Test
+    void gerar_valorInvalido_falhaAntesDeMontarOuTransmitirXml() {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        Empresa empresa = empresaValida(9L, "X");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.gerar(requestValido(), empresa));
+
+        assertEquals("IND_FINAL_PADRAO_INVALIDO", ex.getErrorCode());
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    void gerar_indFinalNaoDependeMaisDoDocumentoDestinatario() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+
+        Empresa empresaRevenda = empresaValida(10L, "0");
+
+        NfeEmissaoRequest reqCpf = requestValido();
+        reqCpf.setDestCnpjCpf("52998224725"); // CPF (11 dígitos) — antes da correção forçava indFinal="1"
+        service.gerar(reqCpf, empresaRevenda);
+
+        NfeEmissaoRequest reqCnpj = requestValido();
+        reqCnpj.setDestCnpjCpf("12345678000195"); // CNPJ (14 dígitos)
+        service.gerar(reqCnpj, empresaRevenda);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder, times(2)).build(captor.capture());
+        for (NFe nfe : captor.getAllValues()) {
+            assertEquals("0", nfe.getInfNFe().getIde().getIndFinal(),
+                    "indFinal deve vir de Empresa.indFinalPadrao, independentemente do CPF/CNPJ do destinatário");
+        }
+    }
+
+    @Test
+    void gerar_xmlFinalContemIndFinalConfiguradoNaEmpresa() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+
+        Empresa empresaConsumidorFinal = empresaValida(11L, "1");
+
+        service.gerar(requestValido(), empresaConsumidorFinal);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture());
+        assertEquals("1", captor.getValue().getInfNFe().getIde().getIndFinal());
     }
 }

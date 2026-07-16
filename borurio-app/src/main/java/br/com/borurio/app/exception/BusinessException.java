@@ -229,4 +229,17 @@ public class BusinessException extends RuntimeException {
                 422,
                 false);
     }
+
+    /**
+     * Empresa.indFinalPadrao contém um valor fora do domínio válido ("0" ou "1") — falha explícita
+     * antes de montar/transmitir o XML, em vez de normalizar silenciosamente para um padrão.
+     */
+    public static BusinessException indFinalPadraoInvalido(Long empresaId, String valor) {
+        return new BusinessException(
+                "IND_FINAL_PADRAO_INVALIDO",
+                "Empresa id=" + empresaId + " possui indFinalPadrao inválido (\"" + valor
+                        + "\"). Valores aceitos: \"0\" ou \"1\".",
+                422,
+                false);
+    }
 }

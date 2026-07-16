@@ -36,6 +36,10 @@ public class Empresa {
     private String codigoMunicipio;
     private String cep;
     private String serieNfePadrao;
+
+    /** Padrão fiscal de indFinal (consumidor final) para todas as emissões desta empresa: "0" ou "1". */
+    private String indFinalPadrao;
+
     private Boolean ativo;
     private LocalDateTime criadoEm;
     private LocalDateTime atualizadoEm;

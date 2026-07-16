@@ -132,7 +132,7 @@ public class NfeGeracaoService {
 
         InfNFe inf = new InfNFe();
         inf.setId("NFe" + chave);
-        inf.setIde(montarIde(req, cUF, cNF, nNFXml, serieXml, cDV, ufEmitente));
+        inf.setIde(montarIde(req, cUF, cNF, nNFXml, serieXml, cDV, ufEmitente, empresa));
         inf.setEmit(montarEmit(empresa));
         inf.setDest(montarDest(req));
         inf.setDet(montarDet(req));
@@ -204,7 +204,8 @@ public class NfeGeracaoService {
     // -------------------------------------------------------------------------
 
     private Ide montarIde(NfeEmissaoRequest req, String cUF, String cNF,
-                          String nNF, String serie, String cDV, String ufEmitente) {
+                          String nNF, String serie, String cDV, String ufEmitente,
+                          Empresa empresa) {
         Ide ide = new Ide();
         ide.setCUF(cUF);
         ide.setCNF(cNF);
@@ -220,11 +221,27 @@ public class NfeGeracaoService {
         ide.setCDV(cDV);
         ide.setTpAmb(String.valueOf(tpAmb));
         ide.setFinNFe("1");
-        ide.setIndFinal("0");
+        ide.setIndFinal(resolverIndFinalPadrao(empresa));
         ide.setIndPres("9");
         ide.setProcEmi("0");
         ide.setVerProc("1.0.0");
         return ide;
+    }
+
+    /**
+     * indFinal é um padrão fiscal configurável por empresa emitente — não é inferido do
+     * documento (CPF/CNPJ) do destinatário, pois um CNPJ também pode ser consumidor final.
+     * "1" é o fallback de compatibilidade para empresa nula/campo ausente (fluxo legado e
+     * dados pré-P0.4); valor fora de "0"/"1" falha explicitamente em vez de normalizar.
+     */
+    String resolverIndFinalPadrao(Empresa empresa) {
+        if (empresa == null) return "1";
+        String valor = empresa.getIndFinalPadrao();
+        if (valor == null || valor.isBlank()) return "1";
+        if (!"0".equals(valor) && !"1".equals(valor)) {
+            throw br.com.borurio.app.exception.BusinessException.indFinalPadraoInvalido(empresa.getId(), valor);
+        }
+        return valor;
     }
 
     private Emit montarEmit(Empresa empresa) {

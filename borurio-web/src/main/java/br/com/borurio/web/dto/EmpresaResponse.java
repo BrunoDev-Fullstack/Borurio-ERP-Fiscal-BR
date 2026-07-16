@@ -22,6 +22,7 @@ public class EmpresaResponse {
     private String codigoMunicipio;
     private String cep;
     private String serieNfePadrao;
+    private String indFinalPadrao;
     private Boolean ativo;
     private LocalDateTime criadoEm;
     private LocalDateTime atualizadoEm;
@@ -45,6 +46,7 @@ public class EmpresaResponse {
         r.setCodigoMunicipio(e.getCodigoMunicipio());
         r.setCep(e.getCep());
         r.setSerieNfePadrao(e.getSerieNfePadrao());
+        r.setIndFinalPadrao(e.getIndFinalPadrao());
         r.setAtivo(e.getAtivo());
         r.setCriadoEm(e.getCriadoEm());
         r.setAtualizadoEm(e.getAtualizadoEm());

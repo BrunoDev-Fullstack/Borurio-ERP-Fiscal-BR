@@ -22,6 +22,7 @@ public interface EmpresaMapper {
                    codigo_municipio  AS codigoMunicipio,
                    cep,
                    serie_nfe_padrao  AS serieNfePadrao,
+                   ind_final_padrao  AS indFinalPadrao,
                    ativo,
                    criado_em         AS criadoEm,
                    atualizado_em     AS atualizadoEm,
@@ -45,7 +46,7 @@ public interface EmpresaMapper {
             INSERT INTO empresa (
                 cnpj, razao_social, nome_fantasia, ie, crt, uf,
                 logradouro, numero, bairro, municipio, codigo_municipio, cep,
-                serie_nfe_padrao, ativo,
+                serie_nfe_padrao, ind_final_padrao, ativo,
                 cert_path, cert_senha, cert_tipo,
                 controle_estoque_ativo
             ) VALUES (
@@ -54,7 +55,7 @@ public interface EmpresaMapper {
                 #{logradouro, jdbcType=VARCHAR}, #{numero, jdbcType=VARCHAR},
                 #{bairro, jdbcType=VARCHAR}, #{municipio, jdbcType=VARCHAR},
                 #{codigoMunicipio, jdbcType=VARCHAR}, #{cep, jdbcType=VARCHAR},
-                #{serieNfePadrao}, #{ativo},
+                #{serieNfePadrao}, #{indFinalPadrao}, #{ativo},
                 #{certPath, jdbcType=VARCHAR}, #{certSenha, jdbcType=VARCHAR},
                 #{certTipo, jdbcType=VARCHAR},
                 #{controleEstoqueAtivo}
@@ -77,6 +78,7 @@ public interface EmpresaMapper {
                 codigo_municipio  = #{codigoMunicipio, jdbcType=VARCHAR},
                 cep               = #{cep, jdbcType=VARCHAR},
                 serie_nfe_padrao  = #{serieNfePadrao},
+                ind_final_padrao  = #{indFinalPadrao},
                 ativo             = #{ativo},
                 cert_path         = #{certPath, jdbcType=VARCHAR},
                 cert_senha        = #{certSenha, jdbcType=VARCHAR},

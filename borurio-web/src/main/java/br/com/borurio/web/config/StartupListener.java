@@ -84,6 +84,7 @@ public class StartupListener {
             nova.setCodigoMunicipio(emitente.getCodigoMunicipio());
             nova.setCep(emitente.getCep() != null ? emitente.getCep().replaceAll("\\D", "") : null);
             nova.setSerieNfePadrao("1");
+            nova.setIndFinalPadrao("1");
             nova.setAtivo(true);
             nova.setControleEstoqueAtivo(true);
 
