@@ -83,10 +83,10 @@ ALTER TABLE oms_company_certificate
 
 -- 2c. Adicionar cnpj e empresa_id como NULL (backfill vem a seguir)
 ALTER TABLE oms_company_certificate
-    ADD COLUMN cnpj       VARCHAR(14) NULL AFTER auth_id
-        COMMENT 'CNPJ da empresa emitente deste certificado (somente dígitos)',
-    ADD COLUMN empresa_id BIGINT      NULL AFTER cnpj
-        COMMENT 'FK para empresa — criada automaticamente na primeira autorização do CNPJ';
+    ADD COLUMN cnpj       VARCHAR(14) NULL
+        COMMENT 'CNPJ da empresa emitente deste certificado (somente dígitos)' AFTER auth_id,
+    ADD COLUMN empresa_id BIGINT      NULL
+        COMMENT 'FK para empresa — criada automaticamente na primeira autorização do CNPJ' AFTER cnpj;
 
 -- 2d. Backfill — popular cnpj e empresa_id a partir do join
 --     Lógica: certificado → autorização → empresa (empresa âncora do cliente OMS)
