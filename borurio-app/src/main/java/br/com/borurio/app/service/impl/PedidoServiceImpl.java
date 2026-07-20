@@ -56,9 +56,13 @@ public class PedidoServiceImpl implements PedidoService {
             }
         }
 
-        // Último recurso: PedidoController já tenta resolver a série padrão da empresa emitente
-        // correta (Empresa.serieNfePadrao) antes de chegar aqui. Só cai em "1" quando nem a
-        // série nem a empresa/série padrão puderam ser resolvidas (ex.: emitente global legado).
+        // serie_nfe é NOT NULL no schema (V014) — precisa de algum valor no INSERT, mas deixou
+        // de ser resolvida a partir de Empresa.serieNfePadrao AQUI (20-07-2026). O que for
+        // gravado abaixo é só placeholder de schema (mesmo padrão já usado para "numero" logo
+        // adiante) — nunca é lido para decidir a série de emissão. ReservaFiscalService resolve
+        // a série de verdade a partir de Empresa.serieNfePadrao no INÍCIO de cada tentativa de
+        // emissão e sobrescreve esta coluna via PedidoMapper.atualizarSerieReservada — resolver
+        // aqui congelaria a série antiga em pedidos criados antes de uma sincronização OMS.
         if (pedido.getSerieNfe() == null || pedido.getSerieNfe().isBlank()) pedido.setSerieNfe("1");
         if (pedido.getNaturezaOperacao() == null || pedido.getNaturezaOperacao().isBlank()) {
             pedido.setNaturezaOperacao("VENDA DE MERCADORIA");

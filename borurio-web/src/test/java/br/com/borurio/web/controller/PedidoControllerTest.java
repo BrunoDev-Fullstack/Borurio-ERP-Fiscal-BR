@@ -386,12 +386,17 @@ class PedidoControllerTest {
     }
 
     // -------------------------------------------------------------------------
-    // P0.3 — série padrão da empresa emitente correta (multi-CNPJ)
+    // Série/numeração — 20-07-2026: NÃO é mais resolvida na criação do pedido.
+    // ReservaFiscalService resolve série (a partir de Empresa.serieNfePadrao) + número juntos,
+    // atomicamente, só no INÍCIO da emissão — nunca na criação. Isso corrige o gap em que um
+    // pedido criado ANTES de uma sincronização de série via OMS, mas emitido DEPOIS, continuava
+    // usando a série antiga (congelada na criação). Ver
+    // docs/report/Desenho_Tecnico_Sincronizacao_Serie_Numeracao_2026-07-20.md seção 3.
     // -------------------------------------------------------------------------
 
     @Test
     @WithMockUser
-    void criar_semSerieNfe_usaSeriePadraoDaEmpresaDoCnpjDoPedido() throws Exception {
+    void criar_serieNfeOuChaveNfeNoJson_saoIgnoradosSilenciosamente() throws Exception {
         EmpresaContextHolder.setJtiAuth("jti-oms-teste");
         when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", "22418179000134"))
                 .thenReturn(true);
@@ -407,42 +412,7 @@ class PedidoControllerTest {
         retorno.setStatus("RASCUNHO");
         when(pedidoService.criar(any(), any())).thenReturn(retorno);
 
-        mockMvc.perform(post("/api/app/pedidos")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "cnpjEmitente": "22418179000134",
-                                  "destCnpjCpf": "12345678000195",
-                                  "destRazaoSocial": "Cliente Teste",
-                                  "destUf": "SP"
-                                }
-                                """))
-                .andExpect(status().isOk());
-
-        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
-        verify(pedidoService).criar(captor.capture(), any());
-        assertEquals("2", captor.getValue().getSerieNfe());
-    }
-
-    @Test
-    @WithMockUser
-    void criar_comSerieNfeExplicita_preservaSerieRecebidaMesmoComSeriePadraoDiferente() throws Exception {
-        EmpresaContextHolder.setJtiAuth("jti-oms-teste");
-        when(omsCertificadoService.cnpjAutorizadoParaJti("jti-oms-teste", "22418179000134"))
-                .thenReturn(true);
-
-        Empresa empresaB = new Empresa();
-        empresaB.setId(8L);
-        empresaB.setCnpj("22418179000134");
-        empresaB.setSerieNfePadrao("2");
-        when(empresaService.buscarPorCnpj("22418179000134")).thenReturn(empresaB);
-
-        Pedido retorno = new Pedido();
-        retorno.setId(1L);
-        retorno.setStatus("RASCUNHO");
-        when(pedidoService.criar(any(), any())).thenReturn(retorno);
-
+        // achado de 20-07-2026: chaveNfe também era bindável sem validação — DTO fecha os dois.
         mockMvc.perform(post("/api/app/pedidos")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -450,6 +420,7 @@ class PedidoControllerTest {
                                 {
                                   "cnpjEmitente": "22418179000134",
                                   "serieNfe": "3",
+                                  "chaveNfe": "35240711222333000181550010000001011234567890",
                                   "destCnpjCpf": "12345678000195",
                                   "destRazaoSocial": "Cliente Teste",
                                   "destUf": "SP"
@@ -459,7 +430,10 @@ class PedidoControllerTest {
 
         ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
         verify(pedidoService).criar(captor.capture(), any());
-        assertEquals("3", captor.getValue().getSerieNfe());
+        assertNull(captor.getValue().getSerieNfe(),
+                "serieNfe do JSON precisa ser ignorado — PedidoCreateRequest não expõe o campo");
+        assertNull(captor.getValue().getChaveNfe(),
+                "chaveNfe do JSON precisa ser ignorado — nunca deveria ser bindável na criação");
     }
 
     @Test
@@ -493,8 +467,9 @@ class PedidoControllerTest {
                                 """))
                 .andExpect(status().isOk());
 
-        // Controller não resolveu nada aqui — o fallback "1" é responsabilidade do
-        // PedidoServiceImpl.criar() (não mockado em profundidade neste teste de controller).
+        // Controller não resolve série nenhuma — placeholder "1" gravado no INSERT é
+        // responsabilidade de PedidoServiceImpl.criar() (não mockado em profundidade aqui) e
+        // nunca é lido para decidir a série de emissão (ver ReservaFiscalService).
         ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
         verify(pedidoService).criar(captor.capture(), any());
         assertNull(captor.getValue().getSerieNfe());
@@ -502,7 +477,7 @@ class PedidoControllerTest {
 
     @Test
     @WithMockUser
-    void criar_doisCnpjsDiferentes_cadaUmUsaSuaPropriaSeriePadrao() throws Exception {
+    void criar_doisCnpjsDiferentes_cadaUmResolveSeuProprioCnpjEmitente() throws Exception {
         String cnpjA = "54393421000159";
         String cnpjB = "22418179000134";
 
@@ -565,8 +540,10 @@ class PedidoControllerTest {
         Pedido pedidoDaEmpresaA = capturados.stream().filter(p -> cnpjA.equals(p.getCnpjEmitente())).findFirst().orElseThrow();
         Pedido pedidoDaEmpresaB = capturados.stream().filter(p -> cnpjB.equals(p.getCnpjEmitente())).findFirst().orElseThrow();
 
-        assertEquals("1", pedidoDaEmpresaA.getSerieNfe(), "pedido da empresa A precisa usar a série padrão de A");
-        assertEquals("2", pedidoDaEmpresaB.getSerieNfe(), "pedido da empresa B precisa usar a série padrão de B, nunca a de A");
+        // Série NÃO é mais resolvida aqui pra nenhum dos dois CNPJs — cada um resolve a sua
+        // própria série padrão (potencialmente diferente) só quando efetivamente for emitido.
+        assertNull(pedidoDaEmpresaA.getSerieNfe());
+        assertNull(pedidoDaEmpresaB.getSerieNfe());
     }
 
     // -------------------------------------------------------------------------
