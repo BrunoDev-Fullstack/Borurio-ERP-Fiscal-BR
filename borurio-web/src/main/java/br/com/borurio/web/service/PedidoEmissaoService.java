@@ -8,11 +8,13 @@ import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
+import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.dto.NfeSefazRetorno;
 import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
+import br.com.borurio.web.dto.ReservaFiscalResultado;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -59,17 +61,23 @@ public class PedidoEmissaoService {
     private final NfeSefazRetornoParser retornoParser;
     private final EstoqueService estoqueService;
     private final EmpresaMapper empresaMapper;
+    private final ReservaFiscalService reservaFiscalService;
+    private final EmitenteProperties emitente;
 
     public PedidoEmissaoService(PedidoService pedidoService,
                                 NfeGeracaoService nfeGeracaoService,
                                 NfeSefazRetornoParser retornoParser,
                                 EstoqueService estoqueService,
-                                EmpresaMapper empresaMapper) {
+                                EmpresaMapper empresaMapper,
+                                ReservaFiscalService reservaFiscalService,
+                                EmitenteProperties emitente) {
         this.pedidoService     = pedidoService;
         this.nfeGeracaoService = nfeGeracaoService;
         this.retornoParser     = retornoParser;
         this.estoqueService    = estoqueService;
         this.empresaMapper     = empresaMapper;
+        this.reservaFiscalService = reservaFiscalService;
+        this.emitente           = emitente;
     }
 
     public NfeGeracaoResult emitir(Long pedidoId) throws Exception {
@@ -124,7 +132,25 @@ public class PedidoEmissaoService {
             throw e;
         }
 
-        NfeEmissaoRequest req = montarRequest(pedido);
+        // Reserva atômica de série + número + persistência do snapshot no pedido — tudo numa
+        // única transação em ReservaFiscalService.reservar() (20-07-2026, revisão pós-review:
+        // antes a escrita do snapshot era uma chamada separada depois desta, criando uma janela
+        // em que o número já estava consumido sem o snapshot correspondente no pedido).
+        // "Emissão iniciada" começa AQUI, não na criação do pedido. cnpjEmitente espelha a mesma
+        // resolução usada por NfeGeracaoService.gerar() para manter os dois pontos consistentes.
+        String cnpjParaReserva = resolverCnpjParaReserva(empresa);
+        ReservaFiscalResultado reserva;
+        try {
+            reserva = reservaFiscalService.reservar(pedidoId, cnpjParaReserva);
+        } catch (Exception e) {
+            pedidoService.atualizarStatus(pedidoId, "ERRO", pedido.getChaveNfe());
+            if (controlaEstoque) {
+                desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            }
+            throw e;
+        }
+
+        NfeEmissaoRequest req = montarRequest(pedido, reserva);
 
         log.info("[PedidoEmissao] Transmitindo | pedidoId={} | dest={} | empresaId={} | itens={}",
                 pedidoId, pedido.getDestCnpjCpf(), empresaId, req.getItens().size());
@@ -270,9 +296,21 @@ public class PedidoEmissaoService {
         return auth != null ? auth.getName() : "sistema";
     }
 
-    private NfeEmissaoRequest montarRequest(Pedido pedido) {
+    /**
+     * Mesma lógica de resolução de cnpjEmitente usada em NfeGeracaoService.gerar() — precisa
+     * ficar consistente porque a reserva (aqui) e o cnpj usado para montar a chave43/XML (lá)
+     * têm que ser exatamente o mesmo CNPJ, senão a reserva trava a sequência errada.
+     */
+    private String resolverCnpjParaReserva(Empresa empresa) {
+        return empresa != null && empresa.getCnpj() != null
+                ? empresa.getCnpj().replaceAll("\\D", "")
+                : emitente.getCnpj().replaceAll("\\D", "");
+    }
+
+    private NfeEmissaoRequest montarRequest(Pedido pedido, ReservaFiscalResultado reserva) {
         NfeEmissaoRequest req = new NfeEmissaoRequest();
-        req.setSerie(pedido.getSerieNfe() != null ? pedido.getSerieNfe() : "1");
+        req.setSerie(reserva.serie());
+        req.setNumero(String.valueOf(reserva.numero()));
         req.setNaturezaOperacao(pedido.getNaturezaOperacao());
         req.setDestCnpjCpf(pedido.getDestCnpjCpf());
         req.setDestRazaoSocial(pedido.getDestRazaoSocial());

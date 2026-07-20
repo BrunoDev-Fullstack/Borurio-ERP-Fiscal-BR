@@ -140,6 +140,20 @@ public interface PedidoMapper {
             """)
     int reivindicarParaEmissao(@Param("id") Long id);
 
+    /**
+     * Persiste a série efetivamente reservada por ReservaFiscalService para esta tentativa de
+     * emissão — snapshot pós-reserva (20-07-2026), não mais resolvida/congelada na criação do
+     * pedido. Chamado sempre entre o claim de emissão (reivindicarParaEmissao) e a montagem do
+     * XML, nunca antes.
+     */
+    @Update("""
+            UPDATE pedido SET
+                serie_nfe        = #{serie},
+                data_atualizacao = NOW()
+            WHERE id = #{id}
+            """)
+    int atualizarSerieReservada(@Param("id") Long id, @Param("serie") String serie);
+
     @Update("""
             UPDATE pedido SET
                 numero           = #{numero},

@@ -42,6 +42,15 @@ public interface EmpresaMapper {
     @Select(SELECT_COLUMNS + "WHERE cnpj = #{cnpj}")
     Empresa buscarPorCnpj(@Param("cnpj") String cnpj);
 
+    // Bloqueia a linha para atualização atômica dentro de @Transactional — usado pela reserva
+    // fiscal (série+número na emissão) e pela sincronização de numeração via OMS, sempre como
+    // primeiro lock adquirido na transação (ordem: Empresa antes de nfe_sequencia).
+    @Select(SELECT_COLUMNS + "WHERE cnpj = #{cnpj} FOR UPDATE")
+    Empresa buscarPorCnpjParaAtualizar(@Param("cnpj") String cnpj);
+
+    @Update("UPDATE empresa SET serie_nfe_padrao = #{serieNfePadrao}, atualizado_em = NOW() WHERE id = #{id}")
+    int atualizarSerieNfePadrao(@Param("id") Long id, @Param("serieNfePadrao") String serieNfePadrao);
+
     @Insert("""
             INSERT INTO empresa (
                 cnpj, razao_social, nome_fantasia, ie, crt, uf,

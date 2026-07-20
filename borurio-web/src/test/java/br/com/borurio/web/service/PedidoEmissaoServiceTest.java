@@ -7,8 +7,10 @@ import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
+import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
+import br.com.borurio.web.dto.ReservaFiscalResultado;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -46,18 +48,26 @@ class PedidoEmissaoServiceTest {
     @Mock NfeSefazRetornoParser retornoParser;
     @Mock EstoqueService estoqueService;
     @Mock EmpresaMapper empresaMapper;
+    @Mock ReservaFiscalService reservaFiscalService;
 
     PedidoEmissaoService service;
 
     @BeforeEach
     void setUp() {
+        EmitenteProperties emitente = new EmitenteProperties();
+        emitente.setCnpj("11222333000181"); // fallback legado quando empresa não tem CNPJ (helper de teste não seta)
         service = new PedidoEmissaoService(
-                pedidoService, nfeGeracaoService, retornoParser, estoqueService, empresaMapper);
+                pedidoService, nfeGeracaoService, retornoParser, estoqueService, empresaMapper,
+                reservaFiscalService, emitente);
         EmpresaContextHolder.clear();
         // Default "feliz" pro claim atômico (P0.1) — testes que não mexem nisso continuam
         // passando; os testes de concorrência/claim sobrescrevem explicitamente por teste.
         // lenient(): os testes que barram antes do claim (status inválido) nunca chamam isso.
         lenient().when(pedidoService.reivindicarParaEmissao(anyLong())).thenReturn(true);
+        // Default "feliz" pra reserva fiscal (20-07-2026) — testes que barram antes dela
+        // (status inválido, itens vazios, claim perdido) nunca chamam isso.
+        lenient().when(reservaFiscalService.reservar(anyLong(), anyString()))
+                .thenReturn(new ReservaFiscalResultado("1", 101));
     }
 
     @AfterEach
