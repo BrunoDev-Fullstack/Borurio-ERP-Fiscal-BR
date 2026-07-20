@@ -242,4 +242,28 @@ public class BusinessException extends RuntimeException {
                 422,
                 false);
     }
+
+    // -------------------------------------------------------------------------
+    // Sincronização de série/numeração (OMS → Borurio)
+    // -------------------------------------------------------------------------
+
+    public static BusinessException serieInvalida(String detalhe) {
+        return new BusinessException("SERIE_INVALIDA", "Série inválida: " + detalhe, 422, false);
+    }
+
+    public static BusinessException numeracaoInvalida(String detalhe) {
+        return new BusinessException("NUMERACAO_INVALIDA", "Próximo número inválido: " + detalhe, 422, false);
+    }
+
+    /**
+     * A OMS tentou sincronizar um `proximoNumero` menor que o já registrado no Borurio.
+     * retryable=false: reenviar sem corrigir o valor só repete a mesma rejeição.
+     */
+    public static BusinessException numeracaoInferiorAtual(String cnpj, String serie, String detalhe) {
+        return new BusinessException(
+                "NUMERACAO_INFERIOR_A_ATUAL",
+                "Não é possível atualizar a numeração de CNPJ=" + cnpj + " série=" + serie + ": " + detalhe,
+                422,
+                false);
+    }
 }
