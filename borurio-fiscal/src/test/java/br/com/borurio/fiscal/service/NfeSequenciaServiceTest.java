@@ -1,5 +1,6 @@
 package br.com.borurio.fiscal.service;
 
+import br.com.borurio.fiscal.dto.AtualizacaoSequenciaResultado;
 import br.com.borurio.fiscal.entity.NfeSequencia;
 import br.com.borurio.fiscal.mapper.NfeSequenciaMapper;
 import br.com.borurio.fiscal.service.impl.NfeSequenciaServiceImpl;
@@ -427,5 +428,137 @@ public class NfeSequenciaServiceTest {
         int estadoFinal = servicoReal.proximoNumero(CNPJ, SERIE) - 1;
         assertTrue(estadoFinal == 100 || estadoFinal == 150,
                 "estado final precisa ser exatamente um dos dois valores propostos: " + estadoFinal);
+    }
+
+    // -------------------------------------------------------------------------
+    // atualizarSequencia() — sincronização recorrente vinda da OMS (20-07-2026)
+    //
+    // Diferente de inicializarBaseline(): cobre atualizações repetidas, não só a primeira.
+    //   inexistente        → cria com ultimoNumero = proximoNumero - 1
+    //   igual ao existente → idempotente, aplicado=false
+    //   maior que existente → avança, aplicado=true
+    //   menor que existente → IllegalStateException (regressão rejeitada)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("atualizarSequencia em sequência inexistente cria o registro com ultimoNumero = proximoNumero - 1")
+    void atualizarSequencia_sequenciaInexistente_cria() {
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+
+        AtualizacaoSequenciaResultado resultado = service.atualizarSequencia(CNPJ, SERIE, 101);
+
+        verify(mapper).inserir(argThat(seq ->
+                seq.getCnpjEmitente().equals(CNPJ) &&
+                seq.getSerie().equals(SERIE) &&
+                seq.getUltimoNumero() == 100));
+        assertTrue(resultado.aplicado());
+        assertEquals(101, resultado.proximoNumeroAtual());
+        assertNull(resultado.proximoNumeroAnterior(),
+                "sequência recém-criada não tem número anterior — null, nunca 0 (0 seria um nNF inválido)");
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia idempotente quando proximoNumero já é exatamente o próximo — não escreve")
+    void atualizarSequencia_valorIgual_idempotente() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(100); // próximo já seria 101
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        AtualizacaoSequenciaResultado resultado = service.atualizarSequencia(CNPJ, SERIE, 101);
+
+        verify(mapper, never()).inserir(any());
+        verify(mapper, never()).atualizarNumero(any());
+        assertFalse(resultado.aplicado());
+        assertEquals(101, resultado.proximoNumeroAnterior());
+        assertEquals(101, resultado.proximoNumeroAtual());
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia avança quando proximoNumero é maior que o registrado")
+    void atualizarSequencia_valorMaior_avanca() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(100);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        AtualizacaoSequenciaResultado resultado = service.atualizarSequencia(CNPJ, SERIE, 500);
+
+        verify(mapper).atualizarNumero(argThat(seq -> seq.getUltimoNumero() == 499));
+        assertTrue(resultado.aplicado());
+        assertEquals(101, resultado.proximoNumeroAnterior());
+        assertEquals(500, resultado.proximoNumeroAtual());
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia rejeita regressão — proximoNumero menor que o já registrado nunca escreve")
+    void atualizarSequencia_valorMenor_rejeitado() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(100); // próximo já seria 101
+
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.atualizarSequencia(CNPJ, SERIE, 90));
+        assertTrue(ex.getMessage().contains("101"));
+        assertTrue(ex.getMessage().contains("90"));
+
+        verify(mapper, never()).inserir(any());
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia com criação concorrente (chave duplicada) relê e reaplica a validação")
+    void atualizarSequencia_criacaoConcorrente_releEReaplica() {
+        NfeSequencia jaCriadaPelaOutraTransacao = new NfeSequencia();
+        jaCriadaPelaOutraTransacao.setCnpjEmitente(CNPJ);
+        jaCriadaPelaOutraTransacao.setSerie(SERIE);
+        jaCriadaPelaOutraTransacao.setUltimoNumero(100);
+
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE))
+                .thenReturn(null)                          // 1ª leitura: ainda não existe
+                .thenReturn(jaCriadaPelaOutraTransacao);    // releitura após duplicate key
+        doThrow(new org.springframework.dao.DuplicateKeyException("uk_emitente_serie"))
+                .when(mapper).inserir(any());
+
+        AtualizacaoSequenciaResultado resultado = service.atualizarSequencia(CNPJ, SERIE, 101);
+
+        assertFalse(resultado.aplicado(), "outra transação já deixou no valor exato — idempotente");
+        assertEquals(101, resultado.proximoNumeroAtual());
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia: releitura null após chave duplicada falha explicitamente, nunca NPE")
+    void atualizarSequencia_criacaoConcorrente_releituraNulaFalhaExplicitamente() {
+        // Cenário defensivo (não deveria ocorrer na prática — DuplicateKeyException implica que
+        // a linha existe): a releitura pós-conflito retorna null de qualquer forma. Precisa
+        // falhar com mensagem clara, nunca deixar aplicarOuValidar() estourar NPE em seq.getUltimoNumero().
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+        doThrow(new org.springframework.dao.DuplicateKeyException("uk_emitente_serie"))
+                .when(mapper).inserir(any());
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.atualizarSequencia(CNPJ, SERIE, 101));
+        assertTrue(ex.getMessage().contains("inconsistente"));
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia rejeita proximoNumero menor que 1 antes de tocar o mapper")
+    void atualizarSequencia_proximoNumeroInvalido_rejeitado() {
+        assertThrows(IllegalArgumentException.class, () -> service.atualizarSequencia(CNPJ, SERIE, 0));
+        assertThrows(IllegalArgumentException.class, () -> service.atualizarSequencia(CNPJ, SERIE, -5));
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia rejeita CNPJ/série nulos ou vazios antes de tocar o mapper")
+    void atualizarSequencia_cnpjOuSerieInvalidos_rejeitados() {
+        assertThrows(IllegalArgumentException.class, () -> service.atualizarSequencia(null, SERIE, 101));
+        assertThrows(IllegalArgumentException.class, () -> service.atualizarSequencia(CNPJ, "  ", 101));
+        verifyNoInteractions(mapper);
     }
 }

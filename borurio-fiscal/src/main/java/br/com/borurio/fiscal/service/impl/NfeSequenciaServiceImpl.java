@@ -1,11 +1,15 @@
 package br.com.borurio.fiscal.service.impl;
 
+import br.com.borurio.fiscal.dto.AtualizacaoSequenciaResultado;
 import br.com.borurio.fiscal.entity.NfeSequencia;
 import br.com.borurio.fiscal.mapper.NfeSequenciaMapper;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 
 @Service
 public class NfeSequenciaServiceImpl implements NfeSequenciaService {
@@ -81,5 +85,76 @@ public class NfeSequenciaServiceImpl implements NfeSequenciaService {
                         + seq.getUltimoNumero() + ". inicializarBaseline() só cobre a primeira configuração "
                         + "de uma sequência nova — realinhar uma sequência já ativa é operação administrativa "
                         + "separada, auditável, e não é feita por este método.");
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public AtualizacaoSequenciaResultado atualizarSequencia(String cnpjEmitente, String serie, int proximoNumero) {
+        if (cnpjEmitente == null || cnpjEmitente.isBlank()) {
+            throw new IllegalArgumentException("cnpjEmitente é obrigatório.");
+        }
+        if (serie == null || serie.isBlank()) {
+            throw new IllegalArgumentException("serie é obrigatória.");
+        }
+        if (proximoNumero < 1) {
+            throw new IllegalArgumentException("proximoNumero deve ser maior ou igual a 1: " + proximoNumero);
+        }
+
+        int ultimoNumeroAlvo = proximoNumero - 1;
+
+        NfeSequencia seq = mapper.buscarParaAtualizar(cnpjEmitente, serie);
+
+        if (seq == null) {
+            NfeSequencia novo = new NfeSequencia();
+            novo.setCnpjEmitente(cnpjEmitente);
+            novo.setSerie(serie);
+            novo.setUltimoNumero(ultimoNumeroAlvo);
+            try {
+                mapper.inserir(novo);
+            } catch (DuplicateKeyException e) {
+                // Defesa em profundidade: duas chamadas concorrentes tentando criar a mesma
+                // sequência pela primeira vez ao mesmo tempo. A constraint uk_emitente_serie
+                // (V011) garante que só uma vence o INSERT — a outra relê o registro já
+                // criado (agora bloqueado por FOR UPDATE, pois estamos em SERIALIZABLE) e
+                // reaplica a mesma validação abaixo, em vez de vazar a exceção de SQL.
+                seq = mapper.buscarParaAtualizar(cnpjEmitente, serie);
+                if (seq == null) {
+                    // Nunca deveria acontecer: uma DuplicateKeyException implica que a linha
+                    // existe. Se ainda assim vier null, falha explícita em vez de NPE silencioso
+                    // em aplicarOuValidar() — indica corrupção de estado ou bug em outra camada.
+                    throw new IllegalStateException(
+                            "Chave duplicada relatada para CNPJ=" + cnpjEmitente + " série=" + serie
+                                    + ", mas releitura não encontrou o registro. Estado inconsistente.");
+                }
+                return aplicarOuValidar(seq, cnpjEmitente, serie, ultimoNumeroAlvo);
+            }
+            return new AtualizacaoSequenciaResultado(
+                    cnpjEmitente, serie, null, proximoNumero, true, LocalDateTime.now());
+        }
+
+        return aplicarOuValidar(seq, cnpjEmitente, serie, ultimoNumeroAlvo);
+    }
+
+    private AtualizacaoSequenciaResultado aplicarOuValidar(NfeSequencia seq, String cnpjEmitente,
+                                                            String serie, int ultimoNumeroAlvo) {
+        int ultimoNumeroAtual = seq.getUltimoNumero();
+
+        if (ultimoNumeroAlvo == ultimoNumeroAtual) {
+            return new AtualizacaoSequenciaResultado(
+                    cnpjEmitente, serie, ultimoNumeroAtual + 1, ultimoNumeroAtual + 1, false, LocalDateTime.now());
+        }
+
+        if (ultimoNumeroAlvo < ultimoNumeroAtual) {
+            throw new IllegalStateException(
+                    "Não é possível atualizar CNPJ=" + cnpjEmitente + " série=" + serie
+                            + " para próximo número " + (ultimoNumeroAlvo + 1)
+                            + ": o sequenciador já está em " + (ultimoNumeroAtual + 1)
+                            + ". Regressão de numeração não é permitida.");
+        }
+
+        seq.setUltimoNumero(ultimoNumeroAlvo);
+        mapper.atualizarNumero(seq);
+        return new AtualizacaoSequenciaResultado(
+                cnpjEmitente, serie, ultimoNumeroAtual + 1, ultimoNumeroAlvo + 1, true, LocalDateTime.now());
     }
 }
