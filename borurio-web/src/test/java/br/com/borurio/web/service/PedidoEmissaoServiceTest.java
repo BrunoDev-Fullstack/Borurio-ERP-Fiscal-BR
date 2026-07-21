@@ -68,6 +68,10 @@ class PedidoEmissaoServiceTest {
         // (status inválido, itens vazios, claim perdido) nunca chamam isso.
         lenient().when(reservaFiscalService.reservar(anyLong(), anyString()))
                 .thenReturn(new ReservaFiscalResultado("1", 101));
+        // Default "feliz" pra validação CFOP×destino (Gate 7D) — coerente com destUf/empresa.uf
+        // não setados nos fixtures padrão (operação interna, idDest=1). Testes específicos da
+        // validação sobrescrevem explicitamente.
+        lenient().when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("1");
     }
 
     @AfterEach
@@ -86,6 +90,7 @@ class PedidoEmissaoServiceTest {
         item.setProdutoId(1L);
         item.setQuantidade(new BigDecimal("2"));
         item.setCsosn("400");
+        item.setCfop("5102"); // operação interna — coerente com destUf/empresa.uf não setados (idDest=1 por padrão)
         p.setItens(List.of(item));
         return p;
     }
@@ -335,6 +340,138 @@ class PedidoEmissaoServiceTest {
         assertEquals(1, sucessos,
                 "exatamente uma das " + numThreads + " chamadas concorrentes deveria vencer o claim");
         verify(nfeGeracaoService, times(1)).gerar(any(), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // Validação CFOP×destino (Gate 7D) — antes de qualquer reserva de estoque/numeração.
+    // Achado real: pedido 22 (J.ZHENG) foi rejeitado pela SEFAZ com cStat=732 só depois de já
+    // ter consumido um número fiscal, porque o CFOP do item (6102, interestadual) era
+    // incompatível com o destino calculado (idDest=1, operação interna SP→SP).
+    // -------------------------------------------------------------------------
+
+    @Test
+    void emitir_cfopCoerenteComOperacaoInterna_permiteEmissao() throws Exception {
+        Pedido pedido = pedidoRascunho(); // idDest=1 (default do mock), CFOP=5102
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        assertDoesNotThrow(() -> service.emitir(99L));
+    }
+
+    @Test
+    void emitir_cfopInterestadualParaOperacaoInterna_rejeitaAntesDeReservar() {
+        Pedido pedido = pedidoRascunho();
+        pedido.getItens().get(0).setCfop("6102"); // interestadual — inconsistente com idDest=1
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("CFOP_DESTINATION_MISMATCH", ex.getErrorCode());
+        assertEquals(422, ex.getHttpStatus());
+        assertFalse(ex.isRetryable());
+        assertTrue(ex.getMessage().contains("6102"),
+                "a mensagem deve informar o CFOP recebido, sem corrigi-lo silenciosamente");
+        assertTrue(ex.getMessage().contains("idDest=1"));
+    }
+
+    @Test
+    void emitir_cfopInternoParaOperacaoInterestadual_rejeita() {
+        Pedido pedido = pedidoRascunho();
+        pedido.getItens().get(0).setCfop("5102"); // interno — inconsistente com idDest=2
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("2");
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("CFOP_DESTINATION_MISMATCH", ex.getErrorCode());
+        assertTrue(ex.getMessage().contains("5102"));
+        assertTrue(ex.getMessage().contains("idDest=2"));
+    }
+
+    @Test
+    void emitir_cfopInterestadualComIdDestInterestadual_permiteEmissao() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        pedido.getItens().get(0).setCfop("6102"); // interestadual — coerente com idDest=2
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("2");
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        assertDoesNotThrow(() -> service.emitir(99L));
+    }
+
+    @Test
+    void emitir_idDestInesperado_lancaErroInternoEmVezDePermitirSilenciosamente() throws Exception {
+        // idDest="3" (destinatário no exterior) não é alcançável hoje — o pedido não tem campo
+        // de país do destinatário, só UF brasileira. Documenta o limite: se algum dia
+        // resolverIdDest passar a devolver um valor fora de "1"/"2", falha explicitamente em
+        // vez de deixar passar um CFOP não validado.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("3");
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        assertThrows(IllegalStateException.class, () -> service.emitir(99L));
+        verify(nfeGeracaoService, never()).gerar(any(), any());
+        verifyNoInteractions(reservaFiscalService);
+    }
+
+    @Test
+    void emitir_umItemInconsistenteEntreVarios_bloqueiaPedidoInteiro() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        PedidoItem itemValido = pedido.getItens().get(0);
+        itemValido.setCfop("5102");
+        PedidoItem itemInvalido = new PedidoItem();
+        itemInvalido.setProdutoId(2L);
+        itemInvalido.setQuantidade(new BigDecimal("1"));
+        itemInvalido.setCsosn("400");
+        itemInvalido.setCfop("6102"); // inconsistente — deve bloquear o pedido inteiro
+        pedido.setItens(List.of(itemValido, itemInvalido));
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("CFOP_DESTINATION_MISMATCH", ex.getErrorCode());
+        verify(nfeGeracaoService, never()).gerar(any(), any());
+        verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
+    }
+
+    @Test
+    void emitir_cfopInconsistente_naoChamaReservaFiscalNemMotorFiscal() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        pedido.getItens().get(0).setCfop("6102");
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        // Nada que consome numeração fiscal, cria documento ou envia à SEFAZ pode ter rodado —
+        // tudo isso acontece só dentro de reservaFiscalService.reservar()/nfeGeracaoService.gerar().
+        // (resolverIdDest, usado pela própria validação, é a única interação legítima aqui.)
+        verifyNoInteractions(reservaFiscalService);
+        verify(nfeGeracaoService, never()).gerar(any(), any());
+    }
+
+    @Test
+    void emitir_cfopInconsistente_revertePedidoParaErroNaoParaEstadoIncorreto() {
+        Pedido pedido = pedidoRascunho();
+        pedido.getItens().get(0).setCfop("6102");
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        verify(pedidoService).atualizarStatus(99L, "ERRO", pedido.getChaveNfe());
+        verify(pedidoService, never()).atualizarStatus(eq(99L), eq("AUTORIZADO"), any());
+        verify(pedidoService, never()).atualizarStatus(eq(99L), eq("REJEITADO"), any());
     }
 
     private br.com.borurio.fiscal.dto.NfeSefazRetorno autorizada() {

@@ -380,7 +380,7 @@ public class NfeGeracaoService {
         return cuf;
     }
 
-    private String resolverIdDest(String destUf, String ufEmitente) {
+    String resolverIdDest(String destUf, String ufEmitente) {
         if (destUf == null || destUf.isBlank()) return "1";
         return destUf.equalsIgnoreCase(ufEmitente != null ? ufEmitente : emitente.getUf()) ? "1" : "2";
     }

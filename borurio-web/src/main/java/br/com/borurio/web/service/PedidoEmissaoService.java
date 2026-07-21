@@ -109,6 +109,13 @@ public class PedidoEmissaoService {
 
             criadoPor = resolverCriadoPor();
             empresa   = resolverEmpresaParaEmissao(pedido);
+
+            // Validação preventiva de coerência fiscal — antes de qualquer reserva de estoque
+            // ou de numeração. Achado do Gate 7D: sem isso, um pedido com CFOP incompatível com
+            // o destino (ex.: CFOP interestadual para uma operação interna) só é rejeitado pela
+            // SEFAZ depois de já ter consumido um número fiscal (nNF) real.
+            validarCfopDestino(pedido, empresa);
+
             // empresa é usado apenas para XML e certificado (CNPJ emitente correto no fluxo multi-CNPJ).
             // Estoque e baixas usam o empresaId do pedido — empresa-âncora onde os produtos foram cadastrados.
             empresaId = pedido.getEmpresaId() != null ? pedido.getEmpresaId()
@@ -270,6 +277,33 @@ public class PedidoEmissaoService {
         Long empresaId = EmpresaContextHolder.get() != null
                 ? EmpresaContextHolder.get() : pedido.getEmpresaId();
         return resolverEmpresa(empresaId);
+    }
+
+    /**
+     * Valida que o CFOP de cada item é compatível com o tipo de operação (idDest) calculado
+     * a partir da UF do emitente e da UF do destinatário — mesma fórmula usada na montagem do
+     * XML ({@link NfeGeracaoService#resolverIdDest}), reaproveitada aqui para nunca divergir.
+     *
+     * A OMS é responsável por informar o CFOP; esta validação só confere a coerência — nunca
+     * corrige ou substitui o valor recebido. idDest="3" (destinatário no exterior) não é
+     * alcançável hoje: o pedido não tem campo de país do destinatário, só UF brasileira.
+     */
+    private void validarCfopDestino(Pedido pedido, Empresa empresa) {
+        String ufEmitente = empresa != null ? empresa.getUf() : null;
+        String idDest = nfeGeracaoService.resolverIdDest(pedido.getDestUf(), ufEmitente);
+
+        String prefixoEsperado = switch (idDest) {
+            case "1" -> "5";
+            case "2" -> "6";
+            default -> throw new IllegalStateException("idDest inesperado: " + idDest);
+        };
+
+        for (PedidoItem item : pedido.getItens()) {
+            String cfop = item.getCfop();
+            if (cfop == null || cfop.isBlank() || !cfop.startsWith(prefixoEsperado)) {
+                throw BusinessException.cfopDestinationMismatch(cfop, idDest, prefixoEsperado);
+            }
+        }
     }
 
     private Empresa resolverEmpresa(Long empresaId) {

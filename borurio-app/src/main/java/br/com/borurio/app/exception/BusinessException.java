@@ -189,6 +189,23 @@ public class BusinessException extends RuntimeException {
     }
 
     /**
+     * O CFOP de um item não é compatível com o tipo de operação calculado (idDest, derivado
+     * da UF do emitente x UF do destinatário). A OMS informa o CFOP; o Borurio só valida a
+     * coerência antes de reservar numeração fiscal e transmitir à SEFAZ — nunca corrige o
+     * valor recebido. Achado real: Gate 7D (2026-07-20), pedido rejeitado com cStat=732 só
+     * depois de já ter consumido um número fiscal, por falta desta validação preventiva.
+     */
+    public static BusinessException cfopDestinationMismatch(String cfop, String idDest, String prefixoEsperado) {
+        String tipoOperacao = "1".equals(idDest) ? "interna" : "interestadual";
+        return new BusinessException(
+                "CFOP_DESTINATION_MISMATCH",
+                "CFOP " + cfop + " incompatível com operação " + tipoOperacao
+                        + ". Para idDest=" + idDest + ", o CFOP de saída deve iniciar com " + prefixoEsperado + ".",
+                422,
+                false);
+    }
+
+    /**
      * SEFAZ rejeitou a NF-e (cStat >= 200) — na maioria dos casos é dado incorreto
      * (NCM/CFOP/CSOSN/schema), não falha transitória. retryable=false: reenviar sem corrigir
      * a causa (exposta em data.cStat/data.xMotivo) só repete a mesma rejeição. O pedido pode
