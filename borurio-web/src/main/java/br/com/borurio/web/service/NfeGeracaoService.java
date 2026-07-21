@@ -41,6 +41,14 @@ public class NfeGeracaoService {
 
     private static final Logger log = LoggerFactory.getLogger(NfeGeracaoService.class);
 
+    /**
+     * Texto obrigatório na tag dest/xNome para NF-e emitida em homologação (tpAmb=2).
+     * Evita a Rejeição 598 da SEFAZ ("Razão Social do destinatário diferente de..."). Não se
+     * aplica em produção (tpAmb=1), onde a razão social real do destinatário é usada.
+     */
+    private static final String XNOME_DESTINATARIO_HOMOLOGACAO =
+            "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL";
+
     private static final Map<String, String> UF_PARA_CUF = Map.ofEntries(
             Map.entry("AC", "12"), Map.entry("AL", "27"), Map.entry("AP", "16"),
             Map.entry("AM", "13"), Map.entry("BA", "29"), Map.entry("CE", "23"),
@@ -292,7 +300,7 @@ public class NfeGeracaoService {
     private Dest montarDest(NfeEmissaoRequest req) {
         Dest dest = new Dest();
         dest.setCpfCnpj(apenasDigitos(req.getDestCnpjCpf()));
-        dest.setXNome(req.getDestRazaoSocial());
+        dest.setXNome(resolverNomeDestinatario(req.getDestRazaoSocial()));
         dest.setIndIEDest(resolverIndIEDest(req.getDestIe()));
         dest.setIe(req.getDestIe());
 
@@ -312,6 +320,19 @@ public class NfeGeracaoService {
         }
 
         return dest;
+    }
+
+    /**
+     * Em homologação (tpAmb=2), a SEFAZ rejeita (cStat=598) qualquer xNome de destinatário
+     * diferente do texto fixo abaixo — a razão social real só pode ir no XML em produção.
+     * O nome real do destinatário nunca é alterado no pedido/cliente/banco; a substituição
+     * acontece só aqui, no momento de montar o XML.
+     */
+    String resolverNomeDestinatario(String nomeOriginal) {
+        if (tpAmb == 2) {
+            return XNOME_DESTINATARIO_HOMOLOGACAO;
+        }
+        return nomeOriginal;
     }
 
     private List<Det> montarDet(NfeEmissaoRequest req) {

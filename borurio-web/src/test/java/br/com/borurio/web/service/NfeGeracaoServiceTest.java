@@ -14,6 +14,8 @@ import br.com.borurio.fiscal.service.NfeLogService;
 import br.com.borurio.fiscal.service.NfeOrquestradorService;
 import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
+import br.com.borurio.fiscal.utils.XsdValidator;
+import org.w3c.dom.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -237,5 +239,159 @@ class NfeGeracaoServiceTest {
         assertEquals("0", captor.getValue().getInfNFe().getIde().getIndIntermed(),
                 "indIntermed deve estar presente no XML com o valor provisório atual (\"0\" = venda direta) — "
                         + "esse valor não representa regra de negócio fechada, só o comportamento vigente do fluxo atual");
+    }
+
+    // -------------------------------------------------------------------------
+    // Rejeição 598 — dest/xNome fixo em homologação (tpAmb=2), nome real preservado em
+    // produção (tpAmb=1). Achado real do Gate 7B: emissão do pedido 22 (J.ZHENG) rejeitada
+    // pela SEFAZ-SP por usar a razão social real do destinatário em homologação.
+    // -------------------------------------------------------------------------
+
+    @Test
+    void resolverNomeDestinatario_homologacao_retornaTextoFixoDaSefaz() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "tpAmb", 2);
+
+        assertEquals("NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL",
+                service.resolverNomeDestinatario("Cliente Real Ltda"));
+    }
+
+    @Test
+    void resolverNomeDestinatario_producao_preservaNomeReal() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "tpAmb", 1);
+
+        assertEquals("Cliente Real Ltda", service.resolverNomeDestinatario("Cliente Real Ltda"));
+    }
+
+    @Test
+    void gerar_homologacao_xmlFinalContemXNomeFixoDaSefaz() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "tpAmb", 2);
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+
+        NfeEmissaoRequest req = requestValido();
+        req.setDestRazaoSocial("Cliente Sintetico Teste"); // nome real, nunca deve ir ao XML em homologação
+        Empresa empresa = empresaValida(20L, "1");
+
+        service.gerar(req, empresa);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture());
+        assertEquals("NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL",
+                captor.getValue().getInfNFe().getDest().getXNome(),
+                "Em tpAmb=2, dest/xNome deve ser exatamente o texto obrigatório da SEFAZ, nunca o nome real.");
+
+        // texto aparece somente em dest/xNome, nunca no emitente
+        assertEquals("J ZHENG BIJOUTERIAS", captor.getValue().getInfNFe().getEmit().getXNome(),
+                "emit/xNome deve continuar com a razão social real do emitente, mesmo em homologação.");
+
+        // o nome real informado na requisição não é alterado pela geração do XML
+        assertEquals("Cliente Sintetico Teste", req.getDestRazaoSocial(),
+                "O nome real do destinatário no request/pedido não pode ser modificado — a substituição é só no XML.");
+    }
+
+    @Test
+    void gerar_producao_xmlFinalContemRazaoSocialRealDoDestinatario() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "tpAmb", 1);
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+
+        NfeEmissaoRequest req = requestValido();
+        req.setDestRazaoSocial("Cliente Sintetico Teste");
+        Empresa empresa = empresaValida(21L, "1");
+
+        service.gerar(req, empresa);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture());
+        assertEquals("Cliente Sintetico Teste", captor.getValue().getInfNFe().getDest().getXNome(),
+                "Em tpAmb=1 (produção), dest/xNome deve conter a razão social real do destinatário.");
+    }
+
+    @Test
+    void gerar_homologacao_xNomeSemAcentoESemEspacosExtras() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "tpAmb", 2);
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+
+        service.gerar(requestValido(), empresaValida(22L, "1"));
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture());
+        String xNome = captor.getValue().getInfNFe().getDest().getXNome();
+
+        assertEquals(xNome.trim(), xNome, "xNome não pode ter espaços extras no início/fim.");
+        assertFalse(xNome.contains("HOMOLOGAÇÃO"), "O texto exigido pela SEFAZ usa \"HOMOLOGACAO\" sem cedilha/acento.");
+        assertTrue(xNome.contains("HOMOLOGACAO"), "O texto deve conter \"HOMOLOGACAO\" sem acento, conforme exigido pela SEFAZ.");
+    }
+
+    /**
+     * Constrói o XML real (NfeXmlBuilder real, não mockado) para validar contra o XSD oficial
+     * da NF-e 4.00 — mesmo schema usado em NfePipelineLocalTest (borurio-fiscal). Confirma que
+     * a substituição de dest/xNome não quebra a validade estrutural do XML em nenhum ambiente.
+     */
+    private String gerarXmlReal(int tpAmbValor, String nomeDestinatario) throws Exception {
+        NfeXmlBuilder builderReal = new NfeXmlBuilder();
+        NcmService ncmServiceLocal = mock(NcmService.class);
+        when(ncmServiceLocal.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        NfeOrquestradorService orquestradorLocal = mock(NfeOrquestradorService.class);
+        NfeSefazRetornoParser retornoParserLocal = mock(NfeSefazRetornoParser.class);
+        when(retornoParserLocal.parse(any())).thenReturn(retornoAutorizado());
+
+        NfeGeracaoService servicoLocal = new NfeGeracaoService(emitente, builderReal, orquestradorLocal,
+                nfeLogService, ncmServiceLocal, sequenciaService, retornoParserLocal,
+                documentoService, empresaCertificadoService, omsCertificadoService);
+        org.springframework.test.util.ReflectionTestUtils.setField(servicoLocal, "tpAmb", tpAmbValor);
+
+        NfeEmissaoRequest req = requestValido();
+        req.setDestRazaoSocial(nomeDestinatario);
+        Empresa empresa = empresaValida(30L + tpAmbValor, "1");
+
+        ArgumentCaptor<String> xmlCaptor = ArgumentCaptor.forClass(String.class);
+        servicoLocal.gerar(req, empresa);
+        verify(orquestradorLocal).processar(xmlCaptor.capture(), anyString(), any());
+
+        return xmlCaptor.getValue();
+    }
+
+    @Test
+    void gerar_homologacao_xmlRealValidoContraXsdOficial() throws Exception {
+        String xml = gerarXmlReal(2, "Cliente Sintetico Teste");
+
+        Document doc = parseXml(xml);
+        new XsdValidator().validate(doc, "xsd/custom/nfe_v4.00_consolidado.xsd");
+
+        assertEquals("NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL",
+                extrairTextoDestXNome(doc));
+    }
+
+    @Test
+    void gerar_producao_xmlRealValidoContraXsdOficial() throws Exception {
+        String xml = gerarXmlReal(1, "Cliente Sintetico Teste");
+
+        Document doc = parseXml(xml);
+        new XsdValidator().validate(doc, "xsd/custom/nfe_v4.00_consolidado.xsd");
+
+        assertEquals("Cliente Sintetico Teste", extrairTextoDestXNome(doc));
+    }
+
+    private Document parseXml(String xml) throws Exception {
+        javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        try (var input = new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+            return factory.newDocumentBuilder().parse(input);
+        }
+    }
+
+    private String extrairTextoDestXNome(Document doc) {
+        org.w3c.dom.NodeList destList = doc.getElementsByTagNameNS(
+                "http://www.portalfiscal.inf.br/nfe", "dest");
+        org.w3c.dom.Element destEl = (org.w3c.dom.Element) destList.item(0);
+        org.w3c.dom.NodeList xNomeList = destEl.getElementsByTagNameNS(
+                "http://www.portalfiscal.inf.br/nfe", "xNome");
+        return xNomeList.item(0).getTextContent();
     }
 }
