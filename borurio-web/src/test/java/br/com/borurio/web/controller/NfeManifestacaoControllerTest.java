@@ -2,6 +2,7 @@ package br.com.borurio.web.controller;
 
 import br.com.borurio.fiscal.service.NfeManifestacaoService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.fiscal.NfeManifestacaoController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,7 @@ class NfeManifestacaoControllerTest {
     @MockBean NfeManifestacaoService nfeManifestacaoService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     private static final String CHAVE = "35260554393421000159550010000000351199116560";
     private static final String CNPJ  = "54393421000159";

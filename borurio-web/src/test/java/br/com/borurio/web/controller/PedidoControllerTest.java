@@ -10,6 +10,7 @@ import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.app.PedidoController;
 import br.com.borurio.web.service.OmsCertificadoService;
 import br.com.borurio.web.service.PedidoEmissaoService;
@@ -59,6 +60,7 @@ class PedidoControllerTest {
     @MockBean OmsCertificadoService omsCertificadoService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     @AfterEach
     void limparContexto() {

@@ -3,6 +3,7 @@ package br.com.borurio.web.controller;
 import br.com.borurio.web.auth.AuthController;
 import br.com.borurio.web.auth.AuthService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -27,6 +28,7 @@ class AuthControllerTest {
     @MockBean AuthService authService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     @Test
     @WithMockUser

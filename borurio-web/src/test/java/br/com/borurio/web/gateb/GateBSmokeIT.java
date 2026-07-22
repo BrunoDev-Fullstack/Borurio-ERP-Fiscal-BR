@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Gate B — sobe o contexto Spring REAL contra o MySQL descartável (docker run, mesma imagem
  * mysql:8.4 do docker-compose.dev.yml, credenciais exclusivamente via variáveis de ambiente —
- * ver GateBTestProperties). Deixa o Flyway aplicar todas as migrations (V001..V031) do jeito
+ * ver GateBTestProperties). Deixa o Flyway aplicar todas as migrations (V001..V032) do jeito
  * real, não mockado.
  *
  * Nomeada *IT (não *Test) deliberadamente — Surefire NÃO pega esse padrão por padrão, então
@@ -45,7 +45,7 @@ class GateBSmokeIT {
     DataSource dataSource;
 
     @Test
-    void flywayAplicouTodasAsMigrationsInclusiveV031() throws Exception {
+    void flywayAplicouTodasAsMigrationsInclusiveV032() throws Exception {
         try (Connection conn = dataSource.getConnection();
              Statement st = conn.createStatement()) {
 
@@ -55,7 +55,7 @@ class GateBSmokeIT {
             int qtdSucesso = rsHistory.getInt("qtd");
             int maxVersion = rsHistory.getInt("maxVersion");
             System.out.println("[GateB] flyway_schema_history: " + qtdSucesso + " migrations aplicadas com sucesso, versão máxima=" + maxVersion);
-            assertEquals(31, maxVersion, "Flyway precisa ter aplicado até V031");
+            assertEquals(32, maxVersion, "Flyway precisa ter aplicado até V032");
 
             ResultSet rsFail = st.executeQuery("SELECT COUNT(*) qtd FROM flyway_schema_history WHERE success = 0");
             assertTrue(rsFail.next());
@@ -75,6 +75,12 @@ class GateBSmokeIT {
             ResultSet rsIdx = st.executeQuery("SHOW INDEX FROM nfe_sequencia WHERE Key_name = 'uk_emitente_serie'");
             assertTrue(rsIdx.next(), "uk_emitente_serie (V011) precisa existir em nfe_sequencia");
             System.out.println("[GateB] uk_emitente_serie confirmada em nfe_sequencia (unique=" + !rsIdx.getBoolean("Non_unique") + ")");
+
+            ResultSet rsAuthVersao = st.executeQuery("SHOW COLUMNS FROM oms_fiscal_authorization LIKE 'versao'");
+            assertTrue(rsAuthVersao.next(), "coluna versao (V032) precisa existir em oms_fiscal_authorization");
+
+            ResultSet rsAuditTable = st.executeQuery("SHOW TABLES LIKE 'oms_fiscal_authorization_audit'");
+            assertTrue(rsAuditTable.next(), "tabela oms_fiscal_authorization_audit (V032) precisa existir");
         }
     }
 }

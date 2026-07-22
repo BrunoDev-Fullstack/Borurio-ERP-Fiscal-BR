@@ -97,7 +97,8 @@ public class SecurityConfig {
                                 new AntPathRequestMatcher("/api/app/empresas/**", "PUT"),
                                 new AntPathRequestMatcher("/api/app/usuarios"),
                                 new AntPathRequestMatcher("/api/app/usuarios/**"),
-                                new AntPathRequestMatcher("/api/app/produtos/*/estoque/entrada", "POST")
+                                new AntPathRequestMatcher("/api/app/produtos/*/estoque/entrada", "POST"),
+                                new AntPathRequestMatcher("/api/admin/**")
                         ).hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

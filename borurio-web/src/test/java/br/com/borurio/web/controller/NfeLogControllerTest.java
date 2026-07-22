@@ -4,6 +4,7 @@ import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.service.NfeLogService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.fiscal.NfeLogController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,7 @@ class NfeLogControllerTest {
     @MockBean NfeLogService nfeLogService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     @Test
     @WithMockUser

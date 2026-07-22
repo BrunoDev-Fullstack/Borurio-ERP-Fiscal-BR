@@ -78,6 +78,9 @@ security:
   jwt:
     secret: ${SECURITY_JWT_SECRET}
     expiration-ms: ${SECURITY_JWT_EXPIRATION_MS:3600000}
+    # Piso mínimo de validade restante do certificado para PERMITIR rotação administrativa do
+    # jti OMS — não altera a expiração de /fiscal-authorizations (POST) nem da reautorização.
+    oms-rotation-min-validity-ms: ${SECURITY_JWT_OMS_ROTATION_MIN_VALIDITY_MS:3600000}
 
 ###################################################################################################
 # SEFAZ — HOMOLOGAÇÃO REAL

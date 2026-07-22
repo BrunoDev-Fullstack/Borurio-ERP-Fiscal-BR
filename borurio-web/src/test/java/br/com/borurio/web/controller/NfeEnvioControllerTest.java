@@ -5,6 +5,7 @@ import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
 import br.com.borurio.fiscal.service.NfeOrquestradorService;
 import br.com.borurio.fiscal.service.NfeTransmitService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.config.SecurityConfig;
 import br.com.borurio.web.controller.fiscal.NfeEnvioController;
 import br.com.borurio.web.service.NfeGeracaoService;
@@ -46,6 +47,7 @@ class NfeEnvioControllerTest {
     @MockBean EmitenteProperties     emitente;
     @MockBean JwtUtil                jwtUtil;
     @MockBean UserDetailsService     userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     private static final String CHAVE_44  = "35240454393421000159550010000000011000000017";
     private static final String BODY_XML  = "<nfeProc/>";

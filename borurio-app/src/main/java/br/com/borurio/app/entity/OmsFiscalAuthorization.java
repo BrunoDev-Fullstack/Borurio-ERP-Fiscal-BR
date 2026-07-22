@@ -1,10 +1,16 @@
 package br.com.borurio.app.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-@Data
+/**
+ * Getters/setters sem toString() gerado — possui jti (token técnico ativo), que não deve ser
+ * exposto por um log/print acidental do objeto inteiro (@Data geraria toString com esse campo).
+ */
+@Getter
+@Setter
 public class OmsFiscalAuthorization {
 
     private Long id;
@@ -17,4 +23,5 @@ public class OmsFiscalAuthorization {
     private LocalDateTime atualizadoEm;
     private LocalDateTime revogadoEm;
     private String motivoRevogacao;
+    private Long versao;
 }

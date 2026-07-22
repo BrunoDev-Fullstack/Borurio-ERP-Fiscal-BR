@@ -3,6 +3,7 @@ package br.com.borurio.web.controller;
 import br.com.borurio.app.entity.Cliente;
 import br.com.borurio.app.service.ClienteService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.app.ClienteController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,7 @@ class ClienteControllerTest {
     @MockBean ClienteService clienteService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     @Test
     @WithMockUser

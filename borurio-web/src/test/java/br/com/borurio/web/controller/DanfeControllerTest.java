@@ -2,6 +2,7 @@ package br.com.borurio.web.controller;
 
 import br.com.borurio.fiscal.danfe.DanfeService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.fiscal.DanfeController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +26,7 @@ class DanfeControllerTest {
     @MockBean DanfeService  danfeService;
     @MockBean JwtUtil       jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     private static final String CHAVE_44 = "35260500000000000000550010000000011234567890";
 

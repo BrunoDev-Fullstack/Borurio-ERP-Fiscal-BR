@@ -91,6 +91,9 @@ security:
   jwt:
     secret: "borurio-dev-secret-2026-sefaz-integration-abcdef"
     expiration-ms: 3600000
+    # Piso mínimo de validade restante do certificado para PERMITIR rotação administrativa do
+    # jti OMS — não altera a expiração de /fiscal-authorizations (POST) nem da reautorização.
+    oms-rotation-min-validity-ms: 3600000
 
 ###################################################################################################
 # SEFAZ — HOMOLOGAÇÃO SP

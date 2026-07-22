@@ -4,6 +4,7 @@ import br.com.borurio.core.mvc.api.ResultUtil;
 import br.com.borurio.fiscal.entity.Ncm;
 import br.com.borurio.fiscal.service.NcmService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.fiscal.NcmController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,7 @@ class NcmControllerTest {
     @MockBean NcmService ncmService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     @Test
     @WithMockUser

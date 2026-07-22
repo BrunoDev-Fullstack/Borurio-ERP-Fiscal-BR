@@ -3,6 +3,7 @@ package br.com.borurio.web.controller;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.fiscal.service.NfeInutilizacaoService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.fiscal.NfeInutilizacaoController;
 import br.com.borurio.web.service.EmpresaCertificadoService;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ class NfeInutilizacaoControllerTest {
     @MockBean NfeInutilizacaoService nfeInutilizacaoService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
     @MockBean EmpresaMapper empresaMapper;
     @MockBean EmpresaCertificadoService empresaCertificadoService;
 

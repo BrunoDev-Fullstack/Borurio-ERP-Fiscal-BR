@@ -2,6 +2,7 @@ package br.com.borurio.web.controller;
 
 import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.fiscal.NfeCceController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,7 @@ class NfeCceControllerTest {
     @MockBean NfeCceService nfeCceService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     private static final String BODY_VALIDO = """
             {

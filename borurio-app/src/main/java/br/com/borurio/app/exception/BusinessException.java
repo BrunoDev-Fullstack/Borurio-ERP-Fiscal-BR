@@ -283,4 +283,100 @@ public class BusinessException extends RuntimeException {
                 422,
                 false);
     }
+
+    // -------------------------------------------------------------------------
+    // OMS — revogação e rotação administrativa (Gate 7H)
+    // -------------------------------------------------------------------------
+
+    public static BusinessException omsAuthorizationNotFound(Long id) {
+        return new BusinessException(
+                "OMS_AUTHORIZATION_NOT_FOUND",
+                "Autorização OMS não encontrada: id=" + id,
+                404);
+    }
+
+    /**
+     * A versao informada (expectedVersion) não corresponde à versao atual — outra rotação ou
+     * revogação já alterou o estado. retryable=true: buscar a versao atual e tentar novamente
+     * é seguro (não há efeito colateral duplicado).
+     */
+    public static BusinessException authorizationChanged(Long id) {
+        return new BusinessException(
+                "AUTHORIZATION_CHANGED",
+                "A autorização id=" + id + " foi alterada por outra operação. Releia a versao atual e tente novamente.",
+                409,
+                true);
+    }
+
+    /**
+     * O resultado de uma rotação já registrada (Idempotency-Key) não corresponde mais ao estado
+     * atual da autorização — foi superada por uma rotação ou revogação posterior. Não é seguro
+     * reemitir o token antigo. retryable=false: repetir com a mesma chave nunca vai suceder;
+     * é preciso decidir uma nova ação com uma nova Idempotency-Key.
+     */
+    public static BusinessException rotationResultSuperseded(Long id) {
+        return new BusinessException(
+                "ROTATION_RESULT_SUPERSEDED",
+                "O resultado da rotação da autorização id=" + id + " foi superado por uma operação posterior.",
+                409,
+                false);
+    }
+
+    public static BusinessException certificateValidityInsufficient(Long id) {
+        return new BusinessException(
+                "CERTIFICATE_VALIDITY_INSUFFICIENT",
+                "A validade restante do certificado da autorização id=" + id
+                        + " é insuficiente para rotacionar o token.",
+                422,
+                false);
+    }
+
+    /** O usuário autenticado não corresponde a um db_user válido — nunca prosseguir sem identificar o executor. */
+    public static BusinessException adminContextInvalid() {
+        return new BusinessException(
+                "ADMIN_CONTEXT_INVALID",
+                "Não foi possível identificar o usuário ADMIN autenticado para registrar a auditoria.",
+                403);
+    }
+
+    /** Falha de acesso ao banco ao resolver o contexto do ADMIN — falha fechada, retry é seguro. */
+    public static BusinessException authorizationServiceUnavailable() {
+        return new BusinessException(
+                "AUTHORIZATION_SERVICE_UNAVAILABLE",
+                "Serviço de autorização OMS temporariamente indisponível.",
+                503,
+                true);
+    }
+
+    /** Header Idempotency-Key ausente ou não é um UUID válido. */
+    public static BusinessException invalidIdempotencyKey() {
+        return new BusinessException(
+                "INVALID_IDEMPOTENCY_KEY",
+                "Header Idempotency-Key é obrigatório e deve ser um UUID válido.",
+                400,
+                false);
+    }
+
+    /**
+     * A Idempotency-Key informada já foi usada para uma operação em OUTRA autorização (authId
+     * diferente) ou em um evento diferente (ex.: chave de revogação reusada em rotação). Nunca
+     * deve devolver token/estado de uma autorização diferente da solicitada — a chave deve ser
+     * única por operação lógica; gere uma nova.
+     */
+    public static BusinessException idempotencyKeyConflict(Long authId) {
+        return new BusinessException(
+                "IDEMPOTENCY_KEY_CONFLICT",
+                "A Idempotency-Key informada já foi usada para outra autorização ou operação, "
+                        + "diferente da solicitada para id=" + authId + ". Gere uma nova Idempotency-Key.",
+                409,
+                false);
+    }
+
+    public static BusinessException motivoDetalheObrigatorio() {
+        return new BusinessException(
+                "MOTIVO_DETALHE_OBRIGATORIO",
+                "motivoDetalhe é obrigatório quando motivoCodigo = OUTRO.",
+                422,
+                false);
+    }
 }

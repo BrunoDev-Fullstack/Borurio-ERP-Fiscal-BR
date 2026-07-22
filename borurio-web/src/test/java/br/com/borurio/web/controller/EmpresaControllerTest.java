@@ -3,6 +3,7 @@ package br.com.borurio.web.controller;
 import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.service.EmpresaService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.app.EmpresaController;
 import br.com.borurio.web.service.CertSenhaEncryptor;
 import br.com.borurio.web.service.EmpresaCertificadoService;
@@ -34,6 +35,7 @@ class EmpresaControllerTest {
     @MockBean EmpresaCertificadoService empresaCertificadoService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     private Empresa empresaStub() {
         Empresa e = new Empresa();

@@ -5,6 +5,7 @@ import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.ProdutoService;
 import br.com.borurio.web.auth.JwtUtil;
+import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.config.SecurityConfig;
 import br.com.borurio.web.controller.app.ProdutoController;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,6 +38,7 @@ class ProdutoBatchControllerTest {
     @MockBean EstoqueService      estoqueService;
     @MockBean JwtUtil             jwtUtil;
     @MockBean UserDetailsService  userDetailsService;
+    @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;
 
     // -------------------------------------------------------------------------
     // 1. lista vazia retorna 400
