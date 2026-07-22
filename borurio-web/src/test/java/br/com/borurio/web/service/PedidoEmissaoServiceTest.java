@@ -8,6 +8,7 @@ import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.domain.nfe.ModalidadeFrete;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
 import br.com.borurio.web.dto.ReservaFiscalResultado;
@@ -113,7 +114,7 @@ class PedidoEmissaoServiceTest {
         Pedido pedido = pedidoRascunho();
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -124,12 +125,31 @@ class PedidoEmissaoServiceTest {
         verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
     }
 
+    /**
+     * Fluxo OMS de marketplaces: transporte contratado/operado pela plataforma, nunca pelo
+     * emitente nem pelo destinatário — PedidoEmissaoService deve sempre declarar
+     * ModalidadeFrete.CONTA_TERCEIROS ao chamar NfeGeracaoService, nunca omitir ou inferir.
+     */
+    @Test
+    void emitir_fluxoOms_sempreDeclaraModalidadeFreteTerceiros() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), eq(ModalidadeFrete.CONTA_TERCEIROS)))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        service.emitir(99L);
+
+        verify(nfeGeracaoService).gerar(any(), any(), eq(ModalidadeFrete.CONTA_TERCEIROS));
+    }
+
     @Test
     void emitir_controlaEstoqueFalse_naoReservaNemBaixa() throws Exception {
         Pedido pedido = pedidoRascunho();
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, false));
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -145,7 +165,7 @@ class PedidoEmissaoServiceTest {
         Pedido pedido = pedidoRascunho();
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, false));
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult(null, "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(rejeitada());
 
@@ -162,7 +182,7 @@ class PedidoEmissaoServiceTest {
         Pedido pedido = pedidoRascunho();
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any())).thenThrow(new RuntimeException("timeout SEFAZ"));
+        when(nfeGeracaoService.gerar(any(), any(), any())).thenThrow(new RuntimeException("timeout SEFAZ"));
 
         assertThrows(RuntimeException.class, () -> service.emitir(99L));
 
@@ -175,7 +195,7 @@ class PedidoEmissaoServiceTest {
         Pedido pedido = pedidoRascunho();
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(null);
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -190,7 +210,7 @@ class PedidoEmissaoServiceTest {
         Pedido pedido = pedidoComStatus("REJEITADO");
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chaveNova", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -205,7 +225,7 @@ class PedidoEmissaoServiceTest {
         Pedido pedido = pedidoComStatus("ERRO");
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chaveNova", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -305,7 +325,7 @@ class PedidoEmissaoServiceTest {
         Pedido pedido = pedidoRascunho();
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -339,7 +359,7 @@ class PedidoEmissaoServiceTest {
 
         assertEquals(1, sucessos,
                 "exatamente uma das " + numThreads + " chamadas concorrentes deveria vencer o claim");
-        verify(nfeGeracaoService, times(1)).gerar(any(), any());
+        verify(nfeGeracaoService, times(1)).gerar(any(), any(), any());
     }
 
     // -------------------------------------------------------------------------
@@ -354,7 +374,7 @@ class PedidoEmissaoServiceTest {
         Pedido pedido = pedidoRascunho(); // idDest=1 (default do mock), CFOP=5102
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -400,7 +420,7 @@ class PedidoEmissaoServiceTest {
         when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
         when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("2");
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -419,7 +439,7 @@ class PedidoEmissaoServiceTest {
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
 
         assertThrows(IllegalStateException.class, () -> service.emitir(99L));
-        verify(nfeGeracaoService, never()).gerar(any(), any());
+        verify(nfeGeracaoService, never()).gerar(any(), any(), any());
         verifyNoInteractions(reservaFiscalService);
     }
 
@@ -440,7 +460,7 @@ class PedidoEmissaoServiceTest {
         BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
 
         assertEquals("CFOP_DESTINATION_MISMATCH", ex.getErrorCode());
-        verify(nfeGeracaoService, never()).gerar(any(), any());
+        verify(nfeGeracaoService, never()).gerar(any(), any(), any());
         verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
     }
 
@@ -457,7 +477,7 @@ class PedidoEmissaoServiceTest {
         // tudo isso acontece só dentro de reservaFiscalService.reservar()/nfeGeracaoService.gerar().
         // (resolverIdDest, usado pela própria validação, é a única interação legítima aqui.)
         verifyNoInteractions(reservaFiscalService);
-        verify(nfeGeracaoService, never()).gerar(any(), any());
+        verify(nfeGeracaoService, never()).gerar(any(), any(), any());
     }
 
     @Test

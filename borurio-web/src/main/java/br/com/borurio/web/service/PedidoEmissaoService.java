@@ -9,6 +9,7 @@ import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.domain.nfe.ModalidadeFrete;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
@@ -164,7 +165,9 @@ public class PedidoEmissaoService {
 
         NfeGeracaoResult result;
         try {
-            result = nfeGeracaoService.gerar(req, empresa);
+            // Fluxo OMS de marketplaces: transporte contratado/operado pela plataforma, nunca
+            // pelo emitente nem pelo destinatário — modFrete=2 (Terceiros).
+            result = nfeGeracaoService.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS);
         } catch (Exception e) {
             // Preserva a chaveNfe já persistida (ex.: retry de um pedido REJEITADO que já
             // tinha uma chave real conhecida pela SEFAZ) — nunca zera com um UPDATE incondicional.

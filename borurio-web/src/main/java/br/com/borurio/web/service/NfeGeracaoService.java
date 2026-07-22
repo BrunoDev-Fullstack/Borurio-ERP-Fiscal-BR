@@ -30,6 +30,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.security.SecureRandom;
 
 /**
@@ -97,11 +98,13 @@ public class NfeGeracaoService {
         this.omsCertificadoService = omsCertificadoService;
     }
 
-    public NfeGeracaoResult gerar(NfeEmissaoRequest req) throws Exception {
-        return gerar(req, null);
-    }
-
-    public NfeGeracaoResult gerar(NfeEmissaoRequest req, Empresa empresa) throws Exception {
+    /**
+     * Assinatura única e explícita: cada chamador declara a modalidade de frete do seu fluxo
+     * (ver ModalidadeFrete). Não existe overload que a omita — isso evitaria que um novo
+     * chamador esqueça de declarar o fluxo e herde silenciosamente um valor incorreto.
+     */
+    public NfeGeracaoResult gerar(NfeEmissaoRequest req, Empresa empresa, ModalidadeFrete modalidadeFrete) throws Exception {
+        Objects.requireNonNull(modalidadeFrete, "modalidadeFrete não pode ser nulo");
         validarRequest(req);
         validarEnderecoEmitente(empresa);
 
@@ -148,7 +151,7 @@ public class NfeGeracaoService {
 
         nfe.setInfNFe(inf);
 
-        String xml = nfeXmlBuilder.build(nfe);
+        String xml = nfeXmlBuilder.build(nfe, modalidadeFrete);
 
         log.info("[NfeGeracao] Iniciando transmissão | chave={} | cnpj={}", chave, cnpj);
 

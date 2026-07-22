@@ -3,6 +3,7 @@ package br.com.borurio.web.controller.fiscal;
 import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.domain.nfe.ModalidadeFrete;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.service.NfeOrquestradorService;
@@ -79,7 +80,10 @@ public class NfeEnvioController {
         log.info("[NF-e] Geração solicitada | dest={} | itens={}",
                 request.getDestCnpjCpf(), request.getItens() != null ? request.getItens().size() : 0);
         try {
-            NfeGeracaoResult result = nfeGeracaoService.gerar(request);
+            // Endpoint legado/administrativo, sem vínculo confirmado com o fluxo de marketplace —
+            // preserva o comportamento anterior (sem ocorrência de transporte) em vez de assumir
+            // a regra do fluxo OMS (ver PedidoEmissaoService).
+            NfeGeracaoResult result = nfeGeracaoService.gerar(request, null, ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE);
             return ResultUtil.success(result.getSoapRetorno());
         } catch (IllegalArgumentException e) {
             log.warn("[NF-e] Dados inválidos para geração | erro={}", e.getMessage());

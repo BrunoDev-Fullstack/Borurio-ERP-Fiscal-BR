@@ -1,6 +1,7 @@
 package br.com.borurio.web.controller;
 
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.domain.nfe.ModalidadeFrete;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
 import br.com.borurio.fiscal.service.NfeOrquestradorService;
 import br.com.borurio.fiscal.service.NfeTransmitService;
@@ -89,13 +90,32 @@ class NfeEnvioControllerTest {
         @WithMockUser(roles = "ADMIN")
         void comAdmin_chegaAoServico() throws Exception {
             doThrow(new IllegalArgumentException("dados inválidos"))
-                    .when(nfeGeracaoService).gerar(any(NfeEmissaoRequest.class));
+                    .when(nfeGeracaoService).gerar(any(NfeEmissaoRequest.class), isNull(), eq(ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE));
 
             mockMvc.perform(post("/api/fiscal/nfe/gerar")
                             .with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(BODY_JSON))
                     .andExpect(status().isOk());
+        }
+
+        /**
+         * Endpoint legado, sem vínculo confirmado com o fluxo de marketplace — deve preservar
+         * o comportamento anterior (modFrete=9), nunca herdar a regra do fluxo OMS.
+         */
+        @Test
+        @WithMockUser(roles = "ADMIN")
+        void comAdmin_declaraModalidadeFreteSemTransporte() throws Exception {
+            when(nfeGeracaoService.gerar(any(NfeEmissaoRequest.class), isNull(), eq(ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE)))
+                    .thenReturn(new br.com.borurio.fiscal.dto.NfeGeracaoResult("chave123", "<soap/>"));
+
+            mockMvc.perform(post("/api/fiscal/nfe/gerar")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(BODY_JSON))
+                    .andExpect(status().isOk());
+
+            verify(nfeGeracaoService).gerar(any(NfeEmissaoRequest.class), isNull(), eq(ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE));
         }
     }
 

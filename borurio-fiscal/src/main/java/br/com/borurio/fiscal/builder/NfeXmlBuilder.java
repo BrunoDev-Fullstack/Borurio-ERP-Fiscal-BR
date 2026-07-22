@@ -7,13 +7,16 @@ import org.w3c.dom.*;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.util.List;
+import java.util.Objects;
 
 @Component
 public class NfeXmlBuilder {
 
     private static final String NS = "http://www.portalfiscal.inf.br/nfe";
 
-    public String build(NFe nfe) {
+    public String build(NFe nfe, ModalidadeFrete modalidadeFrete) {
+
+        Objects.requireNonNull(modalidadeFrete, "modalidadeFrete não pode ser nulo");
 
         try {
 
@@ -111,7 +114,7 @@ public class NfeXmlBuilder {
             infEl.appendChild(buildTotal(doc, inf.getTotal()));
 
             // ================= TRANSP =================
-            infEl.appendChild(buildTransp(doc));
+            infEl.appendChild(buildTransp(doc, modalidadeFrete));
 
             // ================= PAG =================
             infEl.appendChild(buildPag(doc, inf.getTotal()));
@@ -267,11 +270,11 @@ public class NfeXmlBuilder {
     }
 
     // -----------------------------------------------------------------
-    // TRANSP — modFrete=9 (sem frete): único campo obrigatório
+    // TRANSP — modFrete varia por fluxo de emissão (ModalidadeFrete); único campo obrigatório
     // -----------------------------------------------------------------
-    private Element buildTransp(Document doc) {
+    private Element buildTransp(Document doc, ModalidadeFrete modalidadeFrete) {
         Element transpEl = doc.createElementNS(NS, "transp");
-        append(doc, transpEl, "modFrete", "9");
+        append(doc, transpEl, "modFrete", modalidadeFrete.getCodigo());
         return transpEl;
     }
 

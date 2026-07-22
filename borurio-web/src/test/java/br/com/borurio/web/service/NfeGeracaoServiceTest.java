@@ -4,6 +4,7 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.fiscal.builder.NfeXmlBuilder;
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.domain.nfe.ModalidadeFrete;
 import br.com.borurio.fiscal.domain.nfe.NFe;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
@@ -27,7 +28,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
@@ -111,7 +112,7 @@ class NfeGeracaoServiceTest {
         when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.gerar(requestValido(), empresaComEnderecoIncompleto()));
+                () -> service.gerar(requestValido(), empresaComEnderecoIncompleto(), ModalidadeFrete.CONTA_TERCEIROS));
 
         assertEquals("EMITTER_ADDRESS_INCOMPLETE", ex.getErrorCode());
         assertFalse(ex.isRetryable());
@@ -177,7 +178,7 @@ class NfeGeracaoServiceTest {
         Empresa empresa = empresaValida(9L, "X");
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> service.gerar(requestValido(), empresa));
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS));
 
         assertEquals("IND_FINAL_PADRAO_INVALIDO", ex.getErrorCode());
         verifyNoInteractions(nfeOrquestradorService);
@@ -193,14 +194,14 @@ class NfeGeracaoServiceTest {
 
         NfeEmissaoRequest reqCpf = requestValido();
         reqCpf.setDestCnpjCpf("52998224725"); // CPF (11 dígitos) — antes da correção forçava indFinal="1"
-        service.gerar(reqCpf, empresaRevenda);
+        service.gerar(reqCpf, empresaRevenda, ModalidadeFrete.CONTA_TERCEIROS);
 
         NfeEmissaoRequest reqCnpj = requestValido();
         reqCnpj.setDestCnpjCpf("12345678000195"); // CNPJ (14 dígitos)
-        service.gerar(reqCnpj, empresaRevenda);
+        service.gerar(reqCnpj, empresaRevenda, ModalidadeFrete.CONTA_TERCEIROS);
 
         ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
-        verify(nfeXmlBuilder, times(2)).build(captor.capture());
+        verify(nfeXmlBuilder, times(2)).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
         for (NFe nfe : captor.getAllValues()) {
             assertEquals("0", nfe.getInfNFe().getIde().getIndFinal(),
                     "indFinal deve vir de Empresa.indFinalPadrao, independentemente do CPF/CNPJ do destinatário");
@@ -214,10 +215,10 @@ class NfeGeracaoServiceTest {
 
         Empresa empresaConsumidorFinal = empresaValida(11L, "1");
 
-        service.gerar(requestValido(), empresaConsumidorFinal);
+        service.gerar(requestValido(), empresaConsumidorFinal, ModalidadeFrete.CONTA_TERCEIROS);
 
         ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
-        verify(nfeXmlBuilder).build(captor.capture());
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
         assertEquals("1", captor.getValue().getInfNFe().getIde().getIndFinal());
     }
 
@@ -232,10 +233,10 @@ class NfeGeracaoServiceTest {
 
         Empresa empresa = empresaValida(12L, "1");
 
-        service.gerar(requestValido(), empresa);
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS);
 
         ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
-        verify(nfeXmlBuilder).build(captor.capture());
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
         assertEquals("0", captor.getValue().getInfNFe().getIde().getIndIntermed(),
                 "indIntermed deve estar presente no XML com o valor provisório atual (\"0\" = venda direta) — "
                         + "esse valor não representa regra de negócio fechada, só o comportamento vigente do fluxo atual");
@@ -272,10 +273,10 @@ class NfeGeracaoServiceTest {
         req.setDestRazaoSocial("Cliente Sintetico Teste"); // nome real, nunca deve ir ao XML em homologação
         Empresa empresa = empresaValida(20L, "1");
 
-        service.gerar(req, empresa);
+        service.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS);
 
         ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
-        verify(nfeXmlBuilder).build(captor.capture());
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
         assertEquals("NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL",
                 captor.getValue().getInfNFe().getDest().getXNome(),
                 "Em tpAmb=2, dest/xNome deve ser exatamente o texto obrigatório da SEFAZ, nunca o nome real.");
@@ -299,10 +300,10 @@ class NfeGeracaoServiceTest {
         req.setDestRazaoSocial("Cliente Sintetico Teste");
         Empresa empresa = empresaValida(21L, "1");
 
-        service.gerar(req, empresa);
+        service.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS);
 
         ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
-        verify(nfeXmlBuilder).build(captor.capture());
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
         assertEquals("Cliente Sintetico Teste", captor.getValue().getInfNFe().getDest().getXNome(),
                 "Em tpAmb=1 (produção), dest/xNome deve conter a razão social real do destinatário.");
     }
@@ -313,10 +314,10 @@ class NfeGeracaoServiceTest {
         when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
         when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
 
-        service.gerar(requestValido(), empresaValida(22L, "1"));
+        service.gerar(requestValido(), empresaValida(22L, "1"), ModalidadeFrete.CONTA_TERCEIROS);
 
         ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
-        verify(nfeXmlBuilder).build(captor.capture());
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
         String xNome = captor.getValue().getInfNFe().getDest().getXNome();
 
         assertEquals(xNome.trim(), xNome, "xNome não pode ter espaços extras no início/fim.");
@@ -347,7 +348,7 @@ class NfeGeracaoServiceTest {
         Empresa empresa = empresaValida(30L + tpAmbValor, "1");
 
         ArgumentCaptor<String> xmlCaptor = ArgumentCaptor.forClass(String.class);
-        servicoLocal.gerar(req, empresa);
+        servicoLocal.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS);
         verify(orquestradorLocal).processar(xmlCaptor.capture(), anyString(), any());
 
         return xmlCaptor.getValue();
@@ -372,6 +373,15 @@ class NfeGeracaoServiceTest {
         new XsdValidator().validate(doc, "xsd/custom/nfe_v4.00_consolidado.xsd");
 
         assertEquals("Cliente Sintetico Teste", extrairTextoDestXNome(doc));
+    }
+
+    @Test
+    void gerar_fluxoOms_xmlRealContemModFreteTerceiros() throws Exception {
+        String xml = gerarXmlReal(1, "Cliente Sintetico Teste");
+
+        assertTrue(xml.contains("<modFrete>2</modFrete>"),
+                "Fluxo chamado com ModalidadeFrete.CONTA_TERCEIROS (equivalente ao usado por PedidoEmissaoService) "
+                        + "deve gravar modFrete=2 no XML real gerado por NfeGeracaoService.");
     }
 
     private Document parseXml(String xml) throws Exception {

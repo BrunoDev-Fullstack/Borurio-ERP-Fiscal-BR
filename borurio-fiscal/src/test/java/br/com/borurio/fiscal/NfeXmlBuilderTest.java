@@ -20,11 +20,11 @@ public class NfeXmlBuilderTest {
 
     private static final String SCHEMA = "xsd/custom/nfe_v4.00_consolidado.xsd";
 
-    @Test
-    @DisplayName("Deve gerar XML NF-e CRT=1 (Simples Nacional) válido contra XSD e sem zeros à esquerda em serie/nNF")
-    public void deveGerarXmlNFeValidoXsd() throws Exception {
-
-        // ---- IDE ----
+    /**
+     * NF-e mínima válida (CRT=1/Simples Nacional, CPF não contribuinte, um item) reutilizada por
+     * todos os testes deste arquivo. csosn/orig do Det ficam no default da classe ("400"/"0").
+     */
+    private NFe nfeMinimaValida() {
         Ide ide = new Ide();
         ide.setCUF("35");
         ide.setCNF("00000001");
@@ -46,7 +46,6 @@ public class NfeXmlBuilderTest {
         ide.setProcEmi("0");
         ide.setVerProc("1.0.0");
 
-        // ---- EMIT ----
         Emit emit = new Emit();
         emit.setCnpj("54393421000159");
         emit.setXNome("BORURIO ERP TESTE LTDA");
@@ -65,14 +64,12 @@ public class NfeXmlBuilderTest {
         ender.setXPais("Brasil");
         emit.setEnderEmit(ender);
 
-        // ---- DEST (CPF, não contribuinte) ----
+        // DEST: CPF, não contribuinte — sem IE, indIEDest=9 dispensa o elemento
         Dest dest = new Dest();
         dest.setCpfCnpj("12345678901");
         dest.setXNome("CONSUMIDOR FINAL TESTE");
         dest.setIndIEDest("9");
-        // sem IE — indIEDest=9 dispensa o elemento
 
-        // ---- DET ----
         Produto prod = new Produto();
         prod.setCProd("0001");
         prod.setXProd("PRODUTO TESTE SIMPLES NACIONAL");
@@ -87,12 +84,10 @@ public class NfeXmlBuilderTest {
         det.setNItem(1);
         det.setProd(prod);
 
-        // ---- TOTAL ----
         Total total = new Total();
         total.setVProd("10.00");
         total.setVNF("10.00");
 
-        // ---- NFe ----
         InfNFe inf = new InfNFe();
         inf.setId("NFe35260554393421000159550010000000011000000010");
         inf.setIde(ide);
@@ -103,10 +98,28 @@ public class NfeXmlBuilderTest {
 
         NFe nfe = new NFe();
         nfe.setInfNFe(inf);
+        return nfe;
+    }
 
-        // ---- Gerar XML ----
+    private Document parseXmlComEntidadesDesabilitadas(String xml) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        DocumentBuilder docBuilder = factory.newDocumentBuilder();
+        try (var stream = new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) {
+            return docBuilder.parse(stream);
+        }
+    }
+
+    @Test
+    @DisplayName("Deve gerar XML NF-e CRT=1 (Simples Nacional) válido contra XSD e sem zeros à esquerda em serie/nNF")
+    public void deveGerarXmlNFeValidoXsd() throws Exception {
+
         NfeXmlBuilder builder = new NfeXmlBuilder();
-        String xml = builder.build(nfe);
+        String xml = builder.build(nfeMinimaValida(), ModalidadeFrete.CONTA_TERCEIROS);
 
         assertNotNull(xml, "XML gerado não pode ser nulo.");
         assertFalse(xml.isBlank(), "XML gerado não pode estar vazio.");
@@ -135,24 +148,49 @@ public class NfeXmlBuilderTest {
         assertFalse(xml.contains("COFINSNt"), "COFINSNt (casing errado) não deve aparecer no XML.");
 
         // Validação XSD — guarda de regressão estrutural
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(true);
-        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-
-        DocumentBuilder docBuilder = factory.newDocumentBuilder();
-        Document doc;
-        try (var stream = new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) {
-            doc = docBuilder.parse(stream);
-        }
+        Document doc = parseXmlComEntidadesDesabilitadas(xml);
 
         XsdValidator validator = new XsdValidator();
         assertDoesNotThrow(
                 () -> validator.validate(doc, SCHEMA),
                 "XML gerado pelo NfeXmlBuilder deve ser válido conforme nfe_v4.00_consolidado.xsd."
         );
+    }
+
+    // -----------------------------------------------------------------
+    // ModalidadeFrete: modFrete passa a ser explícito por chamador, não mais fixo em "9".
+    // -----------------------------------------------------------------
+
+    @Test
+    @DisplayName("ModalidadeFrete.CONTA_TERCEIROS deve gravar <modFrete>2</modFrete>, sem grupo <transporta>, válido no XSD")
+    public void build_modalidadeTerceiros_xmlContemModFrete2SemGrupoTransporta() throws Exception {
+        String xml = new NfeXmlBuilder().build(nfeMinimaValida(), ModalidadeFrete.CONTA_TERCEIROS);
+
+        assertTrue(xml.contains("<modFrete>2</modFrete>"), "modFrete deve ser 2 (Terceiros) para ModalidadeFrete.CONTA_TERCEIROS.");
+        assertFalse(xml.contains("<transporta>"), "Grupo <transporta> não deve aparecer sem dados de transportadora.");
+
+        Document doc = parseXmlComEntidadesDesabilitadas(xml);
+        assertDoesNotThrow(() -> new XsdValidator().validate(doc, SCHEMA),
+                "XML com modFrete=2 deve continuar válido contra o XSD oficial mesmo sem <transporta>.");
+    }
+
+    @Test
+    @DisplayName("ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE preserva <modFrete>9</modFrete> (comportamento do fluxo legado)")
+    public void build_modalidadeSemTransporte_xmlContemModFrete9() throws Exception {
+        String xml = new NfeXmlBuilder().build(nfeMinimaValida(), ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE);
+
+        assertTrue(xml.contains("<modFrete>9</modFrete>"), "modFrete deve permanecer 9 para ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE.");
+
+        Document doc = parseXmlComEntidadesDesabilitadas(xml);
+        assertDoesNotThrow(() -> new XsdValidator().validate(doc, SCHEMA),
+                "XML com modFrete=9 deve continuar válido contra o XSD oficial.");
+    }
+
+    @Test
+    @DisplayName("modalidadeFrete nula é rejeitada fail-fast pelo builder")
+    public void build_modalidadeNula_lancaNullPointerException() {
+        NFe nfe = nfeMinimaValida();
+        assertThrows(NullPointerException.class, () -> new NfeXmlBuilder().build(nfe, null));
     }
 
 }
