@@ -4,12 +4,14 @@
 ---
 
 **Document:** MTF-001  
-**Version:** 2.8  
+**Version:** 3.1
 **Issued:** 2026-05-11  
-**Last updated:** 2026-07-10  
+**Last updated:** 2026-07-22
 **Author:** Bruno Ribeiro — Fullstack Developer / DevSecOps  
-**Status:** VALIDATED IN STAGING (HOM)  
+**Status:** VALIDATED IN STAGING — new `cStat=100` authorization with `modFrete=2` (company linked to the token with fiscal registration accepted by SEFAZ); OMS token revocation/rotation validated end-to-end; PRD not validated, system not in production; go-live pending final validation by the Chinese integrator (CC)
 **Reference branch:** `fix/sefaz-xml-structure`  
+
+> **Note (2026-07-22):** this document was behind the PT-BR original by one full version (v2.9 vs v3.0). Sections 5.6/5.7 (numbering baseline, `indFinal`/`indIntermed`) and 11.7 (pre-PRD security checklist) from the PT-BR v3.0 revision are **not yet mirrored here** — see `MTF-001_motor-fiscal-nfe.md` (PT-BR, canonical) for that content. This revision adds the v3.1 content (freight modality, OMS authorization revocation/rotation) directly; full v3.0 backfill is a separate follow-up.
 
 > **Version history:**
 > - v1.0 (2026-05-11): initial document, phases 1–9 + phase 10 in progress
@@ -22,6 +24,9 @@
 > - v2.6 (2026-06-22): V028 Multi-CNPJ OMS — `POST /api/integration/fiscal-authorizations`; token per OMS client (`codigoEmpresaOms`); multiple CNPJs under the same token; auto-company-creation from X.509 Subject; deterministic token via `emitidoEm` truncated to seconds; `cnpjEmitente` OMS validation in `POST /pedidos` (fail-fast HTTP 403); `OmsCertificadoService.resolverPorJtiECnpj`; sections 3.1/3.2/9.5/10.6/16 updated; contract v1.7; 114/114 tests
 > - v2.7 (2026-06-30): PRODUCT_NOT_FOUND bug fix in multi-CNPJ flow — `PedidoEmissaoService` separated `empresaId` for stock operations (anchor empresa from the order) from `empresa` for NF-e (fiscal empresa from cnpjEmitente); DA-08 documented; section 9.5 updated with root cause and fix; 126/126 tests
 > - v2.8 (2026-07-10): optional per-company stock control (`controleEstoqueAtivo`, commit 936e771); live staging session with CC — diagnosed a real cStat=225 (incomplete emitter registration, new "cause 2" in section 13.1) and fixed it; 3 improvements requested by CC implemented and tested: (1) reissue of `REJEITADO`/`ERRO` orders on the same `pedidoId`; (2) optional emitter address in `POST /api/app/pedidos` auto-completing the company registration; (3) standardized `errorCode`/`retryable`, `SEFAZ_REJECTED` no longer returns HTTP 200; code review (8 agents + 9 verifications) found and fixed 4 bugs: `chaveNfe` loss on retry, empresa mutation without rollback, incorrect `retryable=true` in the global fallback and in `SEFAZ_REJECTED`; integration contract v1.9; 190/190 tests
+> - v3.1 (2026-07-22): global OMS authorization revocation/rotation implemented (`JwtFilter` now checks the active authorization in the database on every OMS request — revocation takes effect immediately, no longer dependent on JWT expiry; admin endpoints `/api/admin/oms-authorizations/{id}/revogar` and `/rotacionar`; append-only audit trail; optimistic version control; mandatory `Idempotency-Key`; JWT never persisted — see section 11.7) — migration V032; freight modality (`modFrete`) now explicit per issuance flow via the `ModalidadeFrete` enum (see section 5.6) — the OMS/marketplace flow declares `CONTA_TERCEIROS` (code `2`, the marketplace contracts the freight, confirmed by CC), the legacy endpoint preserves `SEM_OCORRENCIA_TRANSPORTE` (code `9`, previous behavior unchanged); new real SEFAZ authorization in HOM (`cStat=100`) with `modFrete=2` confirmed in the transmitted XML; full regression 299/299.
+> - v3.0 (2026-07-16, PT-BR only — not yet fully mirrored in this translation): `indFinal` moved to the per-company configurable model (CPF/CNPJ heuristic removed); new technical subsection for `indIntermed`; concurrent-emission protection, safe numbering baseline and multi-CNPJ post-issuance context documented; migrations V029/V030 added; new section on the HOM vs. PRD certificate distinction; new section on the Consumption Tax Reform (IBS/CBS/IS) regulatory gap.
+> - v2.9 (2026-07-14): **real root cause of cStat=225 identified and fixed** — the engine was signing the XML with RSA-SHA256, but the SEFAZ's current official schema (`xmldsig-core-schema_v1.01.xsd`, confirmed in the official `PL_010e_v1.02` package downloaded directly from nfe.fazenda.gov.br) requires `fixed="rsa-sha1"`/`fixed="sha1"`; the local XSD was out of sync with the official one, masking the mismatch in local validation. `AssinaturaXmlService` fixed to RSA-SHA1/SHA-1. The semantic content of the local XMLDSig schema was aligned with the official `PL_010e_v1.02` package, preserving the official validation restrictions for RSA-SHA1/SHA-1 (the local file has non-functional documentation/formatting differences from the original). 4 more fixes in the same investigation: missing `indIntermed` group in `<ide>`; a provisional `indFinal` adjustment inferred from the recipient's document type — pending final definition in the OMS contract (see section 13.1); emitter state tax ID (IE) corrected in the registration of the currently qualified emitting company; OMS-side payload requirements (CFOP per destination state, complete recipient address with IBGE municipality code, standard staging-environment text in the recipient name). Result: **`cStat=100` (Autorizado o uso da NF-e) obtained in HOM/SP for the first time in the project's history**, in an internal test and in a cross-test run by the Chinese integrator via the OMS, cross-confirmed on the public national portal (hom.nfe.fazenda.gov.br). Section 13 rewritten with the full investigation history. A second, historical company registration remains blocked — state tax ID revoked for inactivity since 2024, a registration issue external to the company, not a system bug; not to be used as a production certificate reference.
 
 ---
 
@@ -39,7 +44,7 @@
 10. [Per-Company Digital Certificate](#10-per-company-digital-certificate)
 11. [Security Foundation](#11-security-foundation)
 12. [Post-Issuance Fiscal Operations](#12-post-issuance-fiscal-operations)
-13. [Known HOM/SP Environment Limitations](#13-known-homsp-environment-limitations)
+13. [cStat=225 Investigation History and SEFAZ-SP Staging Status](#13-cstat225-investigation-history-and-sefaz-sp-staging-status)
 14. [Operational Checklists](#14-operational-checklists)
 15. [Architecture Decisions](#15-architecture-decisions)
 16. [Roadmap to Production](#16-roadmap-to-production)
@@ -63,7 +68,8 @@ The document is intended for:
 | Feature                                                                        | Validation                                                |
 |--------------------------------------------------------------------------------|-----------------------------------------------------------|
 | NF-e 4.00 issuance via SOAP HTTPS                                              | ✓ HOM/SP — 2026-05-11                                     |
-| XMLDSIG RSA-SHA256 + C14N signature                                            | ✓ HOM/SP — 2026-05-11                                     |
+| XMLDSIG RSA-SHA1 + C14N signature (per current official schema)                | ✓ HOM/SP — fixed 2026-07-14                               |
+| `cStat=100` — Autorizado o uso da NF-e (currently qualified emitting company in HOM) | ✓ HOM/SP — 2026-07-14 (internal + Chinese integrator)      |
 | Order → NF-e cycle                                                             | ✓ HOM/SP — 2026-05-08                                     |
 | Immutable fiscal snapshot in order item                                        | ✓ HOM/SP — 2026-05-08                                     |
 | Semantic status (AUTORIZADO / REJEITADO / AGUARDANDO / ERRO)                   | ✓ HOM/SP — 2026-05-08                                     |
@@ -170,7 +176,7 @@ The bridge between the two domains is exclusively the `borurio-web` module. When
 | Framework         | Spring Boot 3.3.2                                                |
 | Persistence       | MyBatis (annotations)                                            |
 | Database          | MySQL 8.4                                                        |
-| Migrations        | Flyway (V001–V028)                                               |
+| Migrations        | Flyway (V001–V032)                                               |
 | Auth              | Stateless JWT (HMAC-SHA256)                                      |
 | Security          | Spring Security 6.x                                              |
 | XML Signing       | Java XML Crypto API (`javax.xml.crypto.dsig`)                    |
@@ -293,7 +299,7 @@ NfeGeracaoService (borurio-web)
 NfeOrquestradorService (borurio-fiscal)
     │  ├─ [1] converterParaDocument()             → parse XML, namespace-aware
     │  ├─ [2] xsdValidator.validate()             → against xsd/custom/nfe_v4.00_consolidado.xsd — throws XmlSchemaValidationException (v1.9)
-    │  ├─ [3] assinaturaXmlService.assinar()      → XMLDSIG RSA-SHA256 + C14N
+    │  ├─ [3] assinaturaXmlService.assinar()      → XMLDSIG RSA-SHA1 + C14N (per official schema)
     │  └─ [4] nfeTransmitService.transmitirXml()  → SOAP HTTPS → SEFAZ
     │
     ▼
@@ -381,7 +387,7 @@ The NF-e number (`nNF`) is obtained atomically via `NfeSequenciaService.proximoN
     <dest>    <!-- recipient: CPF/CNPJ, name, address -->
     <det>     <!-- items: product, NCM, CFOP, ICMS(CSOSN), PIS, COFINS -->
     <total>   <!-- ICMSTot with 20 mandatory fields -->
-    <transp>  <!-- modFrete=9 (no freight) -->
+    <transp>  <!-- modFrete explicit per issuance flow (see section 5.6): 2 (Third Party) for the OMS flow, 9 (No Freight) for the legacy endpoint -->
     <pag>     <!-- detPag: indPag=0, tPag=01, vPag=total -->
   </infNFe>
   <Signature>  <!-- inserted by AssinaturaXmlService after XSD validation -->
@@ -412,16 +418,35 @@ borurio-fiscal/src/main/resources/xsd/custom/nfe_v4.00_consolidado.xsd
 
 This schema consolidates `leiauteNFe_v4.00.xsd` + `tiposBasico_v4.00.xsd` into a single file to resolve classpath dependencies. Validation uses the JAXP API (`javax.xml.validation`).
 
+### 5.6 `modFrete` — freight modality per issuance flow
+
+Until 2026-07-22, `NfeXmlBuilder` wrote `modFrete=9` ("No Occurrence of Transport") fixed for every issuance. The CC (Xiao Li) confirmed that, in the current flow integrated with e-commerce marketplaces, freight is contracted/operated by the marketplace itself — neither by the issuer nor the recipient — which technically corresponds to `modFrete=2` ("Freight Contracted by Third Party"), not `9`.
+
+**Model implemented:** enum `ModalidadeFrete` (`borurio-fiscal`, package `domain.nfe`) with the six NF-e 4.00 layout values. `NfeXmlBuilder.build()` and `NfeGeracaoService.gerar()` now require the modality explicitly — no overload omits it, no hidden default:
+
+| Flow | Caller | Declared modality | `modFrete` in XML |
+|---|---|---|---|
+| OMS / marketplace | `PedidoEmissaoService.emitir()` | `ModalidadeFrete.CONTA_TERCEIROS` | `2` |
+| Legacy/admin (`POST /api/fiscal/nfe/gerar`, deprecated) | `NfeEnvioController` | `ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE` | `9` (previous behavior preserved) |
+
+The `<transporta>` group (carrier data) is `minOccurs="0"` in the official XSD regardless of `modFrete` — not required and not sent, since the Borurio never receives carrier data from the OMS.
+
+**Scope:** applies to the current marketplace flow. Not automatically generalized to direct sales, local pickup or own transport — those scenarios, if they appear, may require per-order/channel parameterization (conditional roadmap, not implemented in this version).
+
+**Validated in HOM/SP on 2026-07-22:** real authorization (`cStat=100`) with `<modFrete>2</modFrete>` confirmed in the actually transmitted and authorized XML (a company linked to the token with fiscal registration accepted by SEFAZ, multi-CNPJ flow).
+
 ---
 
 ## 6. XMLDSIG DIGITAL SIGNATURE
 
-### 6.1 Algorithms (NT 2019.001 — mandatory for NF-e 4.00)
+### 6.1 Algorithms (per the current official `xmldsig-core-schema_v1.01.xsd`)
+
+> **2026-07-14 correction:** until 2026-07-13, the code signed with RSA-SHA256, following a reading that NT 2019.001 required SHA-256. That reading was incorrect — the SEFAZ's official XMLDSig schema (`xmldsig-core-schema_v1.01.xsd`), confirmed in the `PL_010e_v1.02` package downloaded directly from nfe.fazenda.gov.br (current version, published 2026-07-10), defines the `Algorithm` attributes of `SignatureMethod` and `DigestMethod` with `fixed` — i.e., a single accepted value, no alternative: `rsa-sha1` and `sha1`. The local XSD used for validation (`xsd/oficial/xmldsig-core-schema_v1.01.xsd`) was out of sync with the official one — without the `fixed` restrictions, it accepted any algorithm, making local validation "pass" incorrectly before submission to SEFAZ. Fixed on this date: signing now uses RSA-SHA1/SHA-1. The semantic content of the XMLDSig schema used was aligned with the official `PL_010e_v1.02` package, preserving the official validation restrictions for RSA-SHA1/SHA-1 — the local file has non-functional documentation/formatting differences from the original file. Result: `cStat=100` obtained in HOM/SP.
 
 | Algorithm        | URI                                                                |
 |------------------|--------------------------------------------------------------------|
-| Signature        | `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256` (RSA-SHA256)   |
-| Digest           | `http://www.w3.org/2001/04/xmlenc#sha256` (SHA-256)                |
+| Signature        | `http://www.w3.org/2000/09/xmldsig#rsa-sha1` (RSA-SHA1)            |
+| Digest           | `http://www.w3.org/2000/09/xmldsig#sha1` (SHA-1)                   |
 | Canonicalization | `http://www.w3.org/TR/2001/REC-xml-c14n-20010315` (Inclusive C14N) |
 | Transform 1      | `ENVELOPED` (removes the Signature element itself from the digest) |
 | Transform 2      | Inclusive C14N                                                     |
@@ -435,8 +460,8 @@ AssinaturaXmlService.assinar(xmlNfe, ctx?)
     ├─ 2. localizarElementoPorTag("infNFe") → Element
     ├─ 3. infNFe.setIdAttribute("Id", true)  → registers Id as ID type in DOM
     ├─ 4. XMLSignatureFactory.getInstance("DOM")
-    ├─ 5. Reference("#" + id, SHA-256, [ENVELOPED, C14N])
-    ├─ 6. SignedInfo(C14N, RSA-SHA256, [reference])
+    ├─ 5. Reference("#" + id, SHA-1, [ENVELOPED, C14N])
+    ├─ 6. SignedInfo(C14N, RSA-SHA1, [reference])
     ├─ 7. KeyInfo(X509Data(cert))
     ├─ 8. XMLSignature.sign(DOMSignContext(privateKey, nfeElement))
     └─ 9. serialize(doc) → UTF-8, no XML declaration, no indentation
@@ -686,6 +711,12 @@ Products are registered using the OMS token, whose `eid` points to the anchor em
 
 > **Bug fixed on 2026-06-30 (commit `117a447`):** `PedidoEmissaoService.emitir()` previously resolved `empresaId = empresa.getId()` where `empresa` was obtained via `buscarPorCnpj(cnpjEmitente)`. For the second CNPJ (fiscal empresa `id=2`), this caused `estoqueService.reservarItens()` to look up the product with `empresa_id=2` — but products were registered with `empresa_id=1` (anchor empresa). Result: `PRODUCT_NOT_FOUND`. The fix: `empresaId = pedido.getEmpresaId()` as the primary value for stock operations, with `empresa` (fiscal) used exclusively for XML generation and certificate selection.
 
+### 9.6 Multi-CNPJ fiscal context in post-issuance events (2026-07-22 catch-up — see PT-BR section 9.6 for full detail)
+
+Cancellation, CC-e (correction letter), status inquiry and numbering invalidation are **already implemented and covered by automated tests** — they are not future roadmap items. `FiscalContextoResolver` resolves empresa+certificate for these events always by `pedido.cnpjEmitente`, never by global configuration, with explicit failure (`DOCUMENTO_CNPJ_DIVERGENTE`, HTTP 422) instead of a silent fallback. **What remains pending is a real SEFAZ smoke test of these four events specifically in a multi-CNPJ context** — distinct from issuance, which has already been validated end-to-end for multi-CNPJ (below).
+
+**Real multi-CNPJ issuance evidence (2026-07-22):** an issuance attempt using the default company associated with the OMS integrator's token reached SEFAZ and returned `cStat=209` ("invalid issuer state tax ID") — a real fiscal registration finding, handled correctly by the system (structured rejection, `errorCode: SEFAZ_REJECTED`, HTTP 422, no data improperly changed). A subsequent issuance for a second company linked to the same token (fiscal registration accepted by SEFAZ during that staging issuance) was authorized with `cStat=100` and `<modFrete>2</modFrete>` confirmed in the transmitted XML — proving that company/certificate resolution by `cnpjEmitente` works correctly without requiring a different token per issuer.
+
 ---
 
 ## 10. PER-COMPANY DIGITAL CERTIFICATE
@@ -871,6 +902,22 @@ factory.setFeature("http://xml.org/sax/features/external-parameter-entities", fa
 
 ---
 
+### 11.7 OMS Authorization Revocation and Rotation (Gate 7H)
+
+Until 2026-07-22, `JwtFilter` only validated the JWT signature and expiry — a revoked OMS authorization remained accepted on any request until the token naturally expired (long TTL, by design). As of commit `4a39a88`, `JwtFilter` checks the active authorization in the database on every OMS request: revocation takes effect immediately, independent of token expiry.
+
+**Admin endpoints** (`/api/admin/oms-authorizations/{id}/revogar` and `/rotacionar`, `ROLE_ADMIN`, outside the OMS public contract):
+
+- **Revocation:** idempotent, always HTTP 200; marks the authorization as revoked and creates a `REVOGACAO` audit event.
+- **Rotation:** issues a new JWT (new JTI) for the same authorization, invalidating the previous JTI; requires `expectedVersion` (optimistic concurrency — `AUTHORIZATION_CHANGED` if the version doesn't match) and allows reactivating a revoked authorization when the version matches the post-revocation version; creates a `ROTACAO` audit event.
+- **Mandatory `Idempotency-Key` (UUID)** on both — replaying the same key returns the same result without reprocessing (same token, same version, no additional audit entry); `IDEMPOTENCY_KEY_CONFLICT` if the key was already used for another authorization/operation.
+- **Append-only audit trail** (`oms_fiscal_authorization_audit`, V032): one event per operation, with previous/new version, `Idempotency-Key`, `requestId` and reason (`motivoCodigo`/`motivoDetalhe`) — **the JWT is never stored**, only operation metadata.
+- Admin responses always carry `Cache-Control: no-store` and `Pragma: no-cache` — the body contains a JWT and must never be cached by an intermediate proxy/browser.
+
+**Validated in HOM/SP (2026-07-22):** an isolated technical authorization (test environment, unrelated to the real integrator) went through two chained rotations plus a revocation, including idempotent replay of each operation — final version and audit event count match exactly the number of real operations (replays did not duplicate). The real OMS integrator's authorization went through one rotation (initial version `0` → final version `1`), one `ROTACAO` audit event, confirmed idempotent replay with no new audit entry, and the new token verified functional on protected endpoints; JTI changed (confirmed by internal comparison, never displayed).
+
+---
+
 ## 12. POST-ISSUANCE FISCAL OPERATIONS
 
 ### 12.1 Status query (consSitNFe)
@@ -1020,7 +1067,7 @@ Content-Type: application/json
 | CNPJ in XML              | `cnpjDestinatario` from request body — always the recipient, not the issuer.                      |
 | `nSeqEvento`             | Fixed `"01"` — one event per NF-e per transmission.                                               |
 | `idEvento` format        | `"ID" + tpEvento(6) + chNFe(44) + nSeqEvento(2)` — 54 characters total, consistent with cancellation (`"ID110111"`) and CC-e (`"ID110110"`). |
-| Digital signature        | RSA-SHA256 on `infEvento`, inserted into `evento` — same `AssinaturaXmlService.assinarEvento()` used by cancellation and CC-e. |
+| Digital signature        | RSA-SHA1 on `infEvento`, inserted into `evento` — same `AssinaturaXmlService.assinarEvento()` used by cancellation and CC-e. |
 
 **cStat validation in response:**
 
@@ -1051,37 +1098,49 @@ The AN HOM endpoint (`hom.nfe.fazenda.gov.br`) returns **HTTP 403** for requests
 
 ---
 
-## 13. KNOWN HOM/SP ENVIRONMENT LIMITATIONS
+## 13. cStat=225 INVESTIGATION HISTORY AND SEFAZ-SP STAGING STATUS
 
-> **IMPORTANT:** this section describes limitations of the SEFAZ SP staging environment, **not** of the code. The code has been validated against the official XSD and complies with NT 2019.001.
+> **CURRENT STATUS (2026-07-14): RESOLVED.** The root cause of cStat=225 was identified and fixed on this date. The fiscal engine obtained `cStat=100` ("Autorizado o uso da NF-e") in HOM/SP for an emitting company with fiscal registration accepted by SEFAZ during the staging issuance, both in an internal test and in a test run by the Chinese integrator via the OMS, cross-confirmed on the public portal hom.nfe.fazenda.gov.br. This section documents the full investigation history (~10 weeks) for traceability — including the initial hypothesis, which was incorrect — and the current status per company registration situation.
 
-### 13.1 cStat=225 — "Rejeição: Falha no Schema XML do lote de NFe"
+### 13.1 cStat=225 — "Rejeição: Falha no Schema XML do lote de NFe" (RESOLVED 2026-07-14)
 
-> **v1.9 correction (2026-07-10):** this section used to describe cStat=225 as exclusively an environment limitation. A second, distinct, and real root cause was identified during a live staging session with an OMS client on the same day — see "Cause 2" below. **`xMotivo` is always the reliable source for the reason** — do not assume it's an environment quirk without checking `data.xMotivo`/`data.cStat` (exposed since v1.9 via `errorCode: SEFAZ_REJECTED`, see integration contract section 8.2a).
+**Real root cause — signature algorithm mismatched against the official schema (identified and fixed on 2026-07-14):**
 
-**Cause 1 — SEFAZ SP processor mismatch (original diagnosis, 2026-05-08):**
+The engine was signing the XML with RSA-SHA256/SHA-256. The SEFAZ's current official XMLDSig schema (`xmldsig-core-schema_v1.01.xsd`), confirmed in the official `PL_010e_v1.02` package downloaded directly from nfe.fazenda.gov.br (current version, published 2026-07-10), defines the `Algorithm` attributes of `SignatureMethod` and `DigestMethod` with `fixed` — i.e., a single accepted value, no alternative: `http://www.w3.org/2000/09/xmldsig#rsa-sha1` and `http://www.w3.org/2000/09/xmldsig#sha1`. SHA-1 is what the official schema requires to this day, not SHA-256.
 
-```
-retEnviNFe.cStat   = 104   (batch accepted by PL009 processor)
-protNFe.cStat      = 225   (NF-e rejected by PL_008i2 processor)
-xMotivo            = "Rejeição: Falha no Schema XML do lote de NFe"
-verAplic (batch)   = SP_NFE_PL009_V4
-verAplic (infProt) = SP_NFE_PL_008i2
-```
+The local XSD file used for pre-submission validation (`xsd/oficial/xmldsig-core-schema_v1.01.xsd`) was out of sync with the official one: the `fixed` restrictions had been removed, so local validation accepted any algorithm and "passed" even with the wrong signature algorithm. This masked the problem throughout the earlier investigation — local validation never flagged the mismatch that SEFAZ was rejecting.
 
-SEFAZ SP uses two distinct processors: `PL009` validates the batch, and `PL_008i2` (an older version) validates each NF-e individually. The most likely hypothesis is that `PL_008i2` internally uses `xmldsig-core-schema_v1.01.xsd` with `fixed="rsa-sha1"`, while the code uses RSA-SHA256 (mandated by NT 2019.001). The xmldsig was fixed to pure W3C on 2026-05-08, but the `verAplic PL_008i2` still shows up sporadically in HOM-SP.
+**Fix applied:** `AssinaturaXmlService` changed to sign with RSA-SHA1/SHA-1 (`SignatureMethod`/`DigestMethod`). The semantic content of the XMLDSig schema used was aligned with the official `PL_010e_v1.02` package, preserving the official validation restrictions for RSA-SHA1/SHA-1. The local file has non-functional documentation/formatting differences from the original file.
 
-**Cause 2 — incomplete emitter registration (found during staging, 2026-07-10):**
+**Additional causes fixed in the same investigation (2026-07-14):** after fixing the signature, more real issues were found and fixed in cascade until full authorization was achieved:
 
-Same `xMotivo` ("Rejeição: Falha no Schema XML do lote de NFe") and same `cStat=225`, but a completely different cause: the emitter company (auto-created via OMS authorization, which only receives CNPJ/razão social/UF from the A1 certificate — see the multi-CNPJ section) had no address (`logradouro`/`numero`/`bairro`/`codigoMunicipio`/`municipio`/`cep` all missing), producing an incomplete `enderEmit` block in the XML. Confirmed by comparing the actual transmitted XML: the `enderDest` block (recipient) was complete, but `enderEmit` (emitter) only had `UF`/`cPais`/`xPais`.
+| # | Issue | Fix |
+|---|---|---|
+| 1 | Missing `indIntermed` group in `<ide>` — required by the current layout | Field added to `Ide` and `NfeXmlBuilder`; filled with `"0"` (direct sale, no intermediary/marketplace) |
+| 2 | `indFinal` hardcoded to `"0"` regardless of recipient type | A provisional `indFinal` adjustment was applied during staging, initially inferred from the recipient's document type (CPF → `1`, CNPJ → `0`). A subsequent audit found that this inference does not correctly represent all fiscal scenarios, since `indFinal` depends on the nature of the operation. The current architectural decision is that the value should be explicitly provided by the OMS. **Status: pending final definition in the OMS contract.** |
+| 3 | Missing/invalid emitter state tax ID (IE) in the registration | Currently qualified emitting company in HOM: state tax ID accepted by SEFAZ for that HOM issuance, corrected in the registration. A second company tested remains with its state tax ID revoked for inactivity since 2024 — a registration issue external to the company; the fiscal registration must be confirmed and, if necessary, corrected by the company's fiscal representative (see 13.3) |
+| 4 | Payload requirements (on the request sent by the OMS) | Correct CFOP per destination state; complete recipient address with IBGE municipality code; standard staging-environment text in the recipient name |
 
-**Fix:** address completed via `PUT /api/app/empresas/{id}` (or automatically since v1.9, via `emit*` fields in `POST /api/app/pedidos` — see section 4). Additionally, `NfeGeracaoService.validarEnderecoEmitente()` (v1.9) now intercepts this case BEFORE building the XML and calling SEFAZ, returning `EMITTER_ADDRESS_INCOMPLETE` (422) instead of letting SEFAZ reject it on schema grounds.
+**Result:** `cStat=100` (Autorizado o uso da NF-e) obtained in HOM/SP for the first time in the project's history, for the emitting company with fiscal registration accepted by SEFAZ during the staging issuance, in an internal test and in a cross-test run by the Chinese integrator (CC/Xiao Li) via the OMS, cross-confirmed on the public national portal (hom.nfe.fazenda.gov.br).
 
-**Investigation status:** Cause 1 remains a known environment limitation (no corrective code action possible without violating NT 2019.001). Cause 2 was a real data bug, already fixed — should no longer occur for companies with a complete registration, and is now preemptively blocked by `EMITTER_ADDRESS_INCOMPLETE`.
+**Impact in HOM/PRD:** since v1.9, any `cStat≥200` results in `REJEITADO` and `POST /emitir` returns HTTP 422 `SEFAZ_REJECTED` with `data.cStat`/`data.xMotivo`. With the 2026-07-14 fix, the issuance flow for companies with fiscal registration accepted by SEFAZ now returns `cStat=100` (`AUTORIZADO`) instead of `cStat=225` (`REJEITADO`).
 
-**Impact in HOM/PRD (v1.9 correction):** since v1.9, any `cStat≥200` (including 225) results in `REJEITADO` and `POST /emitir` returns HTTP 422 `SEFAZ_REJECTED` with `data.cStat`/`data.xMotivo` — **no longer HTTP 200 with the order in `AGUARDANDO`** (the previous claim in this section — that the order ended up in `AGUARDANDO` — was incorrect: cStat≥200 has always resulted in `REJEITADO`, never `AGUARDANDO`, even before v1.9). To validate the technical flow, inspect `data.cStat`/`data.xMotivo` (when `SEFAZ_REJECTED`) or `data.soapRetorno` (when HTTP 200), and confirm the access key was generated (44 digits).
+> **Historical record — previous, incorrect hypothesis:** between 2026-05-08 and 2026-07-13, the working hypothesis was that `cStat=225` was an infrastructure limitation of the SEFAZ-SP individual authorization processor (`verAplic=SP_NFE_PL_008i2`), treated as a legacy/orphan component that still required SHA-1 while the rest of the country used SHA-256 (allegedly correct per NT 2019.001), and therefore not a system bug. That hypothesis was **wrong**: SHA-1 is exactly what the official schema requires to this day (confirmed in the most current version of the schema package, published 2026-07-10), and the bug was on Borurio's side. The original technical observations that led to this hypothesis (the `retEnviNFe.cStat=104` / `protNFe.cStat=225` pattern, the two distinct processors `PL009`/`PL_008i2`) remain true as field observations — it is the interpretation of the cause that was incorrect. This record is kept for traceability; the dated technical reports under `docs/report/` document the state of knowledge on each day of the investigation and were not altered.
 
-### 13.2 Certificate cache invalidation
+### 13.2 Real data bug fixed on 2026-07-10 — incomplete emitter registration
+
+During the investigation, a second, distinct, real cause for the same `cStat=225`/same `xMotivo` was identified and fixed on 2026-07-10: the emitter company (auto-created via OMS authorization, which only receives CNPJ/razão social/UF from the A1 certificate — see the multi-CNPJ section) had no address (`logradouro`/`numero`/`bairro`/`codigoMunicipio`/`municipio`/`cep` all missing), producing an incomplete `enderEmit` block in the XML.
+
+**Fix:** address completed via `PUT /api/app/empresas/{id}` (or automatically since v1.9, via `emit*` fields in `POST /api/app/pedidos` — see section 4). Additionally, `NfeGeracaoService.validarEnderecoEmitente()` (v1.9) intercepts this case BEFORE building the XML and calling SEFAZ, returning `EMITTER_ADDRESS_INCOMPLETE` (422) instead of letting SEFAZ reject it on schema grounds. This bug is independent from the signature issue described in 13.1 and remains fixed.
+
+### 13.3 Current status per emitting company registration situation (2026-07-14)
+
+| Situation | cStat obtained |
+|---|---|
+| Emitting company with fiscal registration accepted by SEFAZ during the staging issuance | `cStat=100` — AUTORIZADO, functional in HOM |
+| Emitting company with state tax ID revoked for inactivity | Blocked — registration issue external to the company with SEFAZ, **not a system bug**; the fiscal registration must be confirmed and, if necessary, corrected by the company's fiscal representative. This company must not be used as a production certificate reference |
+
+### 13.4 Certificate cache invalidation
 
 The `EmpresaCertificadoService` cache is automatically invalidated by `EmpresaController.atualizar()` whenever company data is updated via `PUT /api/app/empresas/{id}`. See section 10.4.
 
@@ -1113,7 +1172,7 @@ The `EmpresaCertificadoService` cache is automatically invalidated by `EmpresaCo
 
 □ 6. Login smoke test:
        POST http://localhost:8081/auth/login
-       {"username":"admin@company.com","password":"admin123"}
+       {"username":"admin@company.com","password":"<password>"}
        └─ Verify: HTTP 200, token present
 
 □ 7. Actuator smoke test:
@@ -1136,7 +1195,7 @@ The `EmpresaCertificadoService` cache is automatically invalidated by `EmpresaCo
 □ 6. Order created with valid destCnpjCpf/destRazaoSocial
 □ 7. POST /{id}/emitir → HTTP 200, data.soapRetorno not empty
 □ 8. Verify chaveNfe: 44 digits (confirms SEFAZ accepted the batch)
-□ 9. In HOM-SP: cStat=225 can occur — check `xMotivo` before assuming it's an environment limitation (v1.9: returns HTTP 422 `SEFAZ_REJECTED`, no longer HTTP 200)
+□ 9. `cStat=100` expected for a company with fiscal registration accepted by SEFAZ during the staging issuance; `cStat≥200` returns HTTP 422 `SEFAZ_REJECTED` — inspect `data.cStat`/`data.xMotivo` (see section 13)
 □ 10. Verify nfe_documento in DB: c_stat, x_motivo, n_prot
 □ 11. Verify nfe_log: empresa_id, usuario populated
 ```
@@ -1149,7 +1208,7 @@ The `EmpresaCertificadoService` cache is automatically invalidated by `EmpresaCo
 □ 2. Verify company created: GET /api/app/empresas/{id}
 □ 3. Configure certificate: PUT /api/app/empresas/{id}
        Body: { certPath: "/app/certificados/pfx/company-X.pfx",
-               certSenha: "plaintext_password",
+               certSenha: "<your_certificate_password>",
                certTipo: "PKCS12" }
 □ 4. Test issuance with user whose empresa_id == new company id
 □ 5. Check log: [EmpresaCert] Certificado OK | empresaId=X | alias=...
@@ -1272,6 +1331,7 @@ Security checks:
 
 | Item                                          | Priority     | Description                                                             |
 |-----------------------------------------------|--------------|-------------------------------------------------------------------------|
+| Controlled production test (real fiscal transaction, subject to cancellation, supervised by the accountant) | **CRITICAL — BLOCKING** | `cStat=100` in HOM (2026-07-14) does not replace this validation. Authorization in HOM confirms schema/signature compliance; it does not confirm production numbering/series, PRD certificate behavior (`tpAmb=1`), or the real cycle in front of the accountant. Unmet prerequisite for go-live — see section 13 |
 | `CERT_ENCRYPTION_KEY` in PRD                  | **CRITICAL** | Generate via `openssl rand -base64 32`; inject via secrets manager      |
 | PRD A1 certificates with real CNPJ            | **CRITICAL** | `tpAmb=1`; register company with `cert_path` pointing to PRD cert      |
 | CI/CD pipeline                                | **MEDIUM**   | GitHub Actions: test → build → push image → deploy HOM → smoke test   |
@@ -1298,14 +1358,15 @@ Security checks:
 |--------------------------------------------|--------------------------------------------------------|
 | AJUSTE SINIEF 07/2005 and amendments       | Establishes the Nota Fiscal Eletrônica                 |
 | Manual de Orientação do Contribuinte (MOC) | Version 7.0 — NF-e 4.00 layout                         |
-| Nota Técnica 2019.001                      | NF-e 4.00 layout update / SHA-256 algorithms mandatory |
+| Nota Técnica 2019.001                      | NF-e 4.00 layout update                                 |
+| xmldsig-core-schema_v1.01.xsd (PL_010e_v1.02) | Current official XMLDSig schema — fixes `SignatureMethod`/`DigestMethod` to RSA-SHA1/SHA-1 |
 | ABNT NBR ISO/IEC 27001                     | Information security management                        |
 | XML-DSig W3C Recommendation                | `https://www.w3.org/TR/xmldsig-core/`                  |
 | RFC 5652                                   | Cryptographic Message Syntax (base of PKCS#12)         |
 
 ---
 
-*Document MTF-001 — version 2.8 — Borurio ERP Fiscal BR*  
+*Document MTF-001 — version 2.9 — Borurio ERP Fiscal BR*
 *Based on the state validated in HOM on 2026-05-11*  
-*Last updated: 2026-07-10 (optional per-company stock control; REJEITADO/ERRO reissue; emitter address via order payload; standardized errorCode/retryable; section 13.1 corrected with cStat=225 cause 2; 190/190 tests)*  
-*Next revision: after PRD deployment (Phase 11)*
+*Last updated: 2026-07-14 (real root cause of cStat=225 fixed — RSA-SHA1/SHA-1 signature per current official schema, semantic content of the local XSD aligned with the official package; `indIntermed` added; provisional `indFinal` adjustment pending final definition in the OMS contract; emitter state tax ID corrected for the currently qualified emitting company; `cStat=100` obtained in HOM/SP for the first time in the project; section 13 rewritten with the full history)*
+*Next revision: after a controlled production test (see section 16)*

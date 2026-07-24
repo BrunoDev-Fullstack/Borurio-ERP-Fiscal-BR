@@ -17,7 +17,7 @@ Borurio ERP Fiscal BR
 ├── Gestão: Produto, Pedido, Cliente
 ├── Motor Fiscal NF-e 4.00
 │   ├── Geração XML, validação XSD
-│   ├── Assinatura XMLDSIG RSA-SHA256
+│   ├── Assinatura XMLDSIG RSA-SHA1 (conforme schema oficial vigente)
 │   └── Transmissão SOAP + consulta de status
         │
         │  mTLS · Certificado A1 PKCS12
@@ -33,16 +33,18 @@ A OMS consome a API REST do Borurio para criar produtos, abrir pedidos e acionar
 
 | Camada | Estado |
 |---|---|
-| Motor fiscal NF-e 4.00 | Operacional em HOM (validado 08-05-2026) |
+| Motor fiscal NF-e 4.00 | Operacional em HOM — `cStat=100` obtido em 14-07-2026 (marco histórico) e reconfirmado em 22-07-2026 com `modFrete=2`, usando uma empresa vinculada ao token com cadastro fiscal aceito pela SEFAZ |
+| Modalidade de frete por fluxo (`modFrete`) | OMS/marketplace = 2 (Terceiros); endpoint legado = 9 (Sem Transporte) — validado em HOM |
+| Revogação/rotação global de token OMS | Operacional em HOM — auditoria append-only, controle otimista por versão, idempotência (Gate 7H) |
 | API REST — 10 módulos | Operacional em HOM (validado 12-05-2026) |
 | Autenticação JWT + RBAC | Operacional em HOM (validado 12-05-2026) |
 | Multiempresa (isolamento por empresa_id) | Operacional em HOM (validado 08-05-2026) |
 | Certificado A1 por empresa | Operacional em HOM (validado 11-05-2026) |
-| 75/75 testes borurio-web · 38/38 borurio-fiscal (1 skip esperado) | Passando (20-05-2026) |
+| 299/299 testes (borurio-core + borurio-app + borurio-fiscal + borurio-web) | Passando (22-07-2026) |
 | Swagger UI | Disponível em `/swagger-ui/index.html` |
 | Postman collection | Disponível em `docs/postman/` |
 | Contrato de integração PT-BR / EN | Disponível em `docs/manual/` |
-| Onboarding OMS chinesa | Documentação pronta — acesso externo HOM pendente (Cloudflare Tunnel, Bloco 1 do ROTEIRO) |
+| Onboarding OMS chinesa | Documentação pronta — ambiente HOM disponível para testes externos do CC; go-live depende da validação final do CC |
 | Deploy PRD | Pendente (Fase 11) |
 
 ---
@@ -70,7 +72,7 @@ borurio-erp-br
 | Spring Security | 6.x — stateless JWT |
 | MyBatis | annotations |
 | MySQL | 8.4 |
-| Flyway | V001–V022 aplicadas em HOM |
+| Flyway | V001–V032 aplicadas em HOM |
 | springdoc-openapi | 2.6.0 |
 | Docker | porta 8080 (DEV), 8081 (HOM) |
 
@@ -84,7 +86,8 @@ borurio-erp-br
 - Campo `username` é o e-mail do usuário cadastrado
 - JWT embute `empresa_id` como claim `"eid"` — propagado automaticamente por ThreadLocal
 - Roles: `ADMIN` (gerencia empresas e usuários) / `OPERADOR` (produtos, pedidos, emissão)
-- Endpoints ADMIN-only: `POST /api/app/empresas`, `PUT /api/app/empresas/**`, `GET /api/app/usuarios`, `GET /api/app/usuarios/**`
+- Endpoints ADMIN-only: `POST /api/app/empresas`, `PUT /api/app/empresas/**`, `GET /api/app/usuarios`, `GET /api/app/usuarios/**`, `/api/admin/**` (revogação/rotação de autorização OMS)
+- Toda requisição autenticada por token OMS é validada contra a autorização ativa no banco a cada chamada (revogação surte efeito imediato, sem esperar expiração do JWT)
 
 ### Módulos REST disponíveis
 
@@ -102,6 +105,7 @@ borurio-erp-br
 | Logs fiscais | `/api/fiscal/nfe/logs` | Autenticado |
 | NCM | `/api/fiscal/ncm` | Autenticado |
 | NF-e (legado, deprecated) | `/api/fiscal/nfe` | Autenticado |
+| Administração de autorização OMS | `/api/admin/oms-authorizations/{id}/revogar`, `/rotacionar` | ADMIN — não faz parte do contrato público da OMS |
 
 ### Fluxo fiscal validado
 
@@ -116,6 +120,8 @@ POST /api/app/pedidos/{id}/cce             → Carta de Correção (evento 11011
 GET  /api/fiscal/nfe/{chave}/danfe         → PDF DANFE para entrega ao destinatário
 ```
 
+Cancelamento, CC-e, inutilização de numeração e consulta de situação já estão implementados e cobertos por testes automatizados. Permanece pendente a revalidação desses fluxos contra a SEFAZ real em contexto multi-CNPJ (emissão por uma empresa diferente da empresa-âncora do token).
+
 ### Estados do pedido
 
 | Status | Condição |
@@ -123,7 +129,7 @@ GET  /api/fiscal/nfe/{chave}/danfe         → PDF DANFE para entrega ao destina
 | `RASCUNHO` | Criado, não transmitido |
 | `AUTORIZADO` | cStat=100 — NF-e aprovada, estoque baixado |
 | `AGUARDANDO` | cStat=104 ou retorno não parseável |
-| `REJEITADO` | cStat ≥ 200 — SEFAZ recusou (⚠ em HOM/SP, cStat=225 resulta em `AGUARDANDO` — ver seção "Limitações conhecidas") |
+| `REJEITADO` | cStat ≥ 200 — SEFAZ recusou (retorna HTTP 422 `SEFAZ_REJECTED` com `data.cStat`/`data.xMotivo`) |
 | `ERRO` | Exceção durante transmissão (HTTP 500) |
 | `CANCELADO` | Evento de cancelamento autorizado — imutável |
 
@@ -131,32 +137,39 @@ GET  /api/fiscal/nfe/{chave}/danfe         → PDF DANFE para entrega ao destina
 
 - Geração de XML completa: `<ide>`, `<emit>`, `<dest>`, `<det>`, `<total>`, `<transp>`, `<pag>`
 - Validação XSD contra `nfe_v4.00_consolidado.xsd` (pré-assinatura)
-- Assinatura XMLDSIG RSA-SHA256 + C14N (NT 2019.001 obrigatório)
+- Assinatura XMLDSIG RSA-SHA1 + C14N (conforme `xmldsig-core-schema_v1.01.xsd` oficial vigente)
 - Envelope SOAP 1.2 com `indSinc=1` (processamento síncrono)
 - Autenticação mTLS com certificado A1 PKCS12
 - Sequenciador atômico de número NF-e por CNPJ + série
 - Chave de acesso 44 dígitos com dígito verificador módulo 11
 
-### Multiempresa
+### Multiempresa e integração OMS
 
 - Isolamento de dados em `produto`, `pedido`, `nfe_log` por `empresa_id`
 - `empresa_id` extraído do JWT a cada request — não enviado no body
 - Certificado A1 por empresa com cache `ConcurrentHashMap` em memória
 - Criptografia AES-256-GCM para senha do certificado (passthrough em HOM)
+- **Multi-CNPJ OMS (V028):** token único por cliente OMS (`codigoEmpresaOms`); múltiplos CNPJs sob o mesmo token; catálogo de produtos pertence à empresa-âncora; `cnpjEmitente` seleciona o certificado de assinatura sem alterar o contexto de estoque (ver DA-08 no MTF-001)
+- **Modalidade de frete (`modFrete`) por fluxo de emissão:** o fluxo OMS/marketplace declara `ModalidadeFrete.CONTA_TERCEIROS` (código `2`) — a plataforma contrata o transporte, nunca o emitente nem o destinatário; o endpoint legado/administrativo preserva `ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE` (código `9`), comportamento anterior inalterado. Não há input de frete vindo da OMS nesta versão — decisão interna do Borurio
 
 ### Auditoria fiscal
 
 - Tabela `nfe_documento`: estado persistido de cada NF-e (chave, cStat, xMotivo, nProt, xmlProtocolo)
 - Tabela `nfe_log`: dois eventos por emissão — `ENVIO_NFE` (com usuário) e `TRANSMISSAO_SEFAZ` (com empresa_id)
+- Tabela `oms_fiscal_authorization_audit`: append-only, um evento por revogação/rotação de autorização OMS (`ROTACAO`/`REVOGACAO`), com versão anterior/nova, `Idempotency-Key` e `requestId` — nunca armazena o JWT
 - Falhas de log nunca interrompem o fluxo fiscal
 
 ---
 
-## Limitações conhecidas do ambiente HOM/SP
+## Status da homologação SEFAZ-SP
 
-O ambiente de homologação da SEFAZ-SP retorna `cStat=225` ("Rejeição: Falha no Schema XML") para todas as NF-e transmitidas. Isso é uma limitação do processador `SP_NFE_PL_008i2` em HOM, que usa SHA-1 internamente. O código está em conformidade com NT 2019.001 (RSA-SHA256). **Esta limitação não afeta PRD.**
+Em 14-07-2026, a causa raiz da rejeição `cStat=225` foi identificada e corrigida: o motor assinava o XML com RSA-SHA256, mas o schema XMLDSig oficial vigente da SEFAZ (`xmldsig-core-schema_v1.01.xsd`, confirmado no pacote oficial `PL_010e_v1.02`) exige RSA-SHA1/SHA-1. Após a correção da assinatura e de mais quatro problemas encontrados em cascata (grupo `indIntermed` ausente, `indFinal` não condicional ao tipo de destinatário, IE do emitente ausente no cadastro, exigências de payload de CFOP/endereço/texto de homologação), o motor obteve `cStat=100` ("Autorizado o uso da NF-e") em HOM/SP para a empresa homologada atual (vinculada ao token, com IE aceita pela SEFAZ), tanto em teste interno quanto em teste do integrador chinês via OMS. Detalhes completos em `docs/manual/MTF-001_motor-fiscal-nfe.md` (seção 13).
 
-Para validar o fluxo técnico em HOM: verificar que `data.chaveNfe` tem 44 dígitos (lote aceito pela SEFAZ) e inspecionar `data.soapRetorno` diretamente.
+O cadastro histórico do emitente (mantido no sistema desde etapas anteriores do projeto, não apto para emissão atual) segue bloqueado em HOM — IE cassada por inatividade desde 2024, pendência cadastral externa, não corrigível por código.
+
+Em 22-07-2026, com o release do commit `4a39a88` (revogação/rotação global de token OMS + modalidade de frete por fluxo) já ativo em HOM, uma nova emissão real foi autorizada pela SEFAZ-SP (`cStat=100`, protocolo registrado) usando uma empresa vinculada ao token com cadastro fiscal aceito pela SEFAZ, confirmando `<modFrete>2</modFrete>` no XML efetivamente transmitido e autorizado — a primeira validação real do fluxo OMS/marketplace com a modalidade de frete correta. Na mesma janela, a revogação/rotação de autorização OMS foi validada de ponta a ponta em HOM real: token anterior invalidado, token novo funcional, replay idempotente sem duplicidade de auditoria.
+
+**Importante:** essas validações em homologação não são suficientes para considerar a integração pronta para produção. O ambiente HOM permanece disponível para os testes que a OMS chinesa (CC) considerar necessários; o planejamento de go-live só se inicia após a validação final e confirmação do CC. Um teste controlado em produção (operação fiscal real, passível de cancelamento, acompanhado pelo contador) continua sendo pré-requisito obrigatório para o go-live e ainda não foi realizado. O sistema não está em produção.
 
 ---
 
@@ -204,15 +217,14 @@ borurio-erp-br/
 | Ambiente | URL | Estado |
 |---|---|---|
 | DEV | `http://localhost:8080` | Operacional |
-| HOM (local) | `http://localhost:8081` | Operacional — validado em 22-05-2026 |
+| HOM (local) | `http://localhost:8081` | Operacional — release `4a39a88`, atualizado em 22-07-2026 |
 | HOM (externo) | `https://hom-api.borurio.com` | **Pendente** — Cloudflare Tunnel (Bloco 1 do ROTEIRO) |
 | PRD | Definido por operações | Pendente (Fase 11) |
 
-**Deploy HOM (manual):**
+**Deploy HOM (manual):** a imagem é construída pelo `Dockerfile` da raiz (multi-stage: build Maven + runtime `eclipse-temurin`) — não há montagem de JAR externo via volume.
 ```bash
-mvn -pl borurio-web -am clean package -DskipTests -q
-docker cp borurio-web/target/borurio-web-1.0.0.jar borurio-web-hom:/app/app.jar
-docker restart borurio-web-hom
+docker compose -f docker/docker-compose.hom.yml --env-file docker/env/.env.hom build borurio-web-hom
+docker compose -f docker/docker-compose.hom.yml --env-file docker/env/.env.hom up -d --no-deps --no-build --force-recreate borurio-web-hom
 ```
 
 ---

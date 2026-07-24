@@ -2,11 +2,15 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.9                                      |
-| Data                   | 2026-07-10                               |
-| Ambiente de referência | HOM — `https://hom-api.borurio.com`      |
+| Versão                 | 1.14                                     |
+| Data                   | 2026-07-22                               |
+| Ambiente de referência | HOM — release `4a39a88`, disponível para os testes que o CC considerar necessários; acesso externo fornecido apenas durante janela controlada de teste; nenhuma URL fixa deve ser assumida pelo time integrador |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
-| Status                 | Pronto para execução                     |
+| Status                 | IMPLEMENTADO, VALIDADO EM HOM — token OMS rotacionado, aguardando testes do CC |
+
+> **Nota de status:** uma nova emissão real controlada foi validada em HOM em 22-07-2026 com o release `4a39a88` (`cStat=100`), confirmando o fluxo completo — autenticação, resolução de certificado por CNPJ, validação de CFOP × destino (Bloco 4/5), geração/assinatura/transmissão do XML, persistência da autorização e `<modFrete>2</modFrete>` no XML transmitido. A proteção contra emissão concorrente, o contexto multi-CNPJ nos eventos pós-autorização de emissão, a numeração baseline e o `indFinal` foram cobertos por essa mesma autorização real. O smoke test multi-CNPJ dos eventos pós-emissão (cancelamento, CC-e, consulta, inutilização) permanece pendente — ainda não exercitado contra a SEFAZ real em contexto multi-CNPJ.
+>
+> **Autenticação:** o token OMS foi rotacionado em 22-07-2026 (o anterior foi invalidado). O novo token será entregue ao CC em canal controlado separado antes do início dos testes dele — não afeta os passos deste checklist, que descreve o mecanismo de obtenção/renovação de token, não um valor específico.
 
 ---
 
@@ -18,8 +22,8 @@ Execute os itens em ordem. Cada bloco depende do anterior. Não avance para o pr
 
 ## Bloco Local — Execução local (usar enquanto HOM externo estiver pendente)
 
-> Use este bloco se o Cloudflare Tunnel (`https://hom-api.borurio.com`) ainda não estiver ativo.
-> Quando o HOM externo for liberado, pule este bloco e siga direto para o Bloco 0.
+> Use este bloco se ainda não tiver recebido a URL do túnel Cloudflare da sessão atual (a URL é efêmera, muda a cada reinício, e é fornecida por Bruno via canal seguro antes de cada teste — não existe domínio fixo).
+> Quando a URL do HOM externo for fornecida, pule este bloco e siga direto para o Bloco 0.
 
 - [ ] Receber credenciais DEV de Bruno via canal seguro (senha do banco, JWT secret, senha do certificado)
 - [ ] Copiar o template: `docker/env/.env.dev.template` → `docker/env/.env.dev`
@@ -41,7 +45,7 @@ Resposta esperada:
 { "status": "UP" }
 ```
 
-- [ ] A partir daqui, substituir `https://hom-api.borurio.com` por `http://localhost:8080` em todos os blocos seguintes
+- [ ] A partir daqui, substituir a URL do túnel HOM por `http://localhost:8080` em todos os blocos seguintes
 - [ ] **Atenção:** ambiente DEV usa `tpAmb=2` (homologação SEFAZ) — nunca emite NF-e real
 
 ---
@@ -50,8 +54,8 @@ Resposta esperada:
 
 - [ ] **[BLOQUEANTE]** Receber e-mail e senha de usuário com role `OPERADOR` criado pelo ADMIN
 - [ ] **[BLOQUEANTE]** Receber a `X-Api-Key` do integrador OMS — fornecida pelo ADMIN do Borurio via canal seguro
-- [ ] **[BLOQUEANTE]** Confirmar base URL do ambiente HOM: `https://hom-api.borurio.com`
-- [ ] **[BLOQUEANTE]** Confirmar que o Cloudflare Tunnel está ativo no servidor HOM — URL externa definida: `https://hom-api.borurio.com`. Verificar com `GET https://hom-api.borurio.com/api/test/ping` antes de iniciar os testes. Comandos de setup em `docs/manual/ROTEIRO_ENTREGA_TIME_CHINES.md` Bloco 1.
+- [ ] **[BLOQUEANTE]** Receber de Bruno a URL efêmera do túnel Cloudflare ativo para esta sessão (via canal seguro — a URL muda a cada reinício, não existe domínio fixo)
+- [ ] **[BLOQUEANTE]** Confirmar que o túnel está respondendo: `GET <url-do-túnel>/api/test/ping` antes de iniciar os testes. Comandos de setup em `docs/manual/ROTEIRO_ENTREGA_TIME_CHINES.md` Bloco 1.
 - [ ] Ter cliente HTTP configurado (Postman ou equivalente)
 - [ ] Importar `docs/postman/borurio-erp-collection.json` (10 pastas, 49 requests)
 - [ ] Ler `docs/manual/INTEGRATION_CONTRACT_EN.md` completo antes de executar qualquer chamada
@@ -90,8 +94,8 @@ Resposta esperada:
   ```
   ```json
   {
-    "codigoEmpresaOms": "JCHO-001",
-    "cnpj":             "12000000000195",
+    "codigoEmpresaOms": "{{codigoEmpresaOms}}",
+    "cnpj":             "{{cnpjEmitenteHom}}",
     "certBase64":       "<base64 do .pfx>",
     "certSenha":        "<senha do certificado>"
   }
@@ -298,7 +302,9 @@ Resposta (campo relevante):
 
 | Campo                        | Tipo    | Restrição                                                                              |
 |------------------------------|---------|----------------------------------------------------------------------------------------|
-| `cnpjEmitente`               | string  | **obrigatório para clientes OMS multi-CNPJ** — 14 dígitos; seleciona o certificado ativo |
+| `cnpjEmitente`               | string  | **obrigatório para clientes OMS multi-CNPJ** — 14 dígitos; seleciona o certificado ativo. **Se omitido, o pedido usa a empresa padrão associada ao token** — confirme que essa empresa tem cadastro fiscal (IE) válido perante a SEFAZ antes de testar emissão, ver nota abaixo |
+
+> **Validação obrigatória antes de testar emissão:** a empresa selecionada por `cnpjEmitente` (ou a empresa padrão, se o campo for omitido) precisa ter Inscrição Estadual válida perante a SEFAZ. Uma emissão real em HOM pela empresa padrão atualmente associada ao token do CC retornou `cStat=209` ("IE do emitente inválida") — não é falha de autenticação, XML, assinatura ou arquitetura, é pendência cadastral daquela empresa específica. Para testes de emissão, informe explicitamente o `cnpjEmitente` de uma empresa vinculada ao token com cadastro fiscal aceito pela SEFAZ.
 | `destCnpjCpf`                | string  | obrigatório, não vazio                                                                 |
 | `destRazaoSocial`            | string  | obrigatório, não vazio                                                                 |
 | `externalOrderId`            | string  | opcional — ID externo OMS para idempotência (máx 100 chars)                            |
@@ -322,7 +328,11 @@ Resposta (campo relevante):
 
 > **Atenção:** Os campos fiscais acima são obrigatórios e devem ser enviados pelo OMS em cada item. O sistema **não** copia dados fiscais do produto cadastrado. Se algum campo estiver ausente, o pedido é rejeitado com **HTTP 400**.
 
+> **CFOP é snapshot do pedido (20-07-2026):** o CFOP enviado pelo OMS é gravado exatamente como recebido — o Borurio nunca calcula nem corrige o CFOP a partir do cadastro do produto. A validação de compatibilidade com o destino da operação ocorre somente na emissão (`POST /emitir`, Bloco 5), não na criação do pedido.
+
 > **Endereço do emitente (v1.9):** empresas autorizadas via certificado A1 (Bloco 0B) são criadas automaticamente só com CNPJ/razão social/UF — sem endereço, porque o certificado não carrega esse dado. Se o cadastro estiver incompleto, `/emitir` bloqueia com `EMITTER_ADDRESS_INCOMPLETE` (ver Bloco 5). Envie os 6 campos `emit*` acima em qualquer `POST /api/app/pedidos` pra completar automaticamente **apenas os campos ausentes** do cadastro — não sobrescreve endereço já preenchido. Não precisa reenviar em todo pedido depois de completo.
+
+> **`indFinal` e `indIntermed` — não fazem parte do payload:** `indFinal` (indicador de consumidor final) é resolvido internamente a partir do cadastro da empresa emitente. `indIntermed` (indicador de intermediador/marketplace) é serializado internamente como `"0"` no escopo atual (venda direta, sem intermediador) — esse valor não representa regra universal para toda NF-e. O OMS não deve enviar nenhum dos dois campos no payload atual; nenhuma alteração foi feita no contrato de integração. Um cenário de venda via marketplace/plataforma de terceiro permanece evolução futura, condicionada a definição de negócio.
 
 - [ ] Confirmar `data.status` = `"RASCUNHO"` na resposta
 - [ ] Confirmar `data.id` retornado — guardar o `id` do pedido
@@ -339,6 +349,8 @@ Quando `externalOrderId` é enviado, um segundo POST com o mesmo valor retorna o
 - [ ] Confirmar que nenhum segundo pedido foi criado no sistema para esse `externalOrderId`
 
 **Nota:** Pedidos enviados sem `externalOrderId` nunca são deduplicados — cada POST cria um pedido distinto.
+
+**Série e numeração da NF-e (atualizado 20-07-2026):** a série NÃO é mais resolvida na criação do pedido — `serieNfe` vem sempre `null` na resposta do `POST`. A série é resolvida junto com o número, atomicamente, só no início de cada tentativa de emissão, a partir da configuração vigente da empresa naquele momento (`PUT /api/integration/fiscal-numbering/{cnpj}`, proposta em `INTEGRATION_CONTRACT_PT-BR.md` seção 6.10 — ainda não confirmada pelo CC nem implantada em HOM). **A OMS não deve enviar série nem número da NF-e no payload de cada pedido** — se enviar, o valor é ignorado silenciosamente, sem erro.
 
 **Cenários negativos — `errorCode`:**
 
@@ -392,11 +404,15 @@ Formato de resposta de erro de negócio:
 | Situação                     | O que observar                                                                             |
 |------------------------------|--------------------------------------------------------------------------------------------|
 | Lote aceito e autorizado pela SEFAZ | `HTTP 200` · `chaveNfe` com 44 dígitos                                              |
-| `cStat=225` (`SEFAZ_REJECTED`) | **Não assumir automaticamente que é limitação de ambiente** — verificar `data.xMotivo`. Já ocorreu em homologação real por cadastro de emitente incompleto (10-07-2026). `HTTP 422`, `retryable: false`. |
-| `cStat=100`                  | `AUTORIZADO` — validado em PRD com infraestrutura pronta, usando o A1 real da Jcho Factory Ltda (`tpAmb=1`) |
+| `cStat=225` (`SEFAZ_REJECTED`) | `cStat=225` indica falha de validação do XML/schema. Verificar `data.xMotivo` e o XML transmitido. Desde a correção estrutural de 14-07-2026, esse não é o resultado esperado do fluxo atual. `HTTP 422`, `retryable: false`. |
+| Problema cadastral do emitente | Inscrição Estadual inapta, cassada ou outro dado de cadastro inválido junto à Receita/SEFAZ deve ser tratado conforme o `cStat` e o `xMotivo` efetivamente retornados pela SEFAZ na tentativa — cada rejeição tem código próprio, verificar caso a caso. |
+| `cStat=100`                  | `AUTORIZADO` — obtido em HOM/SP em 14-07-2026, em teste interno e em teste do integrador chinês via OMS, usando J. ZHENG BIJOUTERIAS (referência operacional atual de HOM). Reconfirmado em 21-07-2026 com o release atual, já incluindo a validação de CFOP × destino (Bloco 4/5). Validação em PRD (`tpAmb=1`) ainda não realizada — ver seção de pendências no `MTF-001` |
 | `HTTP 422` + `errorCode: "INVALID_ORDER_STATUS"` | Pedido não está em `RASCUNHO`/`REJEITADO`/`ERRO` — verificar `status` antes de tentar novamente |
 | `HTTP 422` + `errorCode: "SEFAZ_REJECTED"`        | SEFAZ processou e rejeitou — ver `data.cStat`/`data.xMotivo`; corrigir e reemitir no mesmo pedido |
 | `HTTP 422` + `errorCode: "EMITTER_ADDRESS_INCOMPLETE"` | Cadastro do emitente incompleto — SEFAZ nem foi chamada; completar endereço (Bloco 4) |
+| `HTTP 422` + `errorCode: "CFOP_DESTINATION_MISMATCH"` | **(20-07-2026)** CFOP de algum item incompatível com o destino da operação — interna exige CFOP iniciado por `5`, interestadual por `6`. SEFAZ nem foi chamada, nenhum `nNF` foi consumido. Corrigir o CFOP enviado e chamar `/emitir` de novo no mesmo pedido. `retryable: false`. |
+| `HTTP 409` + `errorCode: "EMISSAO_EM_ANDAMENTO"` | Outra chamada já assumiu a emissão deste pedido. Não criar pedido novo. Aguardar um intervalo curto, consultar `GET /api/app/pedidos/{id}/situacao` e repetir `/emitir` somente se a situação ainda permitir. `retryable: true`. |
+| `HTTP 422` + `errorCode: "IND_FINAL_PADRAO_INVALIDO"` | Configuração fiscal inválida no cadastro da empresa emitente (interna ao Borurio) — não é um erro corrigível pelo OMS; acionar a operação responsável pelo Borurio. `retryable: false`. |
 | `HTTP 503` + `errorCode: "SEFAZ_TIMEOUT"`/`"SEFAZ_UNAVAILABLE"` | Falha de rede transitória — `retryable: true`, seguro reemitir sem alterar nada |
 | `HTTP 500`                                        | Exceção não classificada — pedido vai para `ERRO`, `retryable: false`        |
 
@@ -426,10 +442,16 @@ Formato de resposta de erro de negócio:
 
 ## Bloco 7 — Operações pós-autorização (opcional em HOM)
 
-Estes itens só são executáveis quando `status = "AUTORIZADO"`. Em HOM/SP o pedido pode ficar `REJEITADO` (cStat=225 — ver Bloco 5), então os testes abaixo são realizáveis somente se o ambiente retornar cStat=100.
+Estes itens só são executáveis quando `status = "AUTORIZADO"`. Desde 14-07-2026 o ambiente HOM/SP retorna `cStat=100` para empresas com cadastro fiscal aceito pela SEFAZ na emissão de homologação (ver Bloco 5) — os testes abaixo são realizáveis normalmente nessa condição.
 
 - [ ] `POST /api/app/pedidos/{id}/cancelar` com `{"justificativa": "<texto mínimo 15 chars>"}`
 - [ ] `POST /api/app/pedidos/{id}/cce` com `{"correcao": "<texto mínimo 15 chars>"}`
+
+**Contexto fiscal multi-CNPJ nestes eventos:** empresa, certificado e UF são resolvidos pelo CNPJ real da operação — não por configuração global nem pela empresa-âncora do cliente OMS. O CNPJ embutido na chave de acesso é validado automaticamente contra esse contexto antes de prosseguir. Esse comportamento está implementado e coberto por teste automatizado; smoke test real multi-CNPJ desses eventos em HOM ainda está pendente.
+
+| `errorCode` | HTTP | `retryable` | Situação |
+|---|---|---|---|
+| `DOCUMENTO_CNPJ_DIVERGENTE` | 422 | `false` | O CNPJ da chave de acesso do documento não corresponde ao CNPJ da empresa resolvida para a operação — a execução falha explicitamente em vez de prosseguir com contexto/certificado de outra empresa |
 
 ---
 
@@ -477,13 +499,19 @@ Estes itens não são responsabilidade do time chinês, mas bloqueiam o go-live 
 
 | Bloqueador                                         | Responsável       | Status   |
 |----------------------------------------------------|-------------------|----------|
-| Configurar A1 real da Jcho Factory Ltda (já entregue) com `tpAmb=1` em PRD | Operações / Bruno | Pendente |
-| `CERT_ENCRYPTION_KEY` configurada em PRD           | Operações / Bruno | Pendente |
-| URL de PRD definida e acessível                    | Operações         | Pendente |
-| Gerar `X-Api-Key` de produção para o integrador OMS e entregá-la ao CC via canal seguro | Bruno / Operações | Pendente |
-| Executar Bloco 0B (autorização fiscal) em HOM — empresa 1 (JCHO, CNPJ1) | CC / Xiao Li | Pendente |
-| Executar Bloco 0B para empresa 2 (CNPJ2) — adiciona segundo CNPJ ao mesmo token (cenário D) | CC / Xiao Li | Pendente |
-| Validar M5 smoke test com certificado A1 real em HOM (emissão SEFAZ com cnpjEmitente multi-CNPJ) | CC / Xiao Li | Pendente |
+| Configurar certificado A1 da empresa emitente aprovada para PRD, com CNPJ, Inscrição Estadual, credenciamento e situação cadastral ativos e previamente validados (`tpAmb=1`) | Operações / Bruno | BLOQUEADO PARA PRD |
+| `CERT_ENCRYPTION_KEY` configurada por mecanismo seguro de gestão de segredos, fora do repositório e dos arquivos versionados | Operações / Bruno | BLOQUEADO PARA PRD |
+| URL de PRD definida e acessível                    | Operações         | BLOQUEADO PARA PRD |
+| Gerar `X-Api-Key` de produção para o integrador OMS e entregá-la ao CC via canal seguro | Bruno / Operações | BLOQUEADO PARA PRD |
+| Executar Bloco 0B (autorização fiscal) em HOM — empresa 1 (CNPJ1) | CC / Xiao Li | PENDENTE TÉCNICO |
+| Executar Bloco 0B para empresa 2 (CNPJ2) — adiciona segundo CNPJ ao mesmo token (cenário D) | CC / Xiao Li | PENDENTE TÉCNICO |
+| Validar M5 smoke test com certificado A1 real em HOM (emissão SEFAZ com cnpjEmitente multi-CNPJ) | CC / Xiao Li | CONCLUÍDO — validado internamente em 22-07-2026 (`cStat=100`, empresa vinculada com IE aceita pela SEFAZ nessa emissão em HOM); validação pelo próprio CC ainda pendente |
+
+> CNPJ1 e CNPJ2 representam empresas emitentes habilitadas para a rodada de HOM. Os valores reais serão fornecidos por canal seguro antes do teste.
+>
+> **Nota separada:** a JCHO GLOBAL LTDA está registrada em HOM com Inscrição Estadual cassada por inatividade — impedimento cadastral externo, conhecido, não corrigível por código. Não deve ser usada nos testes atuais de autorização enquanto permanecer com situação cadastral impeditiva, nem como referência de certificado de produção. Esta nota não associa a JCHO GLOBAL a CNPJ1 ou CNPJ2 acima.
+
+> **Nota — contingência:** Contingência da NF-e ainda não implementada. A modalidade, os critérios de ativação, a reconciliação e os testes deverão ser definidos antes de PRD, com base na documentação oficial vigente e validação fiscal.
 
 ---
 
@@ -494,4 +522,4 @@ Estes itens não são responsabilidade do time chinês, mas bloqueiam o go-live 
 | Contrato de integração (EN)      | `docs/manual/INTEGRATION_CONTRACT_EN.md`      |
 | Manual técnico motor fiscal (EN) | `docs/manual/MTF-001_motor-fiscal-nfe_EN.md`  |
 | Postman collection               | `docs/postman/borurio-erp-collection.json`    |
-| Swagger UI (HOM)                 | `https://hom-api.borurio.com/swagger-ui/index.html` |
+| Swagger UI (HOM)                 | `<url-do-túnel>/swagger-ui/index.html`        |

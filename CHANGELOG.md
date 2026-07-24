@@ -10,6 +10,66 @@ Nem toda mudança de código gera mudança de versão do contrato, e vice-versa 
 
 ---
 
+## [2026-07-22] — MTF 3.1
+
+**Contexto:** encerramento do incidente de segredo JWT exposto na dev/hom (endurecimento adiado para etapa própria), implementação da revogação/rotação global de autorização OMS e da modalidade de frete explícita por fluxo, e validação integral em HOM real das funcionalidades que aguardavam deploy desde a v3.0.
+
+### Adicionado
+- **Revogação e rotação de autorização OMS** (`/api/admin/oms-authorizations/{id}/revogar`, `/rotacionar`, `ROLE_ADMIN`): `JwtFilter` passa a validar a autorização ativa no banco a cada requisição OMS — revogação tem efeito imediato, não depende de expiração do JWT. Rotação com controle otimista por versão (`expectedVersion`) e `Idempotency-Key` (UUID) obrigatória. Auditoria append-only (`oms_fiscal_authorization_audit`) — nunca armazena o JWT.
+- Migration V032 (`oms_authorization_revogacao_rotacao`) — coluna `versao` em `oms_fiscal_authorization`, tabela de auditoria.
+- Enum `ModalidadeFrete` (`borurio-fiscal`) e modalidade de frete (`modFrete`) explícita por fluxo de emissão: fluxo OMS/marketplace declara `CONTA_TERCEIROS` (código `2` — a plataforma contrata o transporte, confirmado pelo CC); endpoint legado/administrativo preserva `SEM_OCORRENCIA_TRANSPORTE` (código `9`, comportamento anterior).
+
+### Corrigido
+- `modFrete` deixa de ser fixo em `9` para toda emissão — valor não representava corretamente o fluxo de marketplace, onde há ocorrência real de transporte contratado por terceiro.
+
+### Resultado
+- Nova autorização real obtida em HOM/SP (`cStat=100`), usando uma empresa vinculada ao token com cadastro fiscal aceito pela SEFAZ, com `<modFrete>2</modFrete>` confirmado no XML efetivamente transmitido — evidência de que o motor fiscal e a resolução multi-CNPJ (seleção de empresa/certificado por `cnpjEmitente`) estão funcionais.
+- Revogação/rotação validada de ponta a ponta em HOM real: autorização técnica isolada (duas rotações + uma revogação encadeadas) e autorização real do integrador OMS (uma rotação), ambas com replay idempotente confirmado sem duplicidade de auditoria.
+- Achado cadastral (não é defeito do sistema): uma tentativa de emissão pela empresa padrão associada ao token do integrador OMS retornou `cStat=209` (IE do emitente inválida) — pendência cadastral fiscal externa ao código, não relacionada a autenticação, XML, assinatura, transmissão ou arquitetura multiempresa. A emissão bem-sucedida (`cStat=100` acima) usou uma segunda empresa vinculada ao mesmo token, com IE aceita pela SEFAZ nessa emissão em HOM.
+- Funcionalidades da v3.0 que aguardavam validação integrada em HOM (proteção contra emissão concorrente, baseline de numeração, `indFinal`/`indIntermed`, contexto multi-CNPJ pós-emissão) — validadas nesta rodada.
+
+### Testes
+- Suite completa: 293/293 → **299/299 PASS** (6 testes novos cobrindo `ModalidadeFrete`).
+
+### Pendente
+- Entrega controlada do token OMS rotacionado ao integrador chinês (CC) e testes externos dele — ambiente HOM disponível, aguardando início da validação pelo CC.
+- Pré-produção: troca de credenciais administrativas expostas durante a sessão de trabalho, rotação do `SECURITY_JWT_SECRET` de HOM, remoção do segredo hardcoded do `application-dev.yml`, gestão externa de segredos.
+- Go-live não iniciado — depende da validação final do CC.
+
+### Documentação
+- `docs/manual/MTF-001_motor-fiscal-nfe.md` — versão 3.0 → 3.1; seção 5.8 (nova, `modFrete`) e seção 11.8 (nova, Gate 7H) adicionadas; seções 1.1/1.2 atualizadas.
+
+---
+
+## [2026-07-14] — MTF 2.9
+
+**Contexto:** encerramento da investigação de ~10 semanas sobre a rejeição `cStat=225` em homologação SEFAZ-SP. Causa raiz identificada e corrigida.
+
+### Corrigido
+- **Causa raiz real do `cStat=225`:** o motor assinava o XML com RSA-SHA256/SHA-256. O schema XMLDSig oficial vigente da SEFAZ (`xmldsig-core-schema_v1.01.xsd`, confirmado no pacote oficial `PL_010e_v1.02` baixado diretamente de nfe.fazenda.gov.br, versão vigente publicada 10-07-2026) define os atributos `Algorithm` de `SignatureMethod`/`DigestMethod` com `fixed="rsa-sha1"`/`fixed="sha1"` — SHA-1, não SHA-256. `AssinaturaXmlService` corrigido para assinar com RSA-SHA1/SHA-1.
+- O arquivo `xsd/oficial/xmldsig-core-schema_v1.01.xsd` usado na validação local estava divergente do schema oficial — as restrições `fixed` haviam sido removidas, fazendo a validação local aceitar qualquer algoritmo e mascarando a incompatibilidade real antes do envio à SEFAZ. O conteúdo semântico do schema XMLDSig utilizado foi alinhado ao pacote oficial `PL_010e_v1.02`, preservando as restrições oficiais de validação para RSA-SHA1/SHA-1. O arquivo local possui diferenças não funcionais de documentação/formatação em relação ao arquivo original.
+- Grupo `indIntermed` ausente em `<ide>` — adicionado (`Ide.java`, `NfeXmlBuilder.java`), preenchido com `"0"` (venda direta, sem intermediador).
+- Foi aplicado durante a homologação um ajuste provisório de `indFinal`, inicialmente inferido a partir do tipo de documento do destinatário (CPF → `1`, CNPJ → `0`). A auditoria posterior identificou que essa inferência não representa corretamente todos os cenários fiscais, pois `indFinal` depende da natureza da operação. A decisão arquitetural atual é que o valor seja informado explicitamente pela OMS. **Status: pendente de ajuste definitivo no contrato OMS.**
+- IE do emitente corrigida no cadastro da empresa homologada atual (vinculada ao token, com cadastro fiscal aceito pela SEFAZ na emissão de homologação) — estava ausente/inválida.
+- Exigências de payload do lado da requisição OMS ajustadas em conjunto com o integrador chinês: CFOP correto por UF de destino, endereço completo do destinatário com código IBGE do município, texto padrão de homologação no nome do destinatário.
+
+### Resultado
+- **`cStat=100` (Autorizado o uso da NF-e) obtido em HOM/SP pela primeira vez no histórico do projeto**, tanto em teste interno quanto em teste cruzado do integrador chinês (CC/Xiao Li) via OMS, com confirmação cruzada no portal público nacional (hom.nfe.fazenda.gov.br).
+- O cadastro histórico do emitente (mantido no sistema desde etapas anteriores do projeto, não apto para emissão atual) segue bloqueado em HOM — IE cassada por inatividade desde 2024, pendência cadastral externa junto à SEFAZ, não é bug do sistema.
+
+### Documentação
+- `docs/manual/MTF-001_motor-fiscal-nfe.md` — versão 2.8 → 2.9; seção 6 (assinatura) e seção 13 (antiga "Limitações Conhecidas do Ambiente HOM/SP", agora "Histórico de Investigação cStat=225 e Status da Homologação SEFAZ-SP") reescritas; hipótese anterior (limitação de infraestrutura do processador `SP_NFE_PL_008i2`) registrada como historicamente incorreta, mantida para rastreabilidade.
+- Demais documentos vivos (`README.md`, checklists, contratos de integração, FAQ) atualizados para remover a afirmação de que `cStat=225` era uma limitação de ambiente não corrigível.
+- Relatórios técnicos datados (`docs/report/Relatorio_Tecnico_*.md`) preservados sem alteração — registram o estado do conhecimento em cada dia da investigação.
+
+### Pendente para produção
+- Teste controlado em produção (operação fiscal real, passível de cancelamento, acompanhado pelo contador) — obtenção de `cStat=100` em HOM não substitui essa validação; permanece como pré-requisito não cumprido para o go-live.
+
+### Nota sobre commits
+- Nenhuma das alterações desta entrada foi commitada até o momento do registro — mudanças presentes apenas no working tree local.
+
+---
+
 ## [2026-07-10] — MTF 2.8 · Contrato 1.9
 
 **Contexto:** homologação ao vivo com o CC (Xiao Li). Estoque opcional (implementado em sessão anterior, commit `936e771`) validado com sucesso; durante o teste, a SEFAZ rejeitou uma NF-e com `cStat=225` para uma empresa auto-criada via OMS sem endereço cadastrado. Diagnóstico levou a três melhorias solicitadas pelo CC.
@@ -35,7 +95,7 @@ Nem toda mudança de código gera mudança de versão do contrato, e vice-versa 
 - Documentação: descrição anterior de que uma rejeição (`cStat≥200`) deixava o pedido em `AGUARDANDO` estava incorreta — sempre resultou em `REJEITADO`, mesmo antes desta versão.
 
 ### Dado (empresa 8 — HOM)
-- Cadastro de endereço completado para "J ZHENG BIJOUTERIAS" (CNPJ 22418179000134) via `PUT /api/app/empresas/8`, dados fornecidos pelo CC.
+- Cadastro de endereço completado para a empresa homologada atual (empresa 8, vinculada ao token do integrador) via `PUT /api/app/empresas/8`, dados fornecidos pelo CC.
 
 ### Revisão de código
 - 8 agentes de busca + 9 verificações independentes — 4 achados confirmados corrigidos nesta versão (chaveNfe zerada, empresa mutada sem rollback, retryable incorreto no fallback global e em `SEFAZ_REJECTED`). 3 achados de menor severidade registrados no backlog arquitetural (P2.7, P2.8, P2.9) — não corrigidos nesta versão.

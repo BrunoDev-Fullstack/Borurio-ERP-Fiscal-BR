@@ -4,12 +4,14 @@
 
 | Atributo               | Valor                                   |
 |------------------------|-----------------------------------------|
-| Versão                 | 1.9                                     |
-| Status                 | **Aprovado para integração**            |
-| Data de validação      | 10-07-2026                              |
-| Ambiente de referência | HOM — `https://hom-api.borurio.com`     |
+| Versão                 | 1.11                                    |
+| Status                 | **VIGENTE PARA INTEGRAÇÃO EM HOM** — seção 6.10 é proposta interna, ainda não confirmada pelo CC nem implantada em HOM. Ambiente HOM disponível para testes do CC; go-live depende da validação final dele. |
+| Data da revisão documental | 22-07-2026                          |
+| Ambiente de referência | HOM — acesso externo fornecido somente durante janela controlada de teste. Nenhuma URL fixa deve ser assumida pelo integrador. |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
-| Validado contra        | Código-fonte + testes em HOM            |
+| Validado contra        | Código-fonte + testes automatizados     |
+
+> **Ressalva:** uma emissão real controlada foi validada em HOM em 21-07-2026 (`cStat=100`) com o release atual, confirmando o fluxo completo — autenticação, resolução de certificado por CNPJ, validação de CFOP × destino (seção 6.4), geração/assinatura/transmissão do XML e persistência da autorização. As demais funcionalidades citadas anteriormente nesta ressalva (proteção contra emissão concorrente, contexto fiscal multi-CNPJ nos eventos pós-autorização, baseline seguro de numeração e `indFinal` configurável por empresa) permanecem cobertas por teste automatizado, mas sem smoke test dedicado em HOM. A execução de smoke test detalhado permanece em `CHECKLIST_OMS_ONBOARDING.md`.
 
 ---
 
@@ -40,12 +42,16 @@ Este documento descreve o contrato de integração entre o ERP logístico extern
 | Ambiente   | URL base                | Finalidade                                |
 |------------|-------------------------|-------------------------------------------|
 | DEV        | `http://localhost:8080` | Desenvolvimento local                     |
-| HOM        | `https://hom-api.borurio.com` | Homologação SEFAZ-SP                 |
+| HOM        | Fornecida somente durante janela controlada de teste | Homologação SEFAZ-SP       |
 | PRD        | Definido por operações  | Produção — não coberto por este documento |
 
 > `[CONTRATO]` Todos os testes de integração devem ser executados em HOM antes de qualquer operação em PRD.
 
-> `[OPERACIONAL]` O ambiente HOM é acessível externamente em `https://hom-api.borurio.com` via Cloudflare Tunnel (HTTPS, TLS 1.3). Não é necessário configurar VPN ou túnel SSH do lado do time de integração. Verificar o acesso com `GET https://hom-api.borurio.com/api/test/ping` antes de iniciar a sequência de smoke test.
+> `[CONTRATO]` O certificado A1 utilizado em HOM é exclusivo de homologação e teste — não deve ser reutilizado em PRD. O certificado de produção é distinto, ainda não disponibilizado, e será fornecido posteriormente pelo responsável da empresa emitente por canal seguro, na preparação formal do ambiente de produção.
+
+> `[CONTRATO]` **(20-07-2026)** Em homologação (`tpAmb=2`), o campo `dest/xNome` da NF-e é substituído automaticamente pelo texto fixo exigido pela SEFAZ (`"NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"`), independentemente da razão social enviada em `destRazaoSocial`. Em produção (`tpAmb=1`) o nome real do destinatário é preservado sem alteração. O OMS não precisa fazer nada diferente entre os ambientes — a substituição ocorre apenas na montagem do XML, nunca no banco de dados ou na resposta da API.
+
+> `[OPERACIONAL]` O acesso externo ao ambiente HOM é disponibilizado somente durante janelas controladas de teste (HTTPS, TLS 1.3) — não é necessário configurar VPN ou túnel SSH do lado do time de integração. **Nenhuma URL fixa deve ser assumida.** A URL ativa é fornecida por canal seguro antes de cada janela de teste. Verificar o acesso com `GET <url-fornecida>/api/test/ping` antes de iniciar a sequência de smoke test.
 
 ---
 
@@ -109,7 +115,7 @@ Authorization: Bearer eyJhbGci...
 
 > `[CONTRATO]` Um cliente OMS (`codigoEmpresaOms`) pode autorizar **múltiplos CNPJs** com um único token. O token identifica o cliente OMS, não um CNPJ específico. Cada CNPJ requer uma chamada separada a este endpoint — o token retornado é sempre o mesmo para o mesmo `codigoEmpresaOms`.
 
-> `[CONTRATO]` Na emissão de NF-e para um cliente OMS com múltiplos CNPJs, o campo `cnpjEmitente` do pedido seleciona qual CNPJ (e certificado) será utilizado para assinar e transmitir a NF-e à SEFAZ. Ver seção 6.3.
+> `[CONTRATO]` Na emissão de NF-e para um cliente OMS com múltiplos CNPJs, o campo `cnpjEmitente` do pedido seleciona qual CNPJ (e certificado) será utilizado para assinar e transmitir a NF-e à SEFAZ. O CNPJ informado precisa estar autorizado para o token (certificado ativo) **e** com cadastro fiscal (Inscrição Estadual) aceito pela SEFAZ — pendências cadastrais de uma empresa específica são reportadas pela SEFAZ no retorno da emissão (`cStat`/`xMotivo`), não impedem a autorização do token em si. Ver seção 6.3.
 
 #### Endpoint
 
@@ -135,8 +141,8 @@ Content-Type: application/json
 > `[EXEMPLO]` Primeira autorização — CNPJ1 de um novo cliente OMS:
 ```json
 {
-  "codigoEmpresaOms": "JCHO-001",
-  "cnpj":             "12000000000195",
+  "codigoEmpresaOms": "{{codigoEmpresaOms}}",
+  "cnpj":             "{{cnpjEmitente}}",
   "certBase64":       "<base64 do arquivo .pfx>",
   "certSenha":        "<senha do certificado>"
 }
@@ -145,8 +151,8 @@ Content-Type: application/json
 > `[EXEMPLO]` Segunda autorização — CNPJ2 do **mesmo** cliente OMS (retorna o mesmo token):
 ```json
 {
-  "codigoEmpresaOms": "JCHO-001",
-  "cnpj":             "98765432000100",
+  "codigoEmpresaOms": "{{codigoEmpresaOms}}",
+  "cnpj":             "{{cnpjEmitente2}}",
   "certBase64":       "<base64 do .pfx do segundo CNPJ>",
   "certSenha":        "<senha do segundo certificado>"
 }
@@ -155,13 +161,17 @@ Content-Type: application/json
 **Resposta de sucesso — HTTP 200:**
 ```json
 {
-  "token":         "eyJhbGci...",
+  "token":         "{{tokenOms}}",
   "empresaId":     1,
-  "cnpj":          "12000000000195",
-  "razaoSocial":   "Jcho Factory Ltda",
+  "cnpj":          "{{cnpjEmitente}}",
+  "razaoSocial":   "{{razaoSocialEmitente}}",
   "tokenExpiraEm": "2026-08-01T13:15:00"
 }
 ```
+
+> `[OPERACIONAL]` Os valores reais utilizados em cada rodada de teste em HOM (CNPJ, razão social, certificado) são fornecidos por canal seguro, fora deste documento. Este contrato é reutilizável para qualquer empresa emitente.
+
+> `[CONTRATO]` Os certificados A1 utilizados nas rodadas atuais são exclusivos do ambiente de homologação e teste. O ambiente de produção utilizará certificado A1 distinto, ainda não disponibilizado, que será fornecido posteriormente pelo responsável da empresa emitente por canal seguro. Certificados de HOM não devem ser reutilizados em PRD.
 
 > `[CONTRATO]` Esta rota **não usa** o envelope `Result<>` padrão da API. A estrutura de resposta é própria: `{ token, empresaId, cnpj, razaoSocial, tokenExpiraEm }`. Leia `response.token` diretamente — **não** existe `response.data.token`.
 
@@ -186,9 +196,11 @@ Content-Type: application/json
 
 > `[CONTRATO]` Não é necessário acionar o ADMIN do Borurio para trocar o certificado — o próprio OMS realiza a renovação diretamente via este endpoint.
 
-#### Revogação
+#### Revogação e rotação
 
-> `[OPERACIONAL]` Em caso de comprometimento de API Key ou token, acionar o ADMIN do Borurio para revogação administrativa. Após revogação, o token é recusado imediatamente com `AUTHORIZATION_REVOKED` em qualquer requisição — sem aguardar expiração. A reautorização com certificado válido emite um novo token.
+> `[OPERACIONAL]` Em caso de comprometimento de API Key ou token, acionar o ADMIN do Borurio para revogação ou rotação administrativa. **Desde 22-07-2026, a autorização ativa é validada no banco a cada requisição** — após revogação, o token é recusado imediatamente com `AUTHORIZATION_REVOKED`, sem depender da expiração natural do JWT. Rotação emite um novo token (novo identificador interno), invalidando o anterior, sem interromper o acesso do OMS ao serviço.
+
+> `[CONTRATO]` A revogação e a rotação são operações administrativas internas do Borurio (`/api/admin/oms-authorizations/**`, fora do contrato público consumido pelo OMS) — o OMS nunca chama esses endpoints diretamente. O OMS apenas recebe o novo token, por canal controlado, quando uma rotação ocorrer.
 
 ---
 
@@ -325,7 +337,9 @@ Content-Type: application/json
 | `origem` | Inteiro | Obrigatório · `0`=Nacional · `1` a `8`=Importada |
 | `csosn` | String | Opcional · Se omitido, snapshot do item usará `"400"` |
 
-> `[CONTRATO]` CFOP de referência: operação interna (mesmo estado): `5102` · operação interestadual: `6102`.
+> `[CONTRATO]` CFOP de referência: operação interna (mesmo estado): `5102` · operação interestadual: `6102`. O CFOP continua sendo responsabilidade do OMS — o Borurio valida a coerência entre o CFOP informado e o destino calculado (`idDest`), mas não o corrige nem o infere.
+
+> `[CONTRATO]` **Modalidade de frete (`modFrete`) não é enviada pelo OMS nesta versão do contrato — não existe campo para isso no payload.** O Borurio define internamente `modFrete=2` ("Contratação do Frete por conta de Terceiros") para toda emissão do fluxo OMS/marketplace atual, refletindo que a própria plataforma contrata o transporte (confirmado pelo integrador chinês). Essa é uma decisão fiscal interna do Borurio, não um parâmetro configurável pelo OMS nesta versão.
 
 > `[CONTRATO]` CSOSN de referência para Simples Nacional: `102`=sem ST sem crédito · `103`=isento por faixa de receita · `300`=imune · `400`=não contribuinte · `500`=ICMS cobrado anteriormente (ST) · `900`=outros. Os códigos `201`, `202` e `203` (com ST) não estão suportados nesta versão do motor.
 
@@ -571,6 +585,8 @@ Content-Type: application/json
 | `destCep`             | String              | Recomendado                                                           |
 | `naturezaOperacao`    | String              | Opcional · Default server-side: `"VENDA DE MERCADORIA"`               |
 | `cnpjEmitente`        | String              | **Obrigatório para OMS multi-CNPJ** · 14 dígitos numéricos · CNPJ que deve assinar e emitir a NF-e · Se omitido no fluxo OMS, usa o CNPJ do primeiro certificado autorizado para o cliente |
+
+> `[OPERACIONAL]` Quando o cliente OMS tem mais de um CNPJ vinculado ao mesmo token, **não depender do CNPJ padrão** (primeiro certificado autorizado) — informar `cnpjEmitente` explicitamente em cada pedido. Um certificado histórico/desativado vinculado ao mesmo token pode ser resolvido por padrão e gerar rejeição da SEFAZ por pendência cadastral (`cStat=209`, IE do emitente inválida) mesmo com outro CNPJ do mesmo cliente OMS ativo e apto para emissão.
 | `externalOrderId`     | String              | Recomendado · Máx 100 chars · Único por empresa · Habilita retry idempotente |
 | `emitLogradouro`      | String              | Opcional · Endereço do emitente (ver nota abaixo) |
 | `emitNumero`          | String              | Opcional |
@@ -603,6 +619,10 @@ Content-Type: application/json
 | `csosn`          | String  | Obrigatório · Simples Nacional: `"102"`, `"103"`, `"300"`, `"400"`, `"500"`, `"900"` (não enviar `201`/`202`/`203`) |
 
 > `[CONTRATO]` `valorTotal` de cada item é calculado automaticamente como `quantidade × valorUnitario`. O total do pedido é a soma dos itens. Não enviar esses campos.
+
+> `[CONTRATO]` **(20-07-2026) CFOP é snapshot do pedido, nunca sobrescrito silenciosamente.** O CFOP enviado pelo OMS em cada item é gravado exatamente como recebido — o Borurio não calcula nem corrige o CFOP a partir do cadastro do produto ou de qualquer outra fonte. Na emissão (`POST /emitir`, seção 6.4), o CFOP de cada item é **validado** (não corrigido) contra o tipo de operação: se a UF do emitente e a UF do destinatário resultam em operação interna, todo CFOP deve iniciar com `5`; se resultam em operação interestadual, todo CFOP deve iniciar com `6`. Divergência bloqueia a emissão antes da reserva fiscal e antes de qualquer chamada à SEFAZ — ver `CFOP_DESTINATION_MISMATCH` na seção 6.4/8.2a.
+
+> `[CONTRATO]` **`indFinal` e `indIntermed` não fazem parte deste payload.** `indFinal` (indicador de consumidor final) é resolvido internamente pelo cadastro da empresa emitente — não é inferido do CPF/CNPJ do destinatário. Não há override por pedido nesta versão do contrato. `indIntermed` (indicador de intermediador/marketplace) é gerado internamente pelo Borurio; no escopo atual de venda direta, o valor utilizado é `"0"` — isso não representa regra universal para toda NF-e. O OMS não envia nenhum dos dois campos. Um cenário de venda via marketplace/plataforma de terceiro permanece evolução futura, condicionada a definição de negócio, e poderá exigir origem da venda por pedido, `indIntermed="1"`, grupo `infIntermed` com CNPJ do intermediador e identificador da operação — nenhum desses elementos está no escopo desta versão.
 
 > `[EXEMPLO]` Payload válido com campos fiscais por item:
 ```json
@@ -640,12 +660,12 @@ Content-Type: application/json
     "empresaId":       1,
     "numero":          "PED-00000042",
     "externalOrderId": "OMS-20260601-0001",
-    "cnpjEmitente":    "12000000000195",
+    "cnpjEmitente":    "{{cnpjEmitente}}",
     "destCnpjCpf":     "12345678000195",
     "destRazaoSocial": "Empresa Destinatária Ltda",
     "destUf":          "SP",
     "naturezaOperacao":"VENDA DE MERCADORIA",
-    "serieNfe":        "1",
+    "serieNfe":        null,
     "status":          "RASCUNHO",
     "chaveNfe":        null,
     "valorTotal":      200.00,
@@ -675,6 +695,8 @@ Content-Type: application/json
 > `[CONTRATO]` Guardar `data.id` como `pedidoId` para as etapas seguintes.
 
 > `[OPERACIONAL]` Os campos fiscais do item (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) são copiados do produto no momento da criação. Essa cópia é imutável — alterações posteriores no cadastro do produto não afetam pedidos existentes.
+
+> `[CONTRATO]` **(20-07-2026)** `serieNfe` vem sempre `null` na criação — deixou de ser resolvida neste momento. A série é resolvida junto com o número, atomicamente, só no início de cada tentativa de emissão (seção 6.4), a partir da configuração vigente da empresa emitente naquele instante — não da configuração vigente quando o pedido foi criado. Se `serieNfe` for enviado no payload do POST, o valor é ignorado silenciosamente (sem erro), assim como `chaveNfe`.
 
 ---
 
@@ -727,6 +749,35 @@ Authorization: Bearer {token}
 ```json
 { "code": 422, "message": "Cadastro do emitente incompleto.", "data": null, "errorCode": "EMITTER_ADDRESS_INCOMPLETE", "retryable": false }
 ```
+
+**Resposta — HTTP 422 (CFOP incompatível com o destino da operação — não chega a chamar a SEFAZ):**
+```json
+{
+  "code": 422,
+  "message": "CFOP 6102 incompatível com operação interna. Para idDest=1, o CFOP de saída deve iniciar com 5.",
+  "data": null,
+  "errorCode": "CFOP_DESTINATION_MISMATCH",
+  "retryable": false
+}
+```
+
+> `[CONTRATO]` **(20-07-2026)** `CFOP_DESTINATION_MISMATCH` ocorre quando o CFOP de algum item não é compatível com o tipo de operação calculado a partir da UF do emitente e da UF do destinatário (`idDest`): operação interna (mesma UF) exige CFOP iniciado por `5`; operação interestadual exige CFOP iniciado por `6`. A validação ocorre **antes** de qualquer reserva de estoque, reserva de numeração fiscal ou chamada à SEFAZ — nenhum `nNF` é consumido. O CFOP nunca é corrigido automaticamente pelo Borurio; corrija o valor enviado pelo OMS e chame `/emitir` de novo no mesmo `pedidoId`.
+
+**Resposta — HTTP 409 (outra requisição já assumiu a emissão deste pedido):**
+```json
+{ "code": 409, "message": "Já existe uma emissão em andamento para este pedido.", "data": null, "errorCode": "EMISSAO_EM_ANDAMENTO", "retryable": true }
+```
+
+> `[CONTRATO]` `EMISSAO_EM_ANDAMENTO` ocorre quando duas chamadas a `/emitir` para o mesmo `pedidoId` colidem — apenas uma prossegue. A chamada que perde a corrida não deve criar um pedido novo. Aguarde um intervalo curto, consulte `GET /api/app/pedidos/{id}/situacao` e repita `/emitir` somente se o estado ainda permitir. `retryable: true` — trate a resposta de forma idempotente.
+
+**Resposta — HTTP 422 (configuração fiscal inválida da empresa emitente):**
+```json
+{ "code": 422, "message": "Empresa possui indFinalPadrao inválido.", "data": null, "errorCode": "IND_FINAL_PADRAO_INVALIDO", "retryable": false }
+```
+
+> `[CONTRATO]` `IND_FINAL_PADRAO_INVALIDO` indica configuração fiscal inválida no cadastro da empresa emitente, interna ao Borurio — não é corrigível pelo payload do pedido e não deve ser reenviado automaticamente. Acionar a operação responsável pelo cadastro fiscal da empresa.
+
+> `[CONTRATO]` **Numeração de NF-e.** O número (`nNF`) é isolado por CNPJ emitente e série, atribuído de forma atômica pelo motor fiscal a cada `/emitir`. Chamadas concorrentes para o mesmo pedido não geram números duplicados nem NF-e duplicadas (ver `EMISSAO_EM_ANDAMENTO` acima). A inicialização do contador de numeração para uma nova empresa/série é procedimento administrativo interno do Borurio, não uma chamada que o OMS realiza por emissão — não há endpoint de integração para isso nesta versão do contrato.
 
 **Resposta — HTTP 503 (falha de rede na chamada à SEFAZ):**
 ```json
@@ -844,6 +895,13 @@ Content-Type: application/json
 }
 ```
 
+**Resposta — HTTP 422 (CNPJ do documento divergente do contexto fiscal resolvido):**
+```json
+{ "code": 422, "message": "O CNPJ da chave de acesso não corresponde ao CNPJ da empresa resolvida para esta operação.", "data": null, "errorCode": "DOCUMENTO_CNPJ_DIVERGENTE", "retryable": false }
+```
+
+> `[CONTRATO]` **Contexto fiscal multi-CNPJ em consulta, cancelamento e CC-e.** Empresa, certificado e UF são resolvidos pelo CNPJ real da operação — nunca por configuração global. O CNPJ embutido na chave de acesso do documento é validado contra esse contexto antes de prosseguir; não existe fallback silencioso para uma empresa global. Se o CNPJ da chave não corresponder à empresa resolvida, a operação falha explicitamente com `DOCUMENTO_CNPJ_DIVERGENTE` — não repetir automaticamente; revisar pedido, chave, empresa e autorização fiscal, e acionar a operação responsável pelo Borurio se a causa não estiver clara.
+
 ---
 
 ### 6.8 DANFE — Documento Auxiliar da Nota Fiscal Eletrônica
@@ -910,18 +968,18 @@ Content-Type: application/json
 > `[EXEMPLO]` Payload para Ciência da Operação:
 ```json
 {
-  "chaveNfe":         "35260554393421000159550010000000351199116560",
+  "chaveNfe":         "{{chaveNfe}}",
   "tipoEvento":       "210200",
-  "cnpjDestinatario": "54393421000159"
+  "cnpjDestinatario": "{{cnpjDestinatario}}"
 }
 ```
 
 > `[EXEMPLO]` Payload para Operação Não Realizada (xJust obrigatório):
 ```json
 {
-  "chaveNfe":         "35260554393421000159550010000000351199116560",
+  "chaveNfe":         "{{chaveNfe}}",
   "tipoEvento":       "210240",
-  "cnpjDestinatario": "54393421000159",
+  "cnpjDestinatario": "{{cnpjDestinatario}}",
   "xJust":            "Mercadoria não recebida pelo destinatário conforme acordado"
 }
 ```
@@ -949,6 +1007,57 @@ Content-Type: application/json
 > `[CONTRATO]` Autenticação obrigatória. Request sem token retorna HTTP 401.
 
 > `[OPERACIONAL]` **Limitação HOM:** o endpoint AN (Ambiente Nacional) da SEFAZ HOM pode retornar HTTP 403 a partir de redes residenciais/locais. Esse comportamento é de infraestrutura da SEFAZ federal, não um erro da API. O endpoint `/manifestar` funcionará normalmente em ambiente corporativo e PRD.
+
+---
+
+### 6.10 Sincronização de Série e Numeração NF-e (OMS → Borurio)
+
+> `[PROPOSTA — AGUARDANDO CONFIRMAÇÃO FINAL DO CC]` Implementado internamente em 20/07/2026. O formato de `errorCode` abaixo ainda não foi confirmado como tratável pela OMS — não considerar este contrato definitivamente fechado até essa confirmação chegar. Não implantado em HOM.
+
+> `[CONTRATO]` Substitui o modelo de "baseline único no onboarding": a OMS chama este endpoint toda vez que o cliente altera série ou numeração no próprio sistema deles — não apenas uma vez.
+
+```
+PUT /api/integration/fiscal-numbering/{cnpj}
+Authorization: Bearer {token}   (mesmo token de /api/integration/fiscal-authorizations)
+Content-Type: application/json
+```
+
+**Payload:**
+
+| Campo | Tipo | Regra |
+|---|---|---|
+| `serie` | String | Obrigatório · até 3 caracteres |
+| `proximoNumero` | Integer | Obrigatório · maior ou igual a 1 · próximo `nNF` que o Borurio deve usar |
+
+> `[CONTRATO]` `cnpj` (path), identidade do cliente OMS e `requestId` **nunca** são lidos do body — sempre resolvidos pela autorização autenticada (mesmo token de `/pedidos`) e pelo header `X-Request-Id`/MDC.
+
+**Resposta de sucesso — HTTP 200:**
+```json
+{
+  "cnpjEmitente": "12000000000195",
+  "serieAnterior": "1",
+  "serieAtual": "1",
+  "proximoNumeroAnterior": 100,
+  "proximoNumeroAtual": 101,
+  "aplicado": true,
+  "atualizadoEm": "2026-07-23T10:00:00"
+}
+```
+
+> `[CONTRATO]` `aplicado: false` indica chamada idempotente (o valor enviado já era exatamente o vigente) — não é erro, é sucesso sem mudança de estado. `serieAnterior`/`serieAtual` referem-se à série padrão da empresa; `proximoNumeroAnterior`/`proximoNumeroAtual` referem-se sempre à sequência da série de destino (`serieAtual`) — nunca uma mistura entre a numeração da série antiga e da nova.
+
+> `[CONTRATO]` Regressão de numeração é sempre rejeitada — não existe modo de forçar um `proximoNumero` menor que o já registrado por este endpoint.
+
+> `[CONTRATO]` Uma emissão que já reservou série+número antes desta chamada nunca é alterada retroativamente — a sincronização só afeta a próxima reserva (ver 6.4).
+
+**Cenários negativos — `errorCode`:**
+
+| `errorCode` | HTTP | Situação |
+|---|---|---|
+| `NUMERACAO_INFERIOR_A_ATUAL` | 422 | `proximoNumero` menor que o já registrado |
+| `SERIE_INVALIDA` | 422 | `serie` ausente, vazia ou maior que 3 caracteres |
+| `NUMERACAO_INVALIDA` | 422 | `proximoNumero` ausente, zero ou negativo |
+| `CNPJ_NOT_AUTHORIZED` | 403 | CNPJ não autorizado para o token |
 
 ---
 
@@ -1046,6 +1155,9 @@ Content-Type: application/json
 | `errorCode`            | HTTP | `retryable` | Gatilho                                                                                        |
 |------------------------|------|-------------|--------------------------------------------------------------------------------------------------|
 | `INVALID_ORDER_STATUS` | 422  | false | Pedido não está no estado esperado para a operação (ex: não é `RASCUNHO`/`REJEITADO`/`ERRO` para `/emitir`; não é `AUTORIZADO` para `/cancelar` ou `/cce`) |
+| `EMISSAO_EM_ANDAMENTO` | 409  | **true** | Outra requisição já assumiu a emissão do mesmo pedido — não criar pedido novo; aguardar, consultar `/situacao` e repetir `/emitir` somente se o estado permitir |
+| `IND_FINAL_PADRAO_INVALIDO` | 422 | false | Configuração fiscal inválida (`indFinal`) no cadastro da empresa emitente — interna ao Borurio, não corrigível pelo payload do pedido |
+| `DOCUMENTO_CNPJ_DIVERGENTE` | 422 | false | O CNPJ da chave de acesso do documento não corresponde ao CNPJ da empresa fiscal resolvida para a operação (consulta, cancelamento, CC-e) |
 | `INSUFFICIENT_STOCK`   | 422  | false | Estoque disponível (`estoqueDisponivel`) é inferior à quantidade solicitada para o item — não ocorre para empresas com controle de estoque desativado (ver nota abaixo) |
 | `PRODUCT_NOT_FOUND`    | 422  | false | Um item referencia `produtoId` que não existe para a empresa autenticada                      |
 | `PRODUCT_INACTIVE`          | 422                          | false | Um item referencia produto com `estado = 0` (inativo)                                                                               |
@@ -1061,14 +1173,18 @@ Content-Type: application/json
 | `CNPJ_NOT_AUTHORIZED`       | 403                          | false | CNPJ informado em `cnpjEmitente` não possui autorização ativa para este cliente OMS — realizar `POST /api/integration/fiscal-authorizations` com o certificado desse CNPJ antes de emitir |
 | `CERT_NOT_FOUND_FOR_CNPJ`   | 422                          | false | Nenhum certificado ativo encontrado para o CNPJ emitente — verificar se a autorização fiscal foi realizada para esse CNPJ |
 | `EMITTER_ADDRESS_INCOMPLETE` | 422 | false | **(v1.9)** Cadastro da empresa emitente sem endereço completo (`logradouro`/`numero`/`bairro`/`codigoMunicipio`/`municipio`/`cep`) — bloqueado antes de chamar a SEFAZ. Enviar os campos `emit*` em `POST /api/app/pedidos` (seção 6.3) e reemitir. |
+| `CFOP_DESTINATION_MISMATCH` | 422 | false | **(20-07-2026)** CFOP de algum item incompatível com o tipo de operação (`idDest`, calculado pela UF do emitente × UF do destinatário) — operação interna exige CFOP iniciado por `5`, interestadual por `6`. Bloqueado antes da reserva fiscal e da SEFAZ; CFOP nunca é corrigido automaticamente. Corrigir o valor enviado e chamar `/emitir` de novo no mesmo pedido. |
 | `SEFAZ_REJECTED`            | 422 | false | **(v1.9)** SEFAZ processou a chamada e rejeitou a NF-e (cStat ≥ 200). `data.cStat`/`data.xMotivo` trazem o motivo real. Geralmente é dado incorreto — corrija e chame `/emitir` de novo no mesmo pedido. |
 | `SEFAZ_TIMEOUT`             | 503 | **true** | **(v1.9)** Tempo limite excedido na chamada à SEFAZ — falha de rede transitória. |
 | `SEFAZ_UNAVAILABLE`         | 503 | **true** | **(v1.9)** SEFAZ inacessível (conexão recusada/DNS) — falha de rede transitória. |
 | `XML_SCHEMA_INVALID`        | 422 | false | **(v1.9)** XML gerado não passou na validação de schema local antes de ser assinado/transmitido — problema de dado, não de rede. |
+| `NUMERACAO_INFERIOR_A_ATUAL` | 422 | false | **(proposta 20-07-2026, aguardando confirmação do CC)** `PUT /api/integration/fiscal-numbering/{cnpj}` — `proximoNumero` menor que o já registrado. Ver seção 6.10. |
+| `SERIE_INVALIDA`            | 422 | false | **(proposta 20-07-2026)** `PUT /api/integration/fiscal-numbering/{cnpj}` — `serie` ausente, vazia ou inválida. Ver seção 6.10. |
+| `NUMERACAO_INVALIDA`        | 422 | false | **(proposta 20-07-2026)** `PUT /api/integration/fiscal-numbering/{cnpj}` — `proximoNumero` ausente, zero ou negativo. Ver seção 6.10. |
 
 > `[OPERACIONAL]` O OMS deve usar `errorCode` para toda lógica condicional. O campo `message` é destinado a logs legíveis por humanos. O HTTP status isolado não é suficiente para distinguir `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND` e `PRODUCT_INACTIVE`, que todos retornam HTTP 422.
 
-> `[CONTRATO]` Controle de estoque é opcional por empresa. Por padrão, toda empresa valida, reserva e baixa estoque normalmente em `/emitir` — comportamento inalterado. Para clientes OMS que não trabalham com controle de estoque, o Borurio pode desativar essa validação por empresa (configuração interna, não exposta via API de integração). Quando desativado, `/emitir` nunca retorna `INSUFFICIENT_STOCK` e o saldo do produto não é alterado em nenhuma etapa (emissão, rejeição ou cancelamento).
+> `[CONTRATO]` Controle de estoque é opcional por empresa. Por padrão, toda empresa valida, reserva e baixa estoque normalmente em `/emitir` — comportamento inalterado. Para clientes OMS que não trabalham com controle de estoque, o Borurio pode desativar essa validação por empresa (configuração interna, não exposta via API de integração). Quando desativado, `/emitir` nunca retorna `INSUFFICIENT_STOCK` e o saldo do produto não é alterado em nenhuma etapa (emissão, rejeição ou cancelamento). O OMS não decide o estado dessa configuração por pedido — é definida por empresa, do lado do Borurio.
 
 ---
 
@@ -1220,21 +1336,46 @@ O header de resposta conterá: `X-Request-Id: oms-batch-20260601-001`
 
 ### 9.3 Comportamento Esperado em HOM-SP
 
-> `[OPERACIONAL]` **Correção v1.9:** versões anteriores deste documento descreviam `cStat=225` como uma "limitação do ambiente HOM-SP" que sempre retornava HTTP 200. Isso estava incompleto — `cStat=225` (`Rejeição: Falha no Schema XML do lote de NFe`) é um código de rejeição real da SEFAZ e **pode indicar um problema genuíno de dado** (ex.: cadastro do emitente com endereço incompleto — já ocorreu em homologação com um cliente OMS real). Desde a v1.9, `cStat≥200` (incluindo 225) resulta em `REJEITADO` e `POST /emitir` retorna HTTP 422 com `errorCode: SEFAZ_REJECTED` — **não mais HTTP 200** (ver seção 6.4).
+> `[OPERACIONAL]` **Correção 14-07-2026:** o `cStat=225` observado em 14-07-2026 foi causado por XML incompatível com o schema da NF-e, relacionado à estrutura e aos algoritmos declarados na assinatura XMLDSig. Após o alinhamento ao schema oficial, o fluxo deixou de retornar essa rejeição. Com a correção, o resultado esperado em HOM-SP para uma empresa com cadastro fiscal aceito pela SEFAZ na emissão de homologação é `cStat=100` (`AUTORIZADO`) — confirmado em teste interno e em teste do integrador chinês via OMS, com verificação cruzada no portal público da SEFAZ. `cStat=225` deixou de ser o comportamento padrão; se ocorrer, trate como rejeição real e inspecione `data.xMotivo`. Desde a v1.9, `cStat≥200` resulta em `REJEITADO` e `POST /emitir` retorna HTTP 422 com `errorCode: SEFAZ_REJECTED` — não HTTP 200 (ver seção 6.4). Problemas cadastrais do emitente, incluindo Inscrição Estadual inapta ou cassada, devem ser tratados conforme o `cStat` e o `xMotivo` efetivamente retornados pela SEFAZ na tentativa — não são associados a `225`.
 
-> `[OPERACIONAL]` O `verAplic` no retorno da SEFAZ indica qual processador respondeu (ex.: `SP_NFE_PL_008i2`, `SP_NFE_PL009_V4`) — pode variar entre o nível de lote (`retEnviNFe`) e o nível de protocolo individual (`protNFe/infProt`) na mesma resposta. Isso não é, por si só, indicativo de erro nem de limitação — o `xMotivo` retornado em `data.xMotivo` é a fonte confiável do motivo real da rejeição.
+> `[OPERACIONAL]` O `verAplic` no retorno da SEFAZ indica qual processador respondeu (ex.: `SP_NFE_PL_008i2`, `SP_NFE_PL009_V4`) — pode variar entre o nível de lote (`retEnviNFe`) e o nível de protocolo individual (`protNFe/infProt`) na mesma resposta. Isso não é, por si só, indicativo de erro — o `xMotivo` retornado em `data.xMotivo` é a fonte confiável do motivo real de uma eventual rejeição.
 
-Resultado típico de `POST /api/app/pedidos/{id}/emitir` em HOM-SP quando a NF-e é rejeitada:
+Resultado esperado de `POST /api/app/pedidos/{id}/emitir` em HOM-SP para uma empresa com cadastro fiscal aceito pela SEFAZ na emissão de homologação:
+
+```
+HTTP 200
+data.chaveNfe: <44 dígitos>
+pedido.status: AUTORIZADO
+data.cStat:    100
+data.xMotivo:  "Autorizado o uso da NF-e"
+```
+
+Se a NF-e for rejeitada (dado incorreto, IE inválida/cassada, etc.), o resultado é:
 
 ```
 HTTP 422
 errorCode: SEFAZ_REJECTED
-data.cStat:   225
-data.xMotivo: "Rejeição: Falha no Schema XML do lote de NFe"
+data.cStat:    <código retornado pela SEFAZ>
+data.xMotivo:  <motivo retornado pela SEFAZ>
 pedido.status: REJEITADO → pode ser reemitido no mesmo pedido após corrigir a causa (v1.9)
 ```
 
 > `[CONTRATO]` Para validar o fluxo completo em HOM, verificar `data.soapRetorno` bruto do `/emitir` (quando HTTP 200) ou `data.cStat`/`data.xMotivo` (quando `SEFAZ_REJECTED`), e `data.consultaSefaz` da situação — esses campos contêm a resposta real da SEFAZ independente do status final do pedido.
+
+### 9.4 Matriz de Comportamento Contratual
+
+> `[CONTRATO]` Cenários formais de comportamento da API relevantes para a integração. O roteiro de execução detalhado, passo a passo, permanece em `CHECKLIST_OMS_ONBOARDING.md`.
+
+| Cenário | Resposta esperada | Ação do OMS |
+|---|---|---|
+| Duas chamadas simultâneas a `/emitir` para o mesmo pedido | Uma prossegue normalmente; a outra recebe `HTTP 409` `EMISSAO_EM_ANDAMENTO` | Não criar pedido novo na chamada perdedora; aguardar, consultar `/situacao`, repetir se aplicável |
+| Empresa emitente não autorizada para o CNPJ do pedido | `HTTP 403` `CNPJ_NOT_AUTHORIZED` | Executar `POST /api/integration/fiscal-authorizations` para o CNPJ antes de tentar novamente |
+| `indFinal` configurado com valor inválido na empresa | `HTTP 422` `IND_FINAL_PADRAO_INVALIDO` | Não corrigir pelo payload do pedido; acionar a operação responsável pelo cadastro fiscal da empresa |
+| CNPJ do documento/chave divergente do contexto fiscal resolvido | `HTTP 422` `DOCUMENTO_CNPJ_DIVERGENTE` | Não repetir automaticamente; revisar pedido, chave, empresa e autorização fiscal |
+| Evento fiscal (consulta/cancelamento/CC-e) em empresa multi-CNPJ | Empresa, certificado e UF resolvidos pelo CNPJ real da operação, sem fallback para configuração global | Nenhuma ação adicional — comportamento transparente ao OMS quando o CNPJ está correto |
+| Reemissão após `REJEITADO` ou `ERRO` | `POST /emitir` reutiliza o mesmo `pedidoId`; nova `chaveNfe` a cada tentativa | Corrigir a causa indicada em `data.cStat`/`data.xMotivo` e chamar `/emitir` de novo no mesmo pedido |
+| Controle de estoque desativado para a empresa | `/emitir` nunca retorna `INSUFFICIENT_STOCK`; saldo não é alterado em nenhuma etapa | Nenhuma ação — configuração é definida pelo Borurio, não pelo OMS |
+| Timeout ou indisponibilidade da SEFAZ | `HTTP 503` `SEFAZ_TIMEOUT`/`SEFAZ_UNAVAILABLE`, `retryable: true` | Seguro reenviar sem alterar dados |
 
 ---
 
@@ -1242,7 +1383,7 @@ pedido.status: REJEITADO → pode ser reemitido no mesmo pedido após corrigir a
 
 | # | Observação                                                 | Impacto                                                 |
 |---|------------------------------------------------------------|---------------------------------------------------------|
-| 1 | `cStat=225` é sempre rejeição real (`SEFAZ_REJECTED`, HTTP 422) — pode ser dado incorreto, não é garantidamente uma limitação de ambiente | Verificar `data.xMotivo` para o motivo real antes de assumir que é peculiaridade do HOM |
+| 1 | `cStat=225` — causado por XML incompatível com o schema da NF-e (estrutura e algoritmos da assinatura XMLDSig); corrigido em 14-07-2026 após alinhamento ao schema oficial; resultado esperado agora é `cStat=100` para empresa com cadastro fiscal aceito pela SEFAZ na emissão de homologação | Se `cStat=225` ainda ocorrer, tratar como rejeição real e verificar `data.xMotivo`. Problemas cadastrais (ex.: IE cassada) têm `cStat`/`xMotivo` próprios — não são `225` |
 | 2 | O campo `"environment"` no `/ping` reflete o perfil Spring ativo       | Usar apenas como indicador de diagnóstico               |
 | 3 | Token expira em 1 hora                                     | Implementar renovação em fluxos longos                  |
 | 4 | Lista paginada de pedidos não inclui itens                 | Sempre usar `GET /{id}` para obter itens                |
@@ -1263,6 +1404,10 @@ pedido.status: REJEITADO → pode ser reemitido no mesmo pedido após corrigir a
 
 | Versão | Data       | Alteração                                                                                      |
 |--------|------------|-----------------------------------------------------------------------------------------------|
+| 1.11   | 22-07-2026 | **Sem mudança de payload de API.** Confirmado e documentado: `modFrete` não é enviado pelo OMS nesta versão — o Borurio define internamente `modFrete=2` (Terceiros) para o fluxo OMS/marketplace atual, refletindo que a plataforma contrata o transporte (confirmado pelo integrador chinês). Revogação/rotação de token OMS passa de descrição operacional para mecanismo implementado e validado em HOM: autorização ativa checada a cada requisição (revogação com efeito imediato, sem depender de expiração do JWT); endpoints administrativos (`/api/admin/oms-authorizations/**`) confirmados como fora do contrato público do OMS. Nova autorização real obtida em HOM (`cStat=100`) com `modFrete=2` confirmado no XML transmitido. |
+| 1.10   | 20-07-2026 | **PROPOSTA — aguardando confirmação do CC, não implantado em HOM.** Novo `PUT /api/integration/fiscal-numbering/{cnpj}` (seção 6.10): substitui o modelo de baseline único no onboarding por sincronização recorrente de série/numeração, disparada pela OMS a cada mudança do lado deles. Novos `errorCode`: `NUMERACAO_INFERIOR_A_ATUAL`, `SERIE_INVALIDA`, `NUMERACAO_INVALIDA`. **Mudança de comportamento em `POST /api/app/pedidos` (seção 6.3):** `serieNfe` deixou de ser resolvida na criação do pedido — vem sempre `null` na resposta até a primeira tentativa de emissão; resolvida junto com o número, atomicamente, só no início da emissão. Corrige gap em que um pedido criado antes de uma sincronização de série continuaria emitindo com a série antiga. `serieNfe` e `chaveNfe` enviados no payload de criação passam a ser sempre ignorados silenciosamente (endpoint deixou de aceitar bind direto da entidade). |
+| 1.9.2  | 16-07-2026 | Correção de documentação (sem mudança de payload de API): novos `errorCode` formalizados no catálogo — `EMISSAO_EM_ANDAMENTO` (proteção contra emissão concorrente duplicada, HTTP 409, retryable), `IND_FINAL_PADRAO_INVALIDO` (configuração fiscal inválida de `indFinal` por empresa) e `DOCUMENTO_CNPJ_DIVERGENTE` (contexto fiscal multi-CNPJ em consulta/cancelamento/CC-e). Nota contratual adicionada sobre `indFinal`/`indIntermed` não fazerem parte do payload. Exemplos de payload passam a usar placeholders genéricos em vez de dados de empresas específicas. Formulação da causa do `cStat=225` precisada (falha de schema/assinatura, não reduzida a um único algoritmo) e desacoplada de problemas cadastrais. Status do documento passa de "Aprovado para integração" para "Vigente para integração em HOM", com ressalva sobre funcionalidades recentes ainda aguardando validação integrada pós-deploy. |
+| 1.9.1  | 14-07-2026 | Correção de documentação (sem mudança de contrato de API): causa raiz do `cStat=225` identificada e corrigida no motor fiscal (algoritmo de assinatura RSA-SHA1/SHA-1, conforme schema XMLDSig oficial vigente da SEFAZ, em vez de RSA-SHA256). Resultado esperado em HOM/SP passa a ser `cStat=100` para empresa com cadastro fiscal aceito pela SEFAZ na emissão de homologação — confirmado em teste interno e em teste do integrador chinês via OMS. Seções 9.3 e 10 corrigidas — `cStat=225` deixou de ser descrito como comportamento esperado/limitação de ambiente. Detalhes completos em `MTF-001_motor-fiscal-nfe.md` seção 13. |
 | 1.9    | 10-07-2026 | **Homologação com CC — 3 melhorias na integração OMS:** (1) `POST /emitir` aceita reemissão no mesmo pedido para `REJEITADO`/`ERRO` (não só `RASCUNHO`) — cada tentativa gera `chaveNfe` nova; (2) `POST /api/app/pedidos` aceita endereço do emitente opcional (`emitLogradouro`/`emitNumero`/`emitBairro`/`emitCodigoMunicipio`/`emitMunicipio`/`emitCep`) para completar automaticamente o cadastro da empresa quando incompleto (empresa auto-criada via certificado não tem endereço); (3) todo erro passa a incluir `retryable` (booleano) e novos `errorCode`: `EMITTER_ADDRESS_INCOMPLETE`, `SEFAZ_REJECTED`, `SEFAZ_TIMEOUT`, `SEFAZ_UNAVAILABLE`, `XML_SCHEMA_INVALID`. `POST /emitir` não retorna mais HTTP 200 quando a SEFAZ rejeita a NF-e — retorna HTTP 422 `SEFAZ_REJECTED` com `data.cStat`/`data.xMotivo`. Seção 9.3 corrigida: `cStat=225` não é mais descrito como "limitação do HOM apenas" — é rejeição real que pode indicar dado incorreto (achado em homologação real com cliente OMS: cadastro do emitente sem endereço). |
 | 1.8    | 10-07-2026 | Controle de estoque passa a ser opcional por empresa (`controleEstoqueAtivo`, configuração interna, default ativo). Empresas com a flag desativada nunca recebem `INSUFFICIENT_STOCK` em `/emitir` e não têm saldo alterado em nenhuma etapa (reserva, baixa, estorno ou cancelamento). Nenhuma mudança de comportamento para empresas existentes. |
 | 1.7    | 22-06-2026 | **OMS Multi-CNPJ (V028):** um cliente OMS (`codigoEmpresaOms`) pode autorizar múltiplos CNPJs com um único token. Empresa auto-criada a partir do Subject X.509 (sem pré-cadastro ADMIN). Campo `cnpjEmitente` adicionado ao pedido para seleção do certificado na emissão. Comportamento por cenário (A/B/C/D) documentado — token nunca muda nos cenários B, C, D. Novos `errorCode`: `COMPANY_INACTIVE`, `CNPJ_NOT_AUTHORIZED`, `CERT_NOT_FOUND_FOR_CNPJ`. Removido: `COMPANY_NOT_FOUND` (empresa agora auto-criada). Smoke test OMS multi-CNPJ adicionado (seção 9.1b). |

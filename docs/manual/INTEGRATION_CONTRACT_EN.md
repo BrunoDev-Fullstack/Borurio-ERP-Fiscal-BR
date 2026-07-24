@@ -4,10 +4,10 @@
 
 | Attribute             | Value                                   |
 |-----------------------|-----------------------------------------|
-| Version               | 1.9                                     |
-| Status                | **Approved for integration**            |
-| Validation date       | 2026-07-10                              |
-| Reference environment | HOM — `https://hom-api.borurio.com`     |
+| Version               | 1.11                                    |
+| Status                | **VALID FOR HOM INTEGRATION** — HOM is available for the CC's own testing; go-live starts only after the CC's final validation. This translation is behind the PT-BR original (canonical) by several minor revisions between 1.9.1 and 1.11 — see `INTEGRATION_CONTRACT_PT-BR.md` for full intermediate history. |
+| Validation date       | 2026-07-22                              |
+| Reference environment | HOM — external access provided only during a controlled test window. No fixed URL should be assumed by the integrator. |
 | Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validated against     | Source code + HOM tests                 |
 
@@ -109,7 +109,7 @@ Authorization: Bearer eyJhbGci...
 
 > `[CONTRACT]` An OMS client (`codigoEmpresaOms`) can authorize **multiple CNPJs** under a single token. The token identifies the OMS client, not a specific CNPJ. Each CNPJ requires a separate call to this endpoint — the token returned is always the same for the same `codigoEmpresaOms`.
 
-> `[CONTRACT]` When issuing an NF-e for an OMS client with multiple authorized CNPJs, the `cnpjEmitente` field of the order selects which CNPJ (and certificate) will be used to sign and transmit the NF-e to SEFAZ. See section 6.3.
+> `[CONTRACT]` When issuing an NF-e for an OMS client with multiple authorized CNPJs, the `cnpjEmitente` field of the order selects which CNPJ (and certificate) will be used to sign and transmit the NF-e to SEFAZ. The informed CNPJ must be authorized for the token (active certificate) **and** have a fiscal registration (state tax ID) accepted by SEFAZ — registration issues for a specific company are reported by SEFAZ in the issuance response (`cStat`/`xMotivo`), they do not prevent the token authorization itself. See section 6.3.
 
 #### Endpoint
 
@@ -135,7 +135,7 @@ Content-Type: application/json
 > `[EXAMPLE]` First authorization — CNPJ1 of a new OMS client:
 ```json
 {
-  "codigoEmpresaOms": "JCHO-001",
+  "codigoEmpresaOms": "{{codigoEmpresaOms}}",
   "cnpj":             "12000000000195",
   "certBase64":       "<base64-encoded .pfx file>",
   "certSenha":        "<certificate password>"
@@ -145,7 +145,7 @@ Content-Type: application/json
 > `[EXAMPLE]` Second authorization — CNPJ2 of the **same** OMS client (returns the same token):
 ```json
 {
-  "codigoEmpresaOms": "JCHO-001",
+  "codigoEmpresaOms": "{{codigoEmpresaOms}}",
   "cnpj":             "98765432000100",
   "certBase64":       "<base64-encoded .pfx of the second CNPJ>",
   "certSenha":        "<password of the second certificate>"
@@ -186,9 +186,11 @@ Content-Type: application/json
 
 > `[CONTRACT]` The ADMIN does not need to be contacted to replace the certificate — the OMS performs the renewal directly via this endpoint.
 
-#### Revocation
+#### Revocation and rotation
 
-> `[OPERATIONAL]` If an API Key or token is compromised, contact the Borurio ADMIN for administrative revocation. After revocation, the token is rejected immediately with `AUTHORIZATION_REVOKED` on any request — without waiting for expiry. Reauthorization with a valid certificate issues a new token.
+> `[OPERATIONAL]` If an API Key or token is compromised, contact the Borurio ADMIN for administrative revocation or rotation. **As of 2026-07-22, the active authorization is checked in the database on every request** — after revocation, the token is rejected immediately with `AUTHORIZATION_REVOKED`, independent of the JWT's natural expiry. Rotation issues a new token (new internal identifier), invalidating the previous one, without interrupting the OMS's access to the service.
+
+> `[CONTRACT]` Revocation and rotation are internal Borurio administrative operations (`/api/admin/oms-authorizations/**`, outside the public contract consumed by the OMS) — the OMS never calls these endpoints directly. The OMS only receives the new token, through a controlled channel, when a rotation occurs.
 
 ---
 
@@ -273,7 +275,7 @@ ERRO       ──► POST /emitir   ──► retry on the SAME order (no new or
 
 > `[CONTRACT]` Since v1.9, `REJEITADO` and `ERRO` are **no longer terminal states**. `POST /emitir` can be called again on the same `pedidoId` — no need to create a new order. Each new attempt generates a fresh NF-e number (`nNF`) and `chaveNfe`, with no duplicate-submission risk to SEFAZ. Only `AUTORIZADO` and `CANCELADO` remain terminal.
 
-> `[OPERATIONAL]` The `cStat` values in the diagram above refer to the **individual NF-e response** (`infProt/cStat`) returned inside the SOAP envelope — not the batch-level code (`retEnviNFe/cStat`). In HOM-SP specifically, the batch is accepted with `cStat=104` (AGUARDANDO) even though the individual NF-e entry inside the same response shows `cStat=225`. The system reads the batch result first: `cStat=104 → AGUARDANDO`. Therefore **do not expect `REJEITADO` when you see `cStat=225` in HOM** — the order will be `AGUARDANDO`. See section 9.3 for the full HOM-SP behavior.
+> `[OPERATIONAL]` **2026-07-14 correction:** an earlier version of this note claimed that a batch-level `cStat=104` combined with an individual-NF-e `cStat=225` in the same SOAP response would leave the order in `AGUARDANDO`. That was incorrect — any `cStat≥200` (including 225) has always resulted in `REJEITADO`, never `AGUARDANDO`, and since v1.9 it returns HTTP 422 `SEFAZ_REJECTED`, not HTTP 200. The root cause of `cStat=225` itself was identified and fixed on 2026-07-14 (see section 9.3) — the expected result in HOM-SP is now `cStat=100` (`AUTORIZADO`) for a company with fiscal registration accepted by SEFAZ during the staging issuance.
 
 ---
 
@@ -327,7 +329,9 @@ Content-Type: application/json
 | `origem`    | Integer | Required · `0`=Domestic · `1` to `8`=Imported            |
 | `csosn`     | String  | Optional · If omitted, item snapshot defaults to `"400"` |
 
-> `[CONTRACT]` CFOP reference: intra-state operation: `5102` · interstate operation: `6102`.
+> `[CONTRACT]` CFOP reference: intra-state operation: `5102` · interstate operation: `6102`. CFOP remains the OMS's responsibility — Borurio validates coherence between the informed CFOP and the calculated destination (`idDest`), but does not correct or infer it.
+
+> `[CONTRACT]` **Freight modality (`modFrete`) is not sent by the OMS in this version of the contract — there is no field for it in the payload.** Borurio internally defines `modFrete=2` ("Freight Contracted by Third Party") for every issuance in the current OMS/marketplace flow, reflecting that the marketplace itself contracts the freight (confirmed by the Chinese integrator). This is an internal Borurio fiscal decision, not an OMS-configurable parameter in this version.
 
 > `[CONTRACT]` CSOSN reference (Simples Nacional): `102`=no ST no credit · `103`=exempt by revenue bracket · `300`=immune · `400`=non-contributor · `500`=ICMS previously collected (ST) · `900`=other. Codes `201`, `202`, and `203` (with ST) are not supported in this version of the fiscal engine.
 
@@ -573,6 +577,8 @@ Content-Type: application/json
 | `destCep`             | String | Recommended                                                  |
 | `naturezaOperacao`    | String | Optional · Server-side default: `"VENDA DE MERCADORIA"`      |
 | `cnpjEmitente`        | String | **Required for OMS multi-CNPJ** · 14 numeric digits · CNPJ that must sign and issue the NF-e · If omitted in an OMS flow, the system uses the CNPJ of the first authorized certificate for that client |
+
+> `[OPERATIONAL]` When an OMS client has more than one CNPJ linked to the same token, **do not rely on the default CNPJ** (first authorized certificate) — send `cnpjEmitente` explicitly in every order. A historical/deactivated certificate linked to the same token may be resolved by default and cause a SEFAZ rejection due to a registration issue (`cStat=209`, invalid emitter state tax ID) even when another CNPJ of the same OMS client is active and fit for issuance.
 | `externalOrderId`     | String | Recommended · Max 100 chars · Unique per company · Enables idempotent retry |
 | `emitLogradouro`      | String | Optional · Emitter address (see note below) |
 | `emitNumero`          | String | Optional |
@@ -1222,17 +1228,27 @@ Response header will contain: `X-Request-Id: oms-batch-20260601-001`
 
 ### 9.3 Expected Behavior in HOM-SP
 
-> `[OPERATIONAL]` **v1.9 correction:** earlier versions of this document described `cStat=225` as a "HOM-SP environment limitation" that always returned HTTP 200. That was incomplete — `cStat=225` (`Rejeição: Falha no Schema XML do lote de NFe`) is a real SEFAZ rejection code and **can indicate a genuine data problem** (e.g., emitter registration with an incomplete address — this happened in a real OMS client's staging session). Since v1.9, `cStat≥200` (including 225) results in `REJEITADO` and `POST /emitir` returns HTTP 422 with `errorCode: SEFAZ_REJECTED` — **no longer HTTP 200** (see section 6.4).
+> `[OPERATIONAL]` **2026-07-14 correction:** the root cause of `cStat=225` was identified and fixed — the engine was signing the XML with the wrong signature algorithm (RSA-SHA256, when the SEFAZ's current official XMLDSig schema requires RSA-SHA1). With the fix, the expected result in HOM-SP for a company with fiscal registration accepted by SEFAZ during the staging issuance is `cStat=100` (`AUTORIZADO`) — confirmed with the currently qualified emitting company, including in a test run by the Chinese integrator via the OMS. `cStat=225` is no longer the expected behavior; if it occurs, treat it as a real rejection and inspect `data.xMotivo`. Since v1.9, `cStat≥200` results in `REJEITADO` and `POST /emitir` returns HTTP 422 with `errorCode: SEFAZ_REJECTED` — not HTTP 200 (see section 6.4).
 
-> `[OPERATIONAL]` The `verAplic` in the SEFAZ response indicates which processor answered (e.g., `SP_NFE_PL_008i2`, `SP_NFE_PL009_V4`) — it can differ between the batch level (`retEnviNFe`) and the individual protocol level (`protNFe/infProt`) in the same response. That difference alone is not, by itself, evidence of an error or environment limitation — `xMotivo` in `data.xMotivo` is the reliable source for the real rejection reason.
+> `[OPERATIONAL]` The `verAplic` in the SEFAZ response indicates which processor answered (e.g., `SP_NFE_PL_008i2`, `SP_NFE_PL009_V4`) — it can differ between the batch level (`retEnviNFe`) and the individual protocol level (`protNFe/infProt`) in the same response. That difference alone is not, by itself, evidence of an error — `xMotivo` in `data.xMotivo` is the reliable source for the real reason behind any rejection.
 
-Typical result of `POST /api/app/pedidos/{id}/emitir` in HOM-SP when the NF-e is rejected:
+Expected result of `POST /api/app/pedidos/{id}/emitir` in HOM-SP for a company with fiscal registration accepted by SEFAZ during the staging issuance:
+
+```
+HTTP 200
+data.chaveNfe: <44 digits>
+pedido.status: AUTORIZADO
+data.cStat:    100
+data.xMotivo:  "Autorizado o uso da NF-e"
+```
+
+If the NF-e is rejected (bad data, invalid/revoked state tax ID, etc.), the result is:
 
 ```
 HTTP 422
 errorCode: SEFAZ_REJECTED
-data.cStat:   225
-data.xMotivo: "Rejeição: Falha no Schema XML do lote de NFe"
+data.cStat:    <code returned by SEFAZ>
+data.xMotivo:  <reason returned by SEFAZ>
 pedido.status: REJEITADO → can be reissued on the same order after fixing the cause (v1.9)
 ```
 
@@ -1244,7 +1260,7 @@ pedido.status: REJEITADO → can be reissued on the same order after fixing the 
 
 | # | Observation                                              | Impact                                              |
 |---|----------------------------------------------------------|-----------------------------------------------------|
-| 1 | `cStat=225` is always a real rejection (`SEFAZ_REJECTED`, HTTP 422) — may be bad data, not guaranteed to be an environment quirk | Check `data.xMotivo` for the real reason before assuming it's a HOM peculiarity |
+| 1 | `cStat=225` — root cause fixed on 2026-07-14 (signature algorithm); the expected result is now `cStat=100` for a company with fiscal registration accepted by SEFAZ during the staging issuance | If `cStat=225` still occurs, treat it as a real rejection and check `data.xMotivo` |
 | 2 | The `"environment"` field in `/ping` reflects the active Spring profile | Use only as a diagnostic indicator, not as a routing discriminator |
 | 3 | Token expires in 1 hour                                  | Implement renewal for long-running flows            |
 | 4 | Paginated order list does not include items              | Always use `GET /{id}` to retrieve items            |
@@ -1265,6 +1281,8 @@ pedido.status: REJEITADO → can be reissued on the same order after fixing the 
 
 | Version | Date       | Change                                                                                      |
 |---------|------------|---------------------------------------------------------------------------------------------|
+| 1.11    | 2026-07-22 | **No API payload change.** Confirmed and documented: `modFrete` is not sent by the OMS in this version — Borurio internally defines `modFrete=2` (Third Party) for the current OMS/marketplace flow, reflecting that the marketplace contracts the freight (confirmed by the Chinese integrator). OMS token revocation/rotation moves from an operational description to an implemented and HOM-validated mechanism: active authorization checked on every request (revocation takes effect immediately, independent of JWT expiry); admin endpoints (`/api/admin/oms-authorizations/**`) confirmed outside the OMS's public contract. New real authorization obtained in HOM (`cStat=100`) with `modFrete=2` confirmed in the transmitted XML. This entry catches up the English translation, which had fallen behind versions 1.10 (PT-BR only) and 1.9.2 (PT-BR only) — see `INTEGRATION_CONTRACT_PT-BR.md` for that intermediate history. |
+| 1.9.1   | 2026-07-14 | Documentation correction (no API contract change): the root cause of `cStat=225` was identified and fixed in the fiscal engine (RSA-SHA1/SHA-1 signature algorithm, per the SEFAZ's current official XMLDSig schema, instead of RSA-SHA256). Expected result in HOM/SP is now `cStat=100` for a company with fiscal registration accepted by SEFAZ during the staging issuance — confirmed with the currently qualified emitting company in an internal test and in a test run by the Chinese integrator via the OMS. Sections 9.3 and 10 corrected — `cStat=225` is no longer described as expected behavior/environment limitation. Full details in `MTF-001_motor-fiscal-nfe_EN.md` section 13. |
 | 1.9     | 2026-07-10 | **Staging session with CC — 3 OMS integration improvements:** (1) `POST /emitir` now accepts reissue on the same order for `REJEITADO`/`ERRO` (not only `RASCUNHO`) — each attempt generates a fresh `chaveNfe`; (2) `POST /api/app/pedidos` accepts an optional emitter address (`emitLogradouro`/`emitNumero`/`emitBairro`/`emitCodigoMunicipio`/`emitMunicipio`/`emitCep`) to auto-complete the company registration when incomplete (companies auto-created via certificate have no address); (3) every error now includes `retryable` (boolean) and new `errorCode` values: `EMITTER_ADDRESS_INCOMPLETE`, `SEFAZ_REJECTED`, `SEFAZ_TIMEOUT`, `SEFAZ_UNAVAILABLE`, `XML_SCHEMA_INVALID`. `POST /emitir` no longer returns HTTP 200 when SEFAZ rejects the NF-e — it returns HTTP 422 `SEFAZ_REJECTED` with `data.cStat`/`data.xMotivo`. Section 9.3 corrected: `cStat=225` is no longer described as a "HOM-only limitation" — it is a real rejection that can indicate bad data (found during a real staging session with an OMS client: emitter registration missing an address). |
 | 1.8     | 2026-07-10 | Stock control is now optional per company (`controleEstoqueAtivo`, internal configuration, active by default). Companies with the flag disabled never receive `INSUFFICIENT_STOCK` in `/emitir` and never have their balance changed at any step (reservation, write-off, reversal, or cancellation). No behavior change for existing companies. |
 | 1.7     | 2026-06-22 | **OMS Multi-CNPJ (V028):** an OMS client (`codigoEmpresaOms`) can authorize multiple CNPJs under a single token. Company auto-created from X.509 Subject (no ADMIN pre-registration required). `cnpjEmitente` field added to order for certificate selection at issuance. Behavior per scenario (A/B/C/D) documented — token never changes in scenarios B, C, D. New `errorCode` values: `COMPANY_INACTIVE`, `CNPJ_NOT_AUTHORIZED`, `CERT_NOT_FOUND_FOR_CNPJ`. Removed: `COMPANY_NOT_FOUND` (company is now auto-created). OMS multi-CNPJ smoke test added (section 9.1b). |
