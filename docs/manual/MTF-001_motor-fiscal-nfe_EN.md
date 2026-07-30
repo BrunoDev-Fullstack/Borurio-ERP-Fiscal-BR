@@ -87,7 +87,7 @@ The document is intended for:
 | PT-BR and EN integration contracts generated and validated                     | ✓ Code — 2026-05-12                                       |
 | `MyBatisConfig`: `@ConditionalOnProperty` ensures correct boot in HOM          | ✓ HOM/SP — 2026-05-12                                     |
 | 57/57 tests passing (12 controllers covered + fiscal)                          | ✓ Code — 2026-05-15                                       |
-| Rate limiting: `/auth/login` (10 req/min) and `/emitir` (30 req/min)           | ✓ Code — 2026-05-15                                       |
+| Rate limiting: `/auth/login` (10 req/min); `/emitir` (default 30 req/min — HOM adjusted to 300 since 2026-07-30, see section 16) | ✓ Code — 2026-05-15                                       |
 | `nfe_log` retention scheduling (`NfeLogRetencaoScheduler`)                     | ✓ Code — 2026-05-15                                       |
 | CORS restricted — `*` replaced by explicit origins per environment             | ✓ Code — 2026-05-15                                       |
 | `SecureRandom` for `cNF` generation (replaced `new Random()`)                  | ✓ Code — 2026-05-15                                       |
@@ -1337,8 +1337,18 @@ Security checks:
 | CI/CD pipeline                                | **MEDIUM**   | GitHub Actions: test → build → push image → deploy HOM → smoke test   |
 | Monitoring                                    | **LOW**      | Prometheus + Loki                                                       |
 | ~~Automatic certificate cache invalidation~~  | ~~HIGH~~     | ✓ Implemented — `EmpresaController.atualizar()` calls `invalidar()`   |
-| ~~Rate limiting~~                             | ~~MEDIUM~~   | ✓ Implemented — `RateLimitInterceptor` (10 req/min login, 30 emitir)  |
+| ~~Rate limiting~~                             | ~~MEDIUM~~   | ✓ Implemented — `RateLimitInterceptor`; login 10 req/min, `/emitir` default 30 (HOM=300 since 2026-07-30, provisional — see subsection below) |
 | ~~`nfe_log` retention policy~~                | ~~LOW~~      | ✓ Implemented — `NfeLogRetencaoScheduler` + `@EnableScheduling`       |
+
+#### Rate limiting — `/emitir`
+
+- Code default (`RateLimitInterceptor`) remains **30 requests/minute per IP** when `RATE_LIMIT_EMITIR_MAX` is not configured.
+- In HOM, since 2026-07-30, `RATE_LIMIT_EMITIR_MAX=300` (via `docker/env/.env.hom`), following an OMS report of throttling under real emission volume.
+- **Provisional** homologation value — not the final PRD value.
+- The PRD value will be defined once the OMS reports expected peak per minute and concurrency, followed by a load test.
+- Abuse protection was not removed; the control remains active, only the ceiling was raised.
+- The current control is still keyed by IP (`request.getRemoteAddr()`), not by company/token/JWT.
+- Future evolution to evaluate: identification by company/OMS via JWT instead of IP, and a `Retry-After` header on 429.
 
 ### Phase 12-B — DANFE ✓ COMPLETED (2026-05-18)
 
