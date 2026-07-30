@@ -296,12 +296,16 @@ Validação em HOM: se `cStat=225` ainda ocorrer, tratar como rejeição real e 
 | Validar procedimento de rollback                                                                             | Crítico                                | Bruno / Operações    |
 | Primeira emissão controlada                                                                                  | Crítico — bloqueante para go-live      | Bruno / Contador     |
 | Validação fiscal e contábil da operação                                                                     | Crítico — bloqueante para go-live      | Contador / Responsável tributário |
-| Definir estratégia de contingência fiscal (modalidade a determinar junto à documentação oficial vigente)     | Crítico                                | Bruno                |
+| Definir e implementar estratégia de contingência fiscal formal, avaliando SVC-AN, SVC-RS e EPEC conforme UF, operação e documentação oficial vigente | Crítico — P1 pré-produção | Bruno / Responsável fiscal |
 | Documentar critérios de ativação da contingência                                                            | Crítico                                | Bruno                |
 | Documentar reconciliação posterior a contingência                                                            | Crítico                                | Bruno                |
 | Testar estados incertos (falha de comunicação com a SEFAZ após transmissão)                                 | Crítico                                | Bruno                |
 | Validar a estratégia de contingência com o responsável fiscal                                                | Crítico                                | Contador / Responsável tributário |
 | Definição de negócio para `indIntermed` em cenário de marketplace/plataforma de terceiro (ver seção 1.4)     | Bloqueante apenas para esse cenário — não bloqueia venda direta | Bruno / Time chinês / Responsável fiscal |
+
+**Escopo técnico da contingência fiscal formal:** controlar `tpEmis`, `dhCont` e `xJust`; selecionar o autorizador adequado; preservar série, número e chave de acesso; tratar estado incerto após a transmissão (consultar situação antes de nova tentativa, evitando autorização duplicada); persistir XML e estado da emissão; reconciliar posteriormente com a SEFAZ; implementar observabilidade, auditoria e testes unitários, de integração e homologação.
+
+**Impacto na homologação OMS:** este item não bloqueia os testes atuais do CC e não exige alteração imediata no contrato. Enquanto a contingência fiscal formal não estiver implementada, o OMS continua tratando `HTTP 503` com `retryable=true` e repetindo `POST /api/app/pedidos/{id}/emitir` no mesmo pedido.
 
 > `cStat=100` obtido em HOM/SP em 14-07-2026 confirma conformidade de schema/assinatura, mas **não substitui** a validação em produção — número de série real, comportamento do certificado PRD e o ciclo fiscal completo perante o contador só podem ser confirmados com uma emissão real controlada.
 
