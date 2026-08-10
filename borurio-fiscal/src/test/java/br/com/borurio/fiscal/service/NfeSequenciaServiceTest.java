@@ -2,6 +2,7 @@ package br.com.borurio.fiscal.service;
 
 import br.com.borurio.fiscal.dto.AtualizacaoSequenciaResultado;
 import br.com.borurio.fiscal.entity.NfeSequencia;
+import br.com.borurio.fiscal.exception.SequenciaComEmissaoAtivaException;
 import br.com.borurio.fiscal.mapper.NfeSequenciaMapper;
 import br.com.borurio.fiscal.service.impl.NfeSequenciaServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -263,6 +264,7 @@ public class NfeSequenciaServiceTest {
             copia.setCnpjEmitente(atual.getCnpjEmitente());
             copia.setSerie(atual.getSerie());
             copia.setUltimoNumero(atual.getUltimoNumero());
+            copia.setEmissaoAtivaId(atual.getEmissaoAtivaId());
             return copia;
         }
 
@@ -278,11 +280,26 @@ public class NfeSequenciaServiceTest {
             valoresGravados.add(seq.getUltimoNumero());
         }
 
+        @Override
+        public void ocuparGate(String cnpjEmitente, String serie, Long emissaoAtivaId) {
+            NfeSequencia atual = dados.get(chave(cnpjEmitente, serie));
+            if (atual == null) return;
+            atual.setEmissaoAtivaId(emissaoAtivaId);
+        }
+
+        @Override
+        public void liberarGate(String cnpjEmitente, String serie) {
+            NfeSequencia atual = dados.get(chave(cnpjEmitente, serie));
+            if (atual == null) return;
+            atual.setEmissaoAtivaId(null);
+        }
+
         private NfeSequencia copiar(NfeSequencia seq) {
             NfeSequencia copia = new NfeSequencia();
             copia.setCnpjEmitente(seq.getCnpjEmitente());
             copia.setSerie(seq.getSerie());
             copia.setUltimoNumero(seq.getUltimoNumero());
+            copia.setEmissaoAtivaId(seq.getEmissaoAtivaId());
             return copia;
         }
 
@@ -560,5 +577,187 @@ public class NfeSequenciaServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.atualizarSequencia(null, SERIE, 101));
         assertThrows(IllegalArgumentException.class, () -> service.atualizarSequencia(CNPJ, "  ", 101));
         verifyNoInteractions(mapper);
+    }
+
+    // -------------------------------------------------------------------------
+    // Gate 1 — ciclo do nNF (NfeEmissaoService): peek sem persistir, gate, consumo terminal
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("buscarOuCriarParaAtualizar cria a sequência (ultimoNumero=0) quando ainda não existe, sem consumir número nenhum")
+    void buscarOuCriarParaAtualizar_sequenciaInexistente_criaComZero() {
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+
+        NfeSequencia seq = service.buscarOuCriarParaAtualizar(CNPJ, SERIE);
+
+        assertEquals(0, seq.getUltimoNumero());
+        verify(mapper).inserir(argThat(s -> s.getUltimoNumero() == 0));
+    }
+
+    @Test
+    @DisplayName("buscarOuCriarParaAtualizar devolve a sequência existente sem tocar o mapper de escrita")
+    void buscarOuCriarParaAtualizar_sequenciaExistente_devolveSemEscrever() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(7);
+        existente.setEmissaoAtivaId(501L);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        NfeSequencia seq = service.buscarOuCriarParaAtualizar(CNPJ, SERIE);
+
+        assertEquals(7, seq.getUltimoNumero());
+        assertEquals(501L, seq.getEmissaoAtivaId());
+        verify(mapper, never()).inserir(any());
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("peekProximoNumero devolve ultimoNumero+1 sem persistir o incremento — diferente de proximoNumero()")
+    void peekProximoNumero_naoPersisteIncremento() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(9);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        int candidato = service.peekProximoNumero(CNPJ, SERIE);
+
+        assertEquals(10, candidato);
+        verify(mapper, never()).atualizarNumero(any());
+        verify(mapper, never()).inserir(any());
+    }
+
+    @Test
+    @DisplayName("ocuparGate e liberarGate delegam direto ao mapper")
+    void ocuparELiberarGate_delegamAoMapper() {
+        service.ocuparGate(CNPJ, SERIE, 501L);
+        service.liberarGate(CNPJ, SERIE);
+
+        verify(mapper).ocuparGate(CNPJ, SERIE, 501L);
+        verify(mapper).liberarGate(CNPJ, SERIE);
+    }
+
+    @Test
+    @DisplayName("consumirNumero avança ultimoNumero quando o número bate exatamente com o esperado")
+    void consumirNumero_numeroEsperado_avanca() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(4);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        service.consumirNumero(CNPJ, SERIE, 5);
+
+        verify(mapper).atualizarNumero(argThat(s -> s.getUltimoNumero() == 5));
+    }
+
+    @Test
+    @DisplayName("consumirNumero com número fora do esperado falha explicitamente — proteção contra desvio da máquina de estados")
+    void consumirNumero_numeroInesperado_lancaIllegalState() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(4);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.consumirNumero(CNPJ, SERIE, 7));
+
+        assertTrue(ex.getMessage().contains("desvio"));
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("consumirNumero em sequência inexistente falha explicitamente")
+    void consumirNumero_sequenciaInexistente_lancaIllegalState() {
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+
+        assertThrows(IllegalStateException.class, () -> service.consumirNumero(CNPJ, SERIE, 1));
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    // -------------------------------------------------------------------------
+    // P0-1 (07-08-2026, hardening pós-banca) — vetor 1: atualizarSequencia() nunca avança
+    // ultimo_numero enquanto a linha tem emissaoAtivaId != null (gate do Gate 1 ocupado).
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("buscarSeExistirParaAtualizar devolve null quando a sequência não existe, sem criar nada")
+    void buscarSeExistirParaAtualizar_inexistente_devolveNullSemCriar() {
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+
+        NfeSequencia resultado = service.buscarSeExistirParaAtualizar(CNPJ, SERIE);
+
+        assertNull(resultado);
+        verify(mapper, never()).inserir(any());
+    }
+
+    @Test
+    @DisplayName("buscarSeExistirParaAtualizar devolve a linha existente (com emissaoAtivaId) sem escrever")
+    void buscarSeExistirParaAtualizar_existente_devolveComGate() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(4);
+        existente.setEmissaoAtivaId(501L);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        NfeSequencia resultado = service.buscarSeExistirParaAtualizar(CNPJ, SERIE);
+
+        assertEquals(501L, resultado.getEmissaoAtivaId());
+        verify(mapper, never()).inserir(any());
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia com avanço real e gate ocupado lança SequenciaComEmissaoAtivaException, ultimo_numero não muda")
+    void atualizarSequencia_avancoComGateOcupado_lancaSequenciaComEmissaoAtiva() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(4);
+        existente.setEmissaoAtivaId(501L);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        SequenciaComEmissaoAtivaException ex = assertThrows(SequenciaComEmissaoAtivaException.class,
+                () -> service.atualizarSequencia(CNPJ, SERIE, 6)); // proximoNumero=6 -> alvo=5 > atual=4
+
+        assertEquals(CNPJ, ex.getCnpjEmitente());
+        assertEquals(SERIE, ex.getSerie());
+        assertEquals(501L, ex.getEmissaoAtivaId());
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia idempotente (mesmo valor) é permitida mesmo com gate ocupado — regra 1")
+    void atualizarSequencia_idempotenteComGateOcupado_naoBloqueia() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(4);
+        existente.setEmissaoAtivaId(501L);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        AtualizacaoSequenciaResultado resultado = service.atualizarSequencia(CNPJ, SERIE, 5); // alvo=4 == atual=4
+
+        assertFalse(resultado.aplicado());
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("atualizarSequencia com avanço real e gate livre continua funcionando normalmente")
+    void atualizarSequencia_avancoComGateLivre_aplicaNormalmente() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(4);
+        existente.setEmissaoAtivaId(null);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        AtualizacaoSequenciaResultado resultado = service.atualizarSequencia(CNPJ, SERIE, 6);
+
+        assertTrue(resultado.aplicado());
+        verify(mapper).atualizarNumero(argThat(s -> s.getUltimoNumero() == 5));
     }
 }

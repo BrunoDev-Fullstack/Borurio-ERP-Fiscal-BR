@@ -18,6 +18,22 @@ public interface PedidoService {
 
     Pedido buscarPorId(Long id);
 
+    /** Retorna o pedido (sem itens) validando que pertence à empresa. */
+    Pedido buscarPorIdEEmpresa(Long id, Long empresaId);
+
+    /**
+     * P0-2 (07-08-2026, hardening pós-banca) — fronteira central de isolamento multiempresa
+     * pra operações fiscais por pedidoId (emitir/cancelar/CC-e/situação). O tenant vem sempre de
+     * EmpresaContextHolder (contexto autenticado, nunca de parâmetro/body/query) — se estiver
+     * presente, valida posse (NoSuchElementException/404 se o pedido for de outra empresa); se
+     * ausente (fluxo ADMIN interno, mesma convenção já usada em PedidoController.buscarPorId),
+     * cai no comportamento irrestrito de antes.
+     */
+    Pedido buscarComItensDoTenanteAtual(Long id);
+
+    /** Mesma fronteira de buscarComItensDoTenanteAtual(), sem carregar itens. */
+    Pedido buscarPorIdDoTenanteAtual(Long id);
+
     List<Pedido> listarTodos();
 
     List<Pedido> listarPorEmpresa(Long empresaId);

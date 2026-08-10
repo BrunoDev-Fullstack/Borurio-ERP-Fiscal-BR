@@ -11,6 +11,7 @@ import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.web.auth.JwtUtil;
 import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
+import br.com.borurio.web.config.SecurityConfig;
 import br.com.borurio.web.controller.app.PedidoController;
 import br.com.borurio.web.service.OmsCertificadoService;
 import br.com.borurio.web.service.PedidoEmissaoService;
@@ -22,7 +23,11 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -41,12 +46,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(PedidoController.class)
+@Import(SecurityConfig.class)
 class PedidoControllerTest {
 
     @Autowired MockMvc mockMvc;
@@ -809,5 +816,90 @@ class PedidoControllerTest {
                         .content("{\"correcao\": \"Correção de campo válida\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value(422));
+    }
+
+    // -------------------------------------------------------------------------
+    // P0-2 (Gate 1.2 Fase B) — prova adversarial de ponta a ponta: requisição HTTP real,
+    // passando pelo JwtFilter de PRODUÇÃO (não mockado — só JwtUtil/UserDetailsService são
+    // @MockBean, exatamente como no resto desta classe), contra o PedidoController real.
+    // Docker/MySQL não estão disponíveis nesta sessão (sem GATEB_DB_URL, sem daemon do Docker
+    // rodando) — por isso a prova é feita neste slice @WebMvcTest em vez de um *IT com MySQL
+    // real; ainda assim atravessa o JwtFilter real e o dispatch real do Spring MVC, não apenas
+    // o método isolado. verifyNoInteractions comprova que nenhum service/efeito de negócio é
+    // alcançado quando o filtro barra a requisição.
+    // -------------------------------------------------------------------------
+
+    private static final String TOKEN_P02 = "fake-jwt-p02";
+
+    private UserDetails userDetailsComRole(String username, String role) {
+        return User.builder()
+                .username(username)
+                .password("hash-irrelevante")
+                .authorities(AuthorityUtils.createAuthorityList("ROLE_" + role))
+                .build();
+    }
+
+    private void mockarUsuarioSemOms(String username, String role, Long empresaId) {
+        when(jwtUtil.extractTipo(TOKEN_P02)).thenReturn(null);
+        when(jwtUtil.extractUsername(TOKEN_P02)).thenReturn(username);
+        when(jwtUtil.validateToken(TOKEN_P02, username)).thenReturn(true);
+        when(jwtUtil.extractEmpresaId(TOKEN_P02)).thenReturn(empresaId);
+        when(userDetailsService.loadUserByUsername(username)).thenReturn(userDetailsComRole(username, role));
+    }
+
+    @Test
+    void operadorSemTenant_listar_403TenantRequiredAntesDoService() throws Exception {
+        mockarUsuarioSemOms("operador-sem-empresa@teste.com", "OPERADOR", null);
+
+        mockMvc.perform(get("/api/app/pedidos")
+                        .header("Authorization", "Bearer " + TOKEN_P02))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("TENANT_REQUIRED"))
+                .andExpect(jsonPath("$.retryable").value(false));
+
+        verifyNoInteractions(pedidoService);
+    }
+
+    @Test
+    void operadorSemTenant_emitir_403TenantRequiredSemNenhumEfeitoDeEmissao() throws Exception {
+        mockarUsuarioSemOms("operador-sem-empresa@teste.com", "OPERADOR", null);
+
+        mockMvc.perform(post("/api/app/pedidos/1/emitir")
+                        .with(csrf())
+                        .header("Authorization", "Bearer " + TOKEN_P02))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("TENANT_REQUIRED"));
+
+        // Nenhum efeito de negócio: claim de emissão, estoque, nfe_emissao/nfe_sequencia e SEFAZ
+        // vivem dentro de PedidoEmissaoService.emitir() — zero interação prova que a requisição
+        // nunca saiu do JwtFilter, nem chegou ao controller/service.
+        verifyNoInteractions(pedidoEmissaoService);
+    }
+
+    @Test
+    void adminSemTenant_listar_acessoGlobalPermitido() throws Exception {
+        mockarUsuarioSemOms("admin@teste.com", "ADMIN", null);
+        when(pedidoService.listarPaginado(isNull(), anyInt(), anyInt()))
+                .thenReturn(PageResponse.of(List.of(), 0, 20, 0L));
+
+        mockMvc.perform(get("/api/app/pedidos")
+                        .header("Authorization", "Bearer " + TOKEN_P02))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(pedidoService).listarPaginado(isNull(), anyInt(), anyInt());
+    }
+
+    @Test
+    void operadorComTenant_listar_permitidoEscopadoAEmpresa() throws Exception {
+        mockarUsuarioSemOms("operador@teste.com", "OPERADOR", 10L);
+        when(pedidoService.listarPaginado(org.mockito.ArgumentMatchers.eq(10L), anyInt(), anyInt()))
+                .thenReturn(PageResponse.of(List.of(), 0, 20, 0L));
+
+        mockMvc.perform(get("/api/app/pedidos")
+                        .header("Authorization", "Bearer " + TOKEN_P02))
+                .andExpect(status().isOk());
+
+        verify(pedidoService).listarPaginado(org.mockito.ArgumentMatchers.eq(10L), anyInt(), anyInt());
     }
 }

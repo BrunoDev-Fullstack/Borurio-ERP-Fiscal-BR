@@ -6,10 +6,14 @@ import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.mapper.OmsFiscalAuthorizationMapper;
 import br.com.borurio.fiscal.dto.AtualizacaoSequenciaResultado;
+import br.com.borurio.fiscal.entity.NfeSequencia;
 import br.com.borurio.fiscal.entity.NfeSequenciaAuditoria;
+import br.com.borurio.fiscal.exception.SequenciaComEmissaoAtivaException;
 import br.com.borurio.fiscal.mapper.NfeSequenciaAuditoriaMapper;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
 import br.com.borurio.web.dto.FiscalNumberingSyncResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,12 +26,28 @@ import java.time.LocalDateTime;
  * onboarding (inicializarBaseline), que não cobre o requisito confirmado pelo CC de atualização
  * recorrente disparada sempre que o cliente muda série/numeração no lado da OMS.
  *
- * Ordem de lock (mesma de ReservaFiscalService, documentada para evitar deadlock): Empresa
- * primeiro, depois nfe_sequencia (via NfeSequenciaService.atualizarSequencia).
+ * Ordem de lock (mesma de ReservaFiscalService/NfeEmissaoService, documentada para evitar
+ * deadlock): Empresa primeiro, depois nfe_sequencia — sempre nessa ordem, nunca a inversa, e
+ * nunca envolvendo nfe_emissao diretamente (esta classe só lê emissaoAtivaId como campo de
+ * nfe_sequencia, nunca toca a tabela nfe_emissao). Toda a operação — validação de gate e escrita
+ * de sequência/série — acontece dentro desta única transação curta, sem nenhuma chamada de rede.
+ *
+ * P0-1 (07-08-2026, hardening pós-banca): uma sincronização externa nunca pode mutar o baseline
+ * fiscal (avançar o número, ou trocar a série ativa) enquanto existe um ciclo do Gate 1 em voo —
+ * isso corromperia nfe_sequencia por baixo de uma nfe_emissao que ainda vai tentar consumir um
+ * número específico. Dois vetores tratados:
+ *   vetor 1 (avanço de número): guardado dentro de NfeSequenciaServiceImpl.aplicarOuValidar() —
+ *     nunca escreve ultimo_numero se a linha tiver emissaoAtivaId != null, mas SÓ quando o valor
+ *     realmente avançaria (sincronização idempotente continua permitida mesmo com gate ocupado).
+ *   vetor 2 (troca de série): guardado aqui — a série sendo abandonada (serieAnterior) não pode
+ *     ter emissaoAtivaId != null (senão o ciclo ativo fica órfão, porque abrirCiclo() resolve a
+ *     série de novo a cada chamada a partir de Empresa.serieNfePadrao), e a série de destino
+ *     (serieNova) também não pode ter uma emissão ativa persistida de antes.
  */
 @Service
 public class FiscalNumberingService {
 
+    private static final Logger log = LoggerFactory.getLogger(FiscalNumberingService.class);
     private static final String ORIGEM_SYNC = "OMS_SYNC";
 
     private final EmpresaMapper empresaMapper;
@@ -61,22 +81,54 @@ public class FiscalNumberingService {
             throw BusinessException.cnpjNotAuthorizedForOmsClient(cnpj);
         }
 
-        // Lock 1: Empresa — sempre primeiro, mesma ordem de ReservaFiscalService.
+        // Lock 1: Empresa — sempre primeiro, mesma ordem de ReservaFiscalService/NfeEmissaoService.
         Empresa empresa = empresaMapper.buscarPorCnpjParaAtualizar(cnpj);
         if (empresa == null) {
             throw BusinessException.companyNotFound(cnpj);
         }
         String serieAnterior = empresa.getSerieNfePadrao();
+        boolean serieMudou = serieAnterior == null || !serieAnterior.equals(serieNova);
 
-        // Lock 2: nfe_sequencia (dentro de atualizarSequencia) — nunca antes do lock 1.
+        // Vetor 2 — só entra em jogo quando a série está de fato mudando. Nenhuma escrita
+        // acontece antes dos dois lados terem sido confirmados livres.
+        if (serieMudou) {
+            // Lock 2a (somente leitura): a série sendo abandonada não pode ter ciclo ativo —
+            // senão abrirCiclo() (que resolve a série de novo a cada chamada a partir de
+            // Empresa.serieNfePadrao) nunca mais encontraria esse ciclo numa retomada.
+            if (serieAnterior != null) {
+                NfeSequencia seqAnterior = sequenciaService.buscarSeExistirParaAtualizar(cnpj, serieAnterior);
+                if (seqAnterior != null && seqAnterior.getEmissaoAtivaId() != null) {
+                    log.warn("[FiscalNumbering] Sincronização bloqueada — série anterior com emissão ativa | "
+                                    + "cnpj={} | serieAnterior={} | emissaoAtivaId={}",
+                            cnpj, serieAnterior, seqAnterior.getEmissaoAtivaId());
+                    throw BusinessException.numeracaoComEmissaoEmAndamento(cnpj, serieAnterior);
+                }
+            }
+            // Lock 2b (somente leitura): a série de destino não pode ter uma emissão ativa
+            // persistida de antes — mesmo que a numeração em si seja idempotente para ela.
+            NfeSequencia seqDestino = sequenciaService.buscarSeExistirParaAtualizar(cnpj, serieNova);
+            if (seqDestino != null && seqDestino.getEmissaoAtivaId() != null) {
+                log.warn("[FiscalNumbering] Sincronização bloqueada — série destino com emissão ativa | "
+                                + "cnpj={} | serieNova={} | emissaoAtivaId={}",
+                        cnpj, serieNova, seqDestino.getEmissaoAtivaId());
+                throw BusinessException.numeracaoComEmissaoEmAndamento(cnpj, serieNova);
+            }
+        }
+
+        // Lock 3: nfe_sequencia(serieNova) — aplica de fato. Vetor 1 é guardado dentro deste
+        // método (aplicarOuValidar), como defesa em profundidade mesmo fora de troca de série.
         AtualizacaoSequenciaResultado resultadoSequencia;
         try {
             resultadoSequencia = sequenciaService.atualizarSequencia(cnpj, serieNova, proximoNumero);
         } catch (IllegalStateException e) {
             throw BusinessException.numeracaoInferiorAtual(cnpj, serieNova, e.getMessage());
+        } catch (SequenciaComEmissaoAtivaException e) {
+            log.warn("[FiscalNumbering] Sincronização bloqueada — avanço de número com emissão ativa | "
+                            + "cnpj={} | serie={} | emissaoAtivaId={}",
+                    cnpj, serieNova, e.getEmissaoAtivaId());
+            throw BusinessException.numeracaoComEmissaoEmAndamento(cnpj, serieNova);
         }
 
-        boolean serieMudou = serieAnterior == null || !serieAnterior.equals(serieNova);
         if (serieMudou) {
             empresaMapper.atualizarSerieNfePadrao(empresa.getId(), serieNova);
         }

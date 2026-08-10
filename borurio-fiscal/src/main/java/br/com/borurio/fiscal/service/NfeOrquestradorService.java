@@ -1,6 +1,7 @@
 package br.com.borurio.fiscal.service;
 
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.utils.XsdValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -73,13 +74,21 @@ public class NfeOrquestradorService {
                 ? assinaturaXmlService.assinar(xmlNfe, ctx)
                 : assinaturaXmlService.assinar(xmlNfe);
 
-        // 4. Transmitir para SEFAZ com XML assinado
+        // 4. Transmitir para SEFAZ com XML assinado — ÚNICO ponto deste método que efetivamente
+        // toca a rede. Tudo acima (parse, XSD, assinatura) é local e propaga com o tipo de
+        // exceção que já lança hoje. Envolver só esta chamada torna a fronteira local/transmissão
+        // comprovável pela fase de execução, não por uma lista de tipos de exceção reconhecidos
+        // (que sempre ficaria incompleta) — ver SefazTransmissaoIncertaException.
         String uf = (emitente.getUf() != null && !emitente.getUf().isBlank())
                 ? emitente.getUf() : "SP";
 
-        return ctx != null
-                ? nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, uf, tpAmb, ctx.sslContext())
-                : nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, uf, tpAmb);
+        try {
+            return ctx != null
+                    ? nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, uf, tpAmb, ctx.sslContext())
+                    : nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, uf, tpAmb);
+        } catch (Exception e) {
+            throw new SefazTransmissaoIncertaException(e);
+        }
     }
 
     private Document converterParaDocument(String xml) throws Exception {

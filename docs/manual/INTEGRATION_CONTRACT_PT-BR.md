@@ -4,9 +4,9 @@
 
 | Atributo               | Valor                                   |
 |------------------------|-----------------------------------------|
-| Versão                 | 1.11                                    |
+| Versão                 | 1.12                                    |
 | Status                 | **VIGENTE PARA INTEGRAÇÃO EM HOM** — seção 6.10 é proposta interna, ainda não confirmada pelo CC nem implantada em HOM. Ambiente HOM disponível para testes do CC; go-live depende da validação final dele. |
-| Data da revisão documental | 22-07-2026                          |
+| Data da revisão documental | 10-08-2026 — adiciona `errorCode: LOCAL_PROCESSING_FAILURE` (seção 6.4/8.2a); nenhum endpoint ou campo de payload alterado |
 | Ambiente de referência | HOM — acesso externo fornecido somente durante janela controlada de teste. Nenhuma URL fixa deve ser assumida pelo integrador. |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validado contra        | Código-fonte + testes automatizados     |
@@ -786,7 +786,14 @@ Authorization: Bearer {token}
 
 > `[CONTRATO]` `SEFAZ_TIMEOUT`/`SEFAZ_UNAVAILABLE` são as únicas falhas de `/emitir` com `retryable: true` — reenviar sem alterar nada é seguro nesses casos.
 
-> `[OPERACIONAL]` Uma exceção inesperada (não classificada) retorna HTTP 500 com `retryable: false` — sem `errorCode`. Verificar o estado do pedido via `GET /api/app/pedidos/{id}` antes de decidir se vale reenviar.
+**Resposta — HTTP 422 (falha comprovadamente local, antes de qualquer possibilidade de transmissão à SEFAZ):**
+```json
+{ "code": 422, "message": "Falha local antes da transmissão à SEFAZ: <detalhe>", "data": null, "errorCode": "LOCAL_PROCESSING_FAILURE", "retryable": false }
+```
+
+> `[CONTRATO]` **(10-08-2026)** `LOCAL_PROCESSING_FAILURE` ocorre quando a falha aconteceu comprovadamente antes de qualquer I/O de rede com a SEFAZ (ex.: falha de assinatura digital, colisão interna de chave) — não representa rejeição SEFAZ, timeout, nem resultado fiscal incerto. `retryable: false`: a causa não se resolve sozinha com reenvio automático — exige correção de configuração/certificado ou investigação. Corrija a causa e chame `/emitir` de novo no mesmo `pedidoId`.
+
+> `[OPERACIONAL]` Desde 10-08-2026, uma exceção não classificada só retorna HTTP 500 genérico se não houver nenhuma evidência de qual fase falhou; toda falha comprovadamente local retorna `LOCAL_PROCESSING_FAILURE` estruturado, e toda falha após início possível da transmissão retorna `SEFAZ_UNAVAILABLE` (503, retryable) em vez de HTTP 500. Verificar o estado do pedido via `GET /api/app/pedidos/{id}` antes de decidir se vale reenviar.
 
 ---
 
@@ -1178,6 +1185,7 @@ Content-Type: application/json
 | `SEFAZ_TIMEOUT`             | 503 | **true** | **(v1.9)** Tempo limite excedido na chamada à SEFAZ — falha de rede transitória. |
 | `SEFAZ_UNAVAILABLE`         | 503 | **true** | **(v1.9)** SEFAZ inacessível (conexão recusada/DNS) — falha de rede transitória. |
 | `XML_SCHEMA_INVALID`        | 422 | false | **(v1.9)** XML gerado não passou na validação de schema local antes de ser assinado/transmitido — problema de dado, não de rede. |
+| `LOCAL_PROCESSING_FAILURE`  | 422 | false | **(10-08-2026)** Falha comprovadamente local, ocorrida antes de qualquer possibilidade de transmissão à SEFAZ (ex.: assinatura digital, colisão interna de chave) — nunca representa timeout, rejeição SEFAZ ou resultado incerto. Corrigir a causa e chamar `/emitir` de novo no mesmo pedido; não é retry automático. |
 | `NUMERACAO_INFERIOR_A_ATUAL` | 422 | false | **(proposta 20-07-2026, aguardando confirmação do CC)** `PUT /api/integration/fiscal-numbering/{cnpj}` — `proximoNumero` menor que o já registrado. Ver seção 6.10. |
 | `SERIE_INVALIDA`            | 422 | false | **(proposta 20-07-2026)** `PUT /api/integration/fiscal-numbering/{cnpj}` — `serie` ausente, vazia ou inválida. Ver seção 6.10. |
 | `NUMERACAO_INVALIDA`        | 422 | false | **(proposta 20-07-2026)** `PUT /api/integration/fiscal-numbering/{cnpj}` — `proximoNumero` ausente, zero ou negativo. Ver seção 6.10. |

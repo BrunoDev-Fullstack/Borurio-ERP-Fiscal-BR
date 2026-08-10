@@ -96,7 +96,10 @@ public class JwtFilter extends OncePerRequestFilter {
                     return;
                 }
             } else {
-                autenticarUsuario(token, request);
+                if (!autenticarUsuario(token, request, response)) {
+                    // Resposta já escrita (403 TENANT_REQUIRED) — não prossegue a cadeia de filtros.
+                    return;
+                }
             }
 
         } catch (Exception e) {
@@ -111,14 +114,34 @@ public class JwtFilter extends OncePerRequestFilter {
         }
     }
 
-    private void autenticarUsuario(String token, HttpServletRequest request) {
+    /**
+     * @return true se a cadeia de filtros deve continuar; false se a resposta de erro já foi
+     *         escrita (403 TENANT_REQUIRED — usuário sem empresa vinculada e sem ROLE_ADMIN).
+     */
+    private boolean autenticarUsuario(String token, HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
         String username = jwtUtil.extractUsername(token);
-        if (username == null || SecurityContextHolder.getContext().getAuthentication() != null) return;
+        if (username == null || SecurityContextHolder.getContext().getAuthentication() != null) return true;
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
         if (!jwtUtil.validateToken(token, userDetails.getUsername())) {
             log.warn("Token inválido para usuário: {}", username);
-            return;
+            return true;
+        }
+
+        Long empresaId = jwtUtil.extractEmpresaId(token);
+
+        // P0-2 (Gate 1.2 Fase B) — tenant ausente deixa de significar implicitamente "acesso
+        // global". ROLE_ADMIN é determinada exclusivamente pelas authorities reais carregadas
+        // por UserDetailsService (nunca por empresaId==null, e-mail, claim do cliente ou header).
+        boolean admin = userDetails.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+
+        if (empresaId == null && !admin) {
+            log.warn("[AUTH] Usuário sem empresa vinculada e sem ROLE_ADMIN — acesso negado | user={}", username);
+            writeJson(response, 403, "TENANT_REQUIRED",
+                    "Usuário sem empresa vinculada não tem permissão para acessar este recurso.", false);
+            return false;
         }
 
         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
@@ -126,9 +149,9 @@ public class JwtFilter extends OncePerRequestFilter {
         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
         SecurityContextHolder.getContext().setAuthentication(authToken);
 
-        Long empresaId = jwtUtil.extractEmpresaId(token);
         EmpresaContextHolder.set(empresaId);
         log.info("Usuário autenticado: {} | empresaId={}", username, empresaId);
+        return true;
     }
 
     /**

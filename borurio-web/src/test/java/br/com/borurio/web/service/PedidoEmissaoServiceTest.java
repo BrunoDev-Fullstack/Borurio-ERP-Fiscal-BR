@@ -10,8 +10,12 @@ import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.domain.nfe.ModalidadeFrete;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
+import br.com.borurio.fiscal.entity.NfeEmissao;
+import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
+import br.com.borurio.fiscal.exception.XmlSchemaValidationException;
 import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
-import br.com.borurio.web.dto.ReservaFiscalResultado;
+import br.com.borurio.web.dto.AberturaCicloResultado;
+import br.com.borurio.web.dto.TipoAberturaCiclo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -49,7 +53,7 @@ class PedidoEmissaoServiceTest {
     @Mock NfeSefazRetornoParser retornoParser;
     @Mock EstoqueService estoqueService;
     @Mock EmpresaMapper empresaMapper;
-    @Mock ReservaFiscalService reservaFiscalService;
+    @Mock NfeEmissaoService nfeEmissaoService;
 
     PedidoEmissaoService service;
 
@@ -59,20 +63,31 @@ class PedidoEmissaoServiceTest {
         emitente.setCnpj("11222333000181"); // fallback legado quando empresa não tem CNPJ (helper de teste não seta)
         service = new PedidoEmissaoService(
                 pedidoService, nfeGeracaoService, retornoParser, estoqueService, empresaMapper,
-                reservaFiscalService, emitente);
+                nfeEmissaoService, emitente);
         EmpresaContextHolder.clear();
         // Default "feliz" pro claim atômico (P0.1) — testes que não mexem nisso continuam
         // passando; os testes de concorrência/claim sobrescrevem explicitamente por teste.
         // lenient(): os testes que barram antes do claim (status inválido) nunca chamam isso.
         lenient().when(pedidoService.reivindicarParaEmissao(anyLong())).thenReturn(true);
-        // Default "feliz" pra reserva fiscal (20-07-2026) — testes que barram antes dela
-        // (status inválido, itens vazios, claim perdido) nunca chamam isso.
-        lenient().when(reservaFiscalService.reservar(anyLong(), anyString()))
-                .thenReturn(new ReservaFiscalResultado("1", 101));
+        // Default "feliz" pro Gate 1 (abrirCiclo) — testes que barram antes dele (status
+        // inválido, itens vazios, claim perdido, CFOP inconsistente) nunca chamam isso.
+        lenient().when(nfeEmissaoService.abrirCiclo(anyLong(), anyString()))
+                .thenReturn(new AberturaCicloResultado(emissaoReservada(501L, "1", 101), TipoAberturaCiclo.NOVA_ABERTURA));
         // Default "feliz" pra validação CFOP×destino (Gate 7D) — coerente com destUf/empresa.uf
         // não setados nos fixtures padrão (operação interna, idDest=1). Testes específicos da
         // validação sobrescrevem explicitamente.
         lenient().when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("1");
+    }
+
+    /** Fixture padrão do Gate 1 — mesma série/número que ReservaFiscalResultado("1", 101) usava antes. */
+    private NfeEmissao emissaoReservada(long id, String serie, int numero) {
+        NfeEmissao e = new NfeEmissao();
+        e.setId(id);
+        e.setSerie(serie);
+        e.setNumeroNfe(numero);
+        e.setEstado(NfeEmissao.Estados.RESERVADO);
+        e.setTentativas(1);
+        return e;
     }
 
     @AfterEach
@@ -112,9 +127,9 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_controlaEstoqueTrue_reservaEBaixaComoAntes() throws Exception {
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -133,23 +148,23 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_fluxoOms_sempreDeclaraModalidadeFreteTerceiros() throws Exception {
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any(), eq(ModalidadeFrete.CONTA_TERCEIROS)))
+        when(nfeGeracaoService.gerar(any(), any(), eq(ModalidadeFrete.CONTA_TERCEIROS), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
         service.emitir(99L);
 
-        verify(nfeGeracaoService).gerar(any(), any(), eq(ModalidadeFrete.CONTA_TERCEIROS));
+        verify(nfeGeracaoService).gerar(any(), any(), eq(ModalidadeFrete.CONTA_TERCEIROS), any());
     }
 
     @Test
     void emitir_controlaEstoqueFalse_naoReservaNemBaixa() throws Exception {
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, false));
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -163,9 +178,9 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_controlaEstoqueFalse_rejeitado_naoDesfazReserva() throws Exception {
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, false));
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult(null, "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(rejeitada());
 
@@ -178,24 +193,60 @@ class PedidoEmissaoServiceTest {
     }
 
     @Test
-    void emitir_controlaEstoqueTrue_erroTransmissao_desfazReserva() throws Exception {
+    void emitir_controlaEstoqueTrue_erroTransmissaoDesconhecido_mantemReservaEMarcaPendenteConfirmacao() throws Exception {
+        // Gate 1 (07-08-2026): diferente de antes, uma falha de transmissão NÃO desfaz mais a
+        // reserva de estoque — o número fiscal continua pertencendo a este pedido (RESERVADO ou
+        // PENDENTE_CONFIRMACAO, nunca "solto"), e desfazer o estoque enquanto o resultado real na
+        // SEFAZ é desconhecido arriscaria inconsistência se a NF-e tiver sido autorizada do outro
+        // lado sem o Borurio saber.
+        //
+        // P1 corrigido (10-08-2026): a fronteira local/transmissão deixou de ser inferida por tipo
+        // de exceção e passa a ser comprovada pela fase — NfeOrquestradorService.processar() envolve
+        // qualquer falha da chamada real de transmissão em SefazTransmissaoIncertaException. Este
+        // teste simula exatamente isso (falha desconhecida DEPOIS que o I/O de rede começou), não
+        // mais uma RuntimeException crua (que hoje seria corretamente reclassificada como local).
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any(), any())).thenThrow(new RuntimeException("timeout SEFAZ"));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenThrow(new SefazTransmissaoIncertaException(new RuntimeException("erro desconhecido")));
 
-        assertThrows(RuntimeException.class, () -> service.emitir(99L));
+        assertThrows(BusinessException.class, () -> service.emitir(99L));
 
         verify(estoqueService).reservarItens(pedido.getItens(), 10L, 99L, "sistema");
-        verify(estoqueService).desfazerReservaItens(pedido.getItens(), 10L, 99L, "sistema");
+        verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
+        verify(nfeEmissaoService).resolverCiclo(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, null, null, null);
+        verify(nfeEmissaoService, never()).reverterParaReservadoPorFalhaLocal(any());
+        verify(pedidoService).atualizarStatus(99L, "ERRO", pedido.getChaveNfe());
+    }
+
+    @Test
+    void emitir_falhaLocalXsdAntesDaTransmissao_mantemReservaEReverteParaReservado() throws Exception {
+        // Falha local e síncrona (XSD/assinatura) — certeza de que nada foi enviado à SEFAZ.
+        // Estoque também intocado aqui: a reserva original continua de pé, pronta para o retry
+        // (que vai bater em RETOMADA_RESERVADO e não reservar de novo).
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenThrow(new XmlSchemaValidationException("XML inválido", null));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("XML_SCHEMA_INVALID", ex.getErrorCode());
+        verify(estoqueService).reservarItens(pedido.getItens(), 10L, 99L, "sistema");
+        verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
+        verify(nfeEmissaoService).reverterParaReservadoPorFalhaLocal(501L);
+        verify(nfeEmissaoService, never()).resolverCiclo(anyLong(), anyString(), any(), any(), any());
+        verify(pedidoService).atualizarStatus(99L, "ERRO", pedido.getChaveNfe());
     }
 
     @Test
     void emitir_empresaNaoEncontrada_defaultControlaEstoque() throws Exception {
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(null);
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -208,9 +259,9 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_pedidoRejeitado_permiteReemissao() throws Exception {
         Pedido pedido = pedidoComStatus("REJEITADO");
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chaveNova", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -223,9 +274,9 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_pedidoComErro_permiteReemissao() throws Exception {
         Pedido pedido = pedidoComStatus("ERRO");
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chaveNova", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -237,7 +288,7 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_pedidoAutorizado_bloqueiaReemissao() {
         Pedido pedido = pedidoComStatus("AUTORIZADO");
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
 
         BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
         assertEquals("INVALID_ORDER_STATUS", ex.getErrorCode());
@@ -249,7 +300,7 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_pedidoCancelado_bloqueiaReemissao() {
         Pedido pedido = pedidoComStatus("CANCELADO");
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
 
         assertThrows(BusinessException.class, () -> service.emitir(99L));
         verifyNoInteractions(nfeGeracaoService);
@@ -259,7 +310,7 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_pedidoAguardando_bloqueiaReemissao() {
         Pedido pedido = pedidoComStatus("AGUARDANDO");
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
 
         assertThrows(BusinessException.class, () -> service.emitir(99L));
         verifyNoInteractions(nfeGeracaoService);
@@ -273,7 +324,7 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_claimPerdido_lancaEmissaoEmAndamentoENaoTocaSefaz() {
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(pedidoService.reivindicarParaEmissao(99L)).thenReturn(false);
 
         BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
@@ -291,7 +342,7 @@ class PedidoEmissaoServiceTest {
     void emitir_itensVazios_revertePraErroAposClaim() {
         Pedido pedido = pedidoRascunho();
         pedido.setItens(List.of());
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
 
         assertThrows(IllegalArgumentException.class, () -> service.emitir(99L));
 
@@ -323,9 +374,9 @@ class PedidoEmissaoServiceTest {
      */
     private void executarConcorrenciaMesmoPedido(int numThreads) throws Exception {
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -359,7 +410,7 @@ class PedidoEmissaoServiceTest {
 
         assertEquals(1, sucessos,
                 "exatamente uma das " + numThreads + " chamadas concorrentes deveria vencer o claim");
-        verify(nfeGeracaoService, times(1)).gerar(any(), any(), any());
+        verify(nfeGeracaoService, times(1)).gerar(any(), any(), any(), any());
     }
 
     // -------------------------------------------------------------------------
@@ -372,9 +423,9 @@ class PedidoEmissaoServiceTest {
     @Test
     void emitir_cfopCoerenteComOperacaoInterna_permiteEmissao() throws Exception {
         Pedido pedido = pedidoRascunho(); // idDest=1 (default do mock), CFOP=5102
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -385,7 +436,7 @@ class PedidoEmissaoServiceTest {
     void emitir_cfopInterestadualParaOperacaoInterna_rejeitaAntesDeReservar() {
         Pedido pedido = pedidoRascunho();
         pedido.getItens().get(0).setCfop("6102"); // interestadual — inconsistente com idDest=1
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
 
         BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
@@ -402,7 +453,7 @@ class PedidoEmissaoServiceTest {
     void emitir_cfopInternoParaOperacaoInterestadual_rejeita() {
         Pedido pedido = pedidoRascunho();
         pedido.getItens().get(0).setCfop("5102"); // interno — inconsistente com idDest=2
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("2");
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
 
@@ -417,10 +468,10 @@ class PedidoEmissaoServiceTest {
     void emitir_cfopInterestadualComIdDestInterestadual_permiteEmissao() throws Exception {
         Pedido pedido = pedidoRascunho();
         pedido.getItens().get(0).setCfop("6102"); // interestadual — coerente com idDest=2
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("2");
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
-        when(nfeGeracaoService.gerar(any(), any(), any()))
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
                 .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
         when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
 
@@ -434,13 +485,13 @@ class PedidoEmissaoServiceTest {
         // resolverIdDest passar a devolver um valor fora de "1"/"2", falha explicitamente em
         // vez de deixar passar um CFOP não validado.
         Pedido pedido = pedidoRascunho();
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(nfeGeracaoService.resolverIdDest(any(), any())).thenReturn("3");
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
 
         assertThrows(IllegalStateException.class, () -> service.emitir(99L));
-        verify(nfeGeracaoService, never()).gerar(any(), any(), any());
-        verifyNoInteractions(reservaFiscalService);
+        verify(nfeGeracaoService, never()).gerar(any(), any(), any(), any());
+        verifyNoInteractions(nfeEmissaoService);
     }
 
     @Test
@@ -454,13 +505,13 @@ class PedidoEmissaoServiceTest {
         itemInvalido.setCsosn("400");
         itemInvalido.setCfop("6102"); // inconsistente — deve bloquear o pedido inteiro
         pedido.setItens(List.of(itemValido, itemInvalido));
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
 
         BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
 
         assertEquals("CFOP_DESTINATION_MISMATCH", ex.getErrorCode());
-        verify(nfeGeracaoService, never()).gerar(any(), any(), any());
+        verify(nfeGeracaoService, never()).gerar(any(), any(), any(), any());
         verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
     }
 
@@ -468,23 +519,23 @@ class PedidoEmissaoServiceTest {
     void emitir_cfopInconsistente_naoChamaReservaFiscalNemMotorFiscal() throws Exception {
         Pedido pedido = pedidoRascunho();
         pedido.getItens().get(0).setCfop("6102");
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
 
         assertThrows(BusinessException.class, () -> service.emitir(99L));
 
         // Nada que consome numeração fiscal, cria documento ou envia à SEFAZ pode ter rodado —
-        // tudo isso acontece só dentro de reservaFiscalService.reservar()/nfeGeracaoService.gerar().
+        // tudo isso acontece só dentro de nfeEmissaoService.abrirCiclo()/nfeGeracaoService.gerar().
         // (resolverIdDest, usado pela própria validação, é a única interação legítima aqui.)
-        verifyNoInteractions(reservaFiscalService);
-        verify(nfeGeracaoService, never()).gerar(any(), any(), any());
+        verifyNoInteractions(nfeEmissaoService);
+        verify(nfeGeracaoService, never()).gerar(any(), any(), any(), any());
     }
 
     @Test
     void emitir_cfopInconsistente_revertePedidoParaErroNaoParaEstadoIncorreto() {
         Pedido pedido = pedidoRascunho();
         pedido.getItens().get(0).setCfop("6102");
-        when(pedidoService.buscarComItens(99L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
 
         assertThrows(BusinessException.class, () -> service.emitir(99L));
@@ -492,6 +543,135 @@ class PedidoEmissaoServiceTest {
         verify(pedidoService).atualizarStatus(99L, "ERRO", pedido.getChaveNfe());
         verify(pedidoService, never()).atualizarStatus(eq(99L), eq("AUTORIZADO"), any());
         verify(pedidoService, never()).atualizarStatus(eq(99L), eq("REJEITADO"), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // Gate 1 — ciclo do nNF: retomada, matriz de estoque por transição, crash em EMITINDO
+    // -------------------------------------------------------------------------
+
+    @Test
+    void emitir_retomadaReservado_naoReservaEstoqueDeNovo() throws Exception {
+        Pedido pedido = pedidoComStatus("EMITINDO");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        NfeEmissao emissaoExistente = emissaoReservada(501L, "1", 101);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(99L)).thenReturn(emissaoExistente);
+        when(nfeEmissaoService.abrirCiclo(eq(99L), anyString()))
+                .thenReturn(new AberturaCicloResultado(emissaoExistente, TipoAberturaCiclo.RETOMADA_RESERVADO));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        service.emitir(99L);
+
+        // Retomada de EMITINDO não repete o claim atômico — já estava reivindicado.
+        verify(pedidoService, never()).reivindicarParaEmissao(any());
+        // RESERVADO retomado: a reserva de estoque da tentativa original continua de pé.
+        verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
+        verify(estoqueService).baixaDefinitivaItens(pedido.getItens(), 10L, 99L, "sistema");
+    }
+
+    @Test
+    void emitir_retomadaAguardandoCorrecao_reservaEstoqueDeNovo() throws Exception {
+        Pedido pedido = pedidoComStatus("EMITINDO");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        NfeEmissao emissaoExistente = emissaoReservada(501L, "1", 101);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(99L)).thenReturn(emissaoExistente);
+        when(nfeEmissaoService.abrirCiclo(eq(99L), anyString()))
+                .thenReturn(new AberturaCicloResultado(emissaoExistente, TipoAberturaCiclo.RETOMADA_AGUARDANDO_CORRECAO));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        service.emitir(99L);
+
+        // AGUARDANDO_CORRECAO retomado: a reserva foi desfeita ao entrar nesse estado — o retry
+        // reserva de novo, mesmo padrão de antes do Gate 1 para REJEITADO.
+        verify(estoqueService).reservarItens(pedido.getItens(), 10L, 99L, "sistema");
+    }
+
+    @Test
+    void emitir_emitindoSemCiclo_lancaPedidoEmissaoInconsistente() {
+        Pedido pedido = pedidoComStatus("EMITINDO");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(99L)).thenReturn(null);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("PEDIDO_EMISSAO_INCONSISTENTE", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
+        verify(pedidoService, never()).reivindicarParaEmissao(any());
+        // Não tenta adivinhar: nenhuma tentativa de mudar o status, nenhuma interação com o
+        // motor fiscal ou estoque — exige verificação manual, não um retry automático mascarado.
+        verify(pedidoService, never()).atualizarStatus(anyLong(), anyString(), any());
+        verifyNoInteractions(nfeGeracaoService);
+        verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
+    }
+
+    @Test
+    void emitir_emitindoComCicloJaTerminal_corrigeStatusELancaPedidoJaResolvido() {
+        Pedido pedido = pedidoComStatus("EMITINDO");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        NfeEmissao emissaoAutorizada = emissaoReservada(501L, "1", 101);
+        emissaoAutorizada.setEstado(NfeEmissao.Estados.AUTORIZADO);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(99L)).thenReturn(emissaoAutorizada);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("PEDIDO_JA_RESOLVIDO", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
+        // Corrige o status pra refletir o resultado real em vez de abrir um ciclo novo — um gate
+        // livre lido como "abertura nova" alocaria um número seguinte para um pedido já resolvido.
+        verify(pedidoService).atualizarStatus(99L, "AUTORIZADO", pedido.getChaveNfe());
+        verifyNoInteractions(nfeGeracaoService);
+        verify(nfeEmissaoService, never()).abrirCiclo(any(), any());
+    }
+
+    @Test
+    void emitir_gateOcupadoPorOutroPedido_propagaEmissaoEmAndamentoNaSerie() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeEmissaoService.abrirCiclo(eq(99L), anyString()))
+                .thenThrow(BusinessException.emissaoEmAndamentoNaSerie("11222333000181", "1"));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("EMISSAO_EM_ANDAMENTO_NA_SERIE", ex.getErrorCode());
+        assertTrue(ex.isRetryable());
+        verify(pedidoService).atualizarStatus(99L, "ERRO", pedido.getChaveNfe());
+        // resolverIdDest (usado pela validação de CFOP, que roda antes de abrirCiclo) é a única
+        // interação legítima com este mock — gerar() nunca deve ser chamado.
+        verify(nfeGeracaoService, never()).gerar(any(), any(), any(), any());
+    }
+
+    @Test
+    void emitir_cStat100_resolveCicloComoAutorizado() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCiclo(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null);
+    }
+
+    @Test
+    void emitir_cStat225_resolveCicloComoAguardandoCorrecao() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult(null, "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(rejeitada());
+
+        assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        verify(nfeEmissaoService).resolverCiclo(501L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 225, null, null);
     }
 
     private br.com.borurio.fiscal.dto.NfeSefazRetorno autorizada() {

@@ -9,6 +9,8 @@ public class NfeSequencia {
     private String serie;
     private int ultimoNumero;
     private LocalDateTime dataAtualizacao;
+    /** Gate fiscal (V034) — id da nfe_emissao ativa nesta serie; null = gate livre. */
+    private Long emissaoAtivaId;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -24,4 +26,7 @@ public class NfeSequencia {
 
     public LocalDateTime getDataAtualizacao() { return dataAtualizacao; }
     public void setDataAtualizacao(LocalDateTime dataAtualizacao) { this.dataAtualizacao = dataAtualizacao; }
+
+    public Long getEmissaoAtivaId() { return emissaoAtivaId; }
+    public void setEmissaoAtivaId(Long emissaoAtivaId) { this.emissaoAtivaId = emissaoAtivaId; }
 }

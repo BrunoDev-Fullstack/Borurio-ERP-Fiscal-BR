@@ -1,15 +1,21 @@
 package br.com.borurio.web.auth;
 
+import br.com.borurio.app.context.EmpresaContextHolder;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -38,6 +44,11 @@ class JwtFilterTest {
         SecurityContextHolder.clearContext();
     }
 
+    @AfterEach
+    void limparContexto() {
+        EmpresaContextHolder.clear();
+    }
+
     private MockHttpServletRequest requestComToken() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader("Authorization", "Bearer " + TOKEN);
@@ -49,6 +60,172 @@ class JwtFilterTest {
         when(jwtUtil.extractEmpresaId(TOKEN)).thenReturn(10L);
         when(jwtUtil.extractJti(TOKEN)).thenReturn(JTI);
         when(jwtUtil.extractUsername(TOKEN)).thenReturn("CLIENTE-OMS");
+    }
+
+    /** tipo != "OMS" (null, como um token de usuário comum nunca carrega claim "tipo"). */
+    private void mockarClaimsUsuario(String username, Long empresaId) {
+        when(jwtUtil.extractTipo(TOKEN)).thenReturn(null);
+        when(jwtUtil.extractUsername(TOKEN)).thenReturn(username);
+        when(jwtUtil.validateToken(TOKEN, username)).thenReturn(true);
+        when(jwtUtil.extractEmpresaId(TOKEN)).thenReturn(empresaId);
+    }
+
+    private UserDetails userDetailsComRole(String username, String role) {
+        return User.builder()
+                .username(username)
+                .password("hash-irrelevante")
+                .authorities(AuthorityUtils.createAuthorityList("ROLE_" + role))
+                .build();
+    }
+
+    // -------------------------------------------------------------------------
+    // P0-2 (Gate 1.2 Fase B) — tenant-null fail-closed para usuário interno
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("A) OPERADOR + eid presente → autentica, chain executada, EmpresaContextHolder com o tenant DURANTE a requisição")
+    void operadorComEid_autenticaESeguePraChain() throws Exception {
+        mockarClaimsUsuario("operador@teste.com", 10L);
+        when(userDetailsService.loadUserByUsername("operador@teste.com"))
+                .thenReturn(userDetailsComRole("operador@teste.com", "OPERADOR"));
+
+        Long[] empresaIdDuranteChain = new Long[1];
+        doAnswer(inv -> {
+            empresaIdDuranteChain[0] = EmpresaContextHolder.get();
+            return null;
+        }).when(chain).doFilter(any(), any());
+
+        MockHttpServletRequest request = requestComToken();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertEquals(10L, empresaIdDuranteChain[0]);
+        assertNotNull(SecurityContextHolder.getContext().getAuthentication());
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    @DisplayName("B) OPERADOR + eid null → 403 TENANT_REQUIRED, retryable=false, chain NÃO executada")
+    void operadorSemEid_403TenantRequiredSemChamarChain() throws Exception {
+        mockarClaimsUsuario("operador-sem-empresa@teste.com", null);
+        when(userDetailsService.loadUserByUsername("operador-sem-empresa@teste.com"))
+                .thenReturn(userDetailsComRole("operador-sem-empresa@teste.com", "OPERADOR"));
+
+        MockHttpServletRequest request = requestComToken();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertEquals(403, response.getStatus());
+        assertTrue(response.getContentAsString().contains("TENANT_REQUIRED"));
+        assertTrue(response.getContentAsString().contains("\"retryable\":false"));
+        assertNull(SecurityContextHolder.getContext().getAuthentication(),
+                "usuário negado nunca deve ficar autenticado no SecurityContext");
+        assertNull(EmpresaContextHolder.get());
+    }
+
+    @Test
+    @DisplayName("C) ADMIN + eid null → autentica, chain executada, contexto de empresa continua null (acesso global preservado)")
+    void adminSemEid_autenticaContextoContinuaNull() throws Exception {
+        mockarClaimsUsuario("admin@teste.com", null);
+        when(userDetailsService.loadUserByUsername("admin@teste.com"))
+                .thenReturn(userDetailsComRole("admin@teste.com", "ADMIN"));
+
+        Long[] empresaIdDuranteChain = new Long[]{-1L}; // sentinela != null
+        doAnswer(inv -> {
+            empresaIdDuranteChain[0] = EmpresaContextHolder.get();
+            return null;
+        }).when(chain).doFilter(any(), any());
+
+        MockHttpServletRequest request = requestComToken();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertNull(empresaIdDuranteChain[0], "ADMIN sem eid não pode ter empresa fabricada no contexto");
+        assertNotNull(SecurityContextHolder.getContext().getAuthentication());
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    @DisplayName("D) ADMIN + eid presente → autentica, contexto usa o eid do token (não vira acesso global automaticamente)")
+    void adminComEid_contextoUsaEidDoToken() throws Exception {
+        mockarClaimsUsuario("admin-com-empresa@teste.com", 20L);
+        when(userDetailsService.loadUserByUsername("admin-com-empresa@teste.com"))
+                .thenReturn(userDetailsComRole("admin-com-empresa@teste.com", "ADMIN"));
+
+        Long[] empresaIdDuranteChain = new Long[1];
+        doAnswer(inv -> {
+            empresaIdDuranteChain[0] = EmpresaContextHolder.get();
+            return null;
+        }).when(chain).doFilter(any(), any());
+
+        MockHttpServletRequest request = requestComToken();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertEquals(20L, empresaIdDuranteChain[0],
+                "ADMIN com eid no token precisa ficar escopado a essa empresa, igual a qualquer outro usuário");
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    @DisplayName("F) token OMS sem eid → continua rejeitado pelo fluxo OMS existente (401 INVALID_OMS_TOKEN), nunca vira TENANT_REQUIRED de usuário interno")
+    void tokenOmsSemEid_401InvalidOmsTokenNuncaTenantRequired() throws Exception {
+        when(jwtUtil.extractTipo(TOKEN)).thenReturn("OMS");
+        when(jwtUtil.extractEmpresaId(TOKEN)).thenReturn(null);
+        when(jwtUtil.extractJti(TOKEN)).thenReturn(JTI);
+        when(jwtUtil.extractUsername(TOKEN)).thenReturn("CLIENTE-OMS");
+
+        MockHttpServletRequest request = requestComToken();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain, omsTokenValidator);
+        assertEquals(401, response.getStatus());
+        assertTrue(response.getContentAsString().contains("INVALID_OMS_TOKEN"));
+        assertFalse(response.getContentAsString().contains("TENANT_REQUIRED"));
+    }
+
+    @Test
+    @DisplayName("G) ThreadLocal limpo após a requisição, mesmo com tenant setado durante a chain (OPERADOR com eid)")
+    void empresaContextHolder_limpoAposRequisicao() throws Exception {
+        mockarClaimsUsuario("operador@teste.com", 10L);
+        when(userDetailsService.loadUserByUsername("operador@teste.com"))
+                .thenReturn(userDetailsComRole("operador@teste.com", "OPERADOR"));
+
+        MockHttpServletRequest request = requestComToken();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, chain);
+
+        assertNull(EmpresaContextHolder.get(), "EmpresaContextHolder precisa estar limpo depois do finally do filtro");
+    }
+
+    @Test
+    @DisplayName("H) token inválido (validateToken=false) → comportamento existente preservado: segue sem autenticar, sem 403 novo")
+    void tokenInvalido_comportamentoExistentePreservado() throws Exception {
+        when(jwtUtil.extractTipo(TOKEN)).thenReturn(null);
+        when(jwtUtil.extractUsername(TOKEN)).thenReturn("qualquer@teste.com");
+        when(jwtUtil.validateToken(TOKEN, "qualquer@teste.com")).thenReturn(false);
+        when(userDetailsService.loadUserByUsername("qualquer@teste.com"))
+                .thenReturn(userDetailsComRole("qualquer@teste.com", "OPERADOR"));
+
+        MockHttpServletRequest request = requestComToken();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        assertEquals(200, response.getStatus(), "token inválido nunca escrevia resposta própria antes — comportamento preservado");
     }
 
     @Test

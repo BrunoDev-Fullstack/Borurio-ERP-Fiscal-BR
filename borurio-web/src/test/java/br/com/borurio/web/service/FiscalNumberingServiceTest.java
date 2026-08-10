@@ -6,7 +6,9 @@ import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.mapper.OmsFiscalAuthorizationMapper;
 import br.com.borurio.fiscal.dto.AtualizacaoSequenciaResultado;
+import br.com.borurio.fiscal.entity.NfeSequencia;
 import br.com.borurio.fiscal.entity.NfeSequenciaAuditoria;
+import br.com.borurio.fiscal.exception.SequenciaComEmissaoAtivaException;
 import br.com.borurio.fiscal.mapper.NfeSequenciaAuditoriaMapper;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
 import br.com.borurio.web.dto.FiscalNumberingSyncResponse;
@@ -210,5 +212,137 @@ class FiscalNumberingServiceTest {
 
         assertEquals(CNPJ, resp.cnpjEmitente());
         verify(empresaMapper).buscarPorCnpjParaAtualizar(CNPJ);
+    }
+
+    // -------------------------------------------------------------------------
+    // P0-1 (07-08-2026, hardening pós-banca) — sincronização x gate do Gate 1.
+    // Cenários A-G conforme revisão.
+    // -------------------------------------------------------------------------
+
+    private NfeSequencia seqComGate(String serie, int ultimoNumero, Long emissaoAtivaId) {
+        NfeSequencia seq = new NfeSequencia();
+        seq.setCnpjEmitente(CNPJ);
+        seq.setSerie(serie);
+        seq.setUltimoNumero(ultimoNumero);
+        seq.setEmissaoAtivaId(emissaoAtivaId);
+        return seq;
+    }
+
+    @Test
+    @DisplayName("A) Mesma série + avanço de número + gate ocupado -> 409 NUMERACAO_COM_EMISSAO_EM_ANDAMENTO, nada gravado")
+    void sincronizar_mesmaSerieAvancoComGateOcupado_rejeitada409() {
+        when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ)).thenReturn(empresaComSerie("1"));
+        when(sequenciaService.atualizarSequencia(CNPJ, "1", 105))
+                .thenThrow(new SequenciaComEmissaoAtivaException(CNPJ, "1", 501L));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.sincronizar(CNPJ, "1", 105, JTI, "req-A"));
+
+        assertEquals("NUMERACAO_COM_EMISSAO_EM_ANDAMENTO", ex.getErrorCode());
+        assertEquals(409, ex.getHttpStatus());
+        assertTrue(ex.isRetryable());
+        assertFalse(ex.getMessage().contains("501"), "id interno da emissão não pode vazar na mensagem ao OMS");
+        verify(empresaMapper, never()).atualizarSerieNfePadrao(anyLong(), anyString());
+        verify(auditoriaMapper, never()).inserir(any());
+    }
+
+    @Test
+    @DisplayName("B) Troca de série + emissão ativa na série ATUAL -> 409, Empresa.serieNfePadrao não muda")
+    void sincronizar_trocaSerieComGateNaSerieAtual_rejeitada409() {
+        when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ)).thenReturn(empresaComSerie("1"));
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1"))
+                .thenReturn(seqComGate("1", 100, 501L));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.sincronizar(CNPJ, "2", 1, JTI, "req-B"));
+
+        assertEquals("NUMERACAO_COM_EMISSAO_EM_ANDAMENTO", ex.getErrorCode());
+        assertFalse(ex.getMessage().contains("501"), "id interno da emissão não pode vazar na mensagem ao OMS");
+        verify(empresaMapper, never()).atualizarSerieNfePadrao(anyLong(), anyString());
+        verify(sequenciaService, never()).atualizarSequencia(any(), any(), anyInt());
+        verify(auditoriaMapper, never()).inserir(any());
+    }
+
+    @Test
+    @DisplayName("C) Troca de série para destino OCUPADO -> 409, nenhuma alteração")
+    void sincronizar_trocaSerieParaDestinoOcupado_rejeitada409() {
+        when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ)).thenReturn(empresaComSerie("1"));
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(seqComGate("1", 100, null));
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "2")).thenReturn(seqComGate("2", 4, 777L));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.sincronizar(CNPJ, "2", 5, JTI, "req-C"));
+
+        assertEquals("NUMERACAO_COM_EMISSAO_EM_ANDAMENTO", ex.getErrorCode());
+        assertFalse(ex.getMessage().contains("777"), "id interno da emissão não pode vazar na mensagem ao OMS");
+        verify(empresaMapper, never()).atualizarSerieNfePadrao(anyLong(), anyString());
+        verify(sequenciaService, never()).atualizarSequencia(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("D) Mesma série + mesmo próximo número (idempotente) permanece aceita mesmo com gate ocupado — regra 1")
+    void sincronizar_idempotenteComGateOcupado_permaneceAceita() {
+        when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ)).thenReturn(empresaComSerie("1"));
+        // Idempotente: aplicarOuValidar retorna aplicado=false ANTES de checar o gate — o mock
+        // aqui reflete exatamente esse contrato (o teste de unidade em NfeSequenciaServiceTest
+        // prova o comportamento real dentro de aplicarOuValidar).
+        when(sequenciaService.atualizarSequencia(CNPJ, "1", 101))
+                .thenReturn(new AtualizacaoSequenciaResultado(CNPJ, "1", 101, 101, false, LocalDateTime.now()));
+
+        FiscalNumberingSyncResponse resp = service.sincronizar(CNPJ, "1", 101, JTI, "req-D");
+
+        assertFalse(resp.aplicado());
+        verify(sequenciaService, never()).buscarSeExistirParaAtualizar(any(), any());
+    }
+
+    @Test
+    @DisplayName("E) Gate livre + avanço válido de número — comportamento homologado preservado")
+    void sincronizar_gateLivreAvancoValido_comportamentoPreservado() {
+        when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ)).thenReturn(empresaComSerie("1"));
+        when(sequenciaService.atualizarSequencia(CNPJ, "1", 105))
+                .thenReturn(new AtualizacaoSequenciaResultado(CNPJ, "1", 100, 105, true, LocalDateTime.now()));
+
+        FiscalNumberingSyncResponse resp = service.sincronizar(CNPJ, "1", 105, JTI, "req-E");
+
+        assertTrue(resp.aplicado());
+    }
+
+    @Test
+    @DisplayName("F) Gate livre + troca válida de série — comportamento homologado preservado")
+    void sincronizar_gateLivreTrocaSerie_comportamentoPreservado() {
+        when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ)).thenReturn(empresaComSerie("1"));
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(seqComGate("1", 100, null));
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "2")).thenReturn(null); // série nova nunca usada
+        when(sequenciaService.atualizarSequencia(CNPJ, "2", 1))
+                .thenReturn(new AtualizacaoSequenciaResultado(CNPJ, "2", 0, 1, true, LocalDateTime.now()));
+
+        FiscalNumberingSyncResponse resp = service.sincronizar(CNPJ, "2", 1, JTI, "req-F");
+
+        assertTrue(resp.aplicado());
+        verify(empresaMapper).atualizarSerieNfePadrao(8L, "2");
+    }
+
+    @Test
+    @DisplayName("G) Após o ciclo ativo ser resolvido, a mesma sincronização antes bloqueada é aplicada normalmente")
+    void sincronizar_apoisCicloResolvido_sincronizacaoAnteriorBloqueadaPassaAAplicar() {
+        when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ)).thenReturn(empresaComSerie("1"));
+
+        // Primeira tentativa: gate ocupado, bloqueada.
+        when(sequenciaService.atualizarSequencia(CNPJ, "1", 105))
+                .thenThrow(new SequenciaComEmissaoAtivaException(CNPJ, "1", 501L));
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.sincronizar(CNPJ, "1", 105, JTI, "req-G1"));
+        assertEquals("NUMERACAO_COM_EMISSAO_EM_ANDAMENTO", ex.getErrorCode());
+
+        // Ciclo resolvido (AUTORIZADO/DENEGADO) — resolverCiclo() já teria liberado o gate
+        // (emissao_ativa_id=NULL) e avançado ultimo_numero via consumirNumero(), fora deste
+        // teste. Reflete isso remockando atualizarSequencia para o comportamento pós-resolução.
+        reset(sequenciaService);
+        when(sequenciaService.atualizarSequencia(CNPJ, "1", 105))
+                .thenReturn(new AtualizacaoSequenciaResultado(CNPJ, "1", 100, 105, true, LocalDateTime.now()));
+
+        FiscalNumberingSyncResponse resp = service.sincronizar(CNPJ, "1", 105, JTI, "req-G2");
+
+        assertTrue(resp.aplicado());
     }
 }

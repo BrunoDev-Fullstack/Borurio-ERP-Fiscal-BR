@@ -9,7 +9,7 @@ import java.util.List;
 
 public interface EstoqueService {
 
-    /** Reserva estoque para cada item antes da transmissão SEFAZ. Lança IllegalStateException se insuficiente. */
+    /** Reserva estoque para cada item antes da transmissão SEFAZ. Lança BusinessException (INSUFFICIENT_STOCK/PRODUCT_NOT_FOUND) se insuficiente ou produto inexistente. */
     void reservarItens(List<PedidoItem> itens, Long empresaId, Long pedidoId, String criadoPor);
 
     /** Confirma baixa definitiva após cStat=100 (AUTORIZADO). */

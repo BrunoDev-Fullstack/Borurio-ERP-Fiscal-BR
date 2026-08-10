@@ -21,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -48,6 +49,7 @@ class NfeGeracaoServiceTest {
     @Mock NfeDocumentoService documentoService;
     @Mock EmpresaCertificadoService empresaCertificadoService;
     @Mock OmsCertificadoService omsCertificadoService;
+    @Mock NfeEmissaoService nfeEmissaoService;
 
     NfeGeracaoService service;
 
@@ -55,7 +57,7 @@ class NfeGeracaoServiceTest {
     void setUp() {
         service = new NfeGeracaoService(emitente, nfeXmlBuilder, nfeOrquestradorService,
                 nfeLogService, ncmService, sequenciaService, retornoParser,
-                documentoService, empresaCertificadoService, omsCertificadoService);
+                documentoService, empresaCertificadoService, omsCertificadoService, nfeEmissaoService);
     }
 
     private NfeEmissaoRequest requestValido() {
@@ -340,7 +342,7 @@ class NfeGeracaoServiceTest {
 
         NfeGeracaoService servicoLocal = new NfeGeracaoService(emitente, builderReal, orquestradorLocal,
                 nfeLogService, ncmServiceLocal, sequenciaService, retornoParserLocal,
-                documentoService, empresaCertificadoService, omsCertificadoService);
+                documentoService, empresaCertificadoService, omsCertificadoService, nfeEmissaoService);
         org.springframework.test.util.ReflectionTestUtils.setField(servicoLocal, "tpAmb", tpAmbValor);
 
         NfeEmissaoRequest req = requestValido();
@@ -382,6 +384,41 @@ class NfeGeracaoServiceTest {
         assertTrue(xml.contains("<modFrete>2</modFrete>"),
                 "Fluxo chamado com ModalidadeFrete.CONTA_TERCEIROS (equivalente ao usado por PedidoEmissaoService) "
                         + "deve gravar modFrete=2 no XML real gerado por NfeGeracaoService.");
+    }
+
+    // -------------------------------------------------------------------------
+    // Gate 1 — persistência da chave em nfe_emissao ANTES da chamada à SEFAZ
+    // -------------------------------------------------------------------------
+
+    @Test
+    void gerar_comEmissaoId_persisteChaveAntesDeChamarOrquestrador() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        Empresa empresa = empresaValida(12L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 501L);
+
+        ArgumentCaptor<String> chaveCaptor = ArgumentCaptor.forClass(String.class);
+        InOrder ordem = inOrder(nfeEmissaoService, nfeOrquestradorService);
+        // A chave precisa estar congelada em nfe_emissao ANTES de qualquer chamada de rede —
+        // sem isso, uma reconciliação futura (Gate 3) não saberia qual chave consultar em
+        // caso de timeout.
+        ordem.verify(nfeEmissaoService).marcarTransmitido(eq(501L), chaveCaptor.capture());
+        ordem.verify(nfeOrquestradorService).processar(any(), any(), any());
+        assertEquals(44, chaveCaptor.getValue().length(), "chave de acesso NF-e tem 44 dígitos");
+    }
+
+    @Test
+    void gerar_semEmissaoId_naoChamaMarcarTransmitido() throws Exception {
+        // Overload de 3 argumentos — caminho legado (NfeEnvioController) e testes que não
+        // passam pelo ciclo de nfe_emissao continuam funcionando exatamente como antes.
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        Empresa empresa = empresaValida(13L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS);
+
+        verifyNoInteractions(nfeEmissaoService);
     }
 
     private Document parseXml(String xml) throws Exception {

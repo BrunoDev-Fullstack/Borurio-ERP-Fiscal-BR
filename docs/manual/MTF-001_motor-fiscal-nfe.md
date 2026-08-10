@@ -4,14 +4,14 @@
 ---
 
 **Documento:** MTF-001
-**Versão:** 3.1
+**Versão:** 3.2
 **Data de emissão:** 11-05-2026
-**Data da revisão documental:** 22-07-2026
+**Data da revisão documental:** 10-08-2026
 **Autor:** Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
 **Status:** REFERÊNCIA TÉCNICA DO MOTOR FISCAL — HOM
 **Branch de referência:** `fix/sefaz-xml-structure`
 
-> **Ressalva de estado (22-07-2026):** com o release do commit `4a39a88` ativo em HOM (V032 aplicada), as funcionalidades que aguardavam validação integrada — proteção contra emissão concorrente, contexto fiscal multi-CNPJ nos eventos pós-emissão, baseline seguro de numeração, `indFinal`/`indIntermed`, revogação/rotação de token OMS e a modalidade de frete por fluxo (`modFrete`) — foram validadas em HOM real, incluindo uma nova autorização SEFAZ (`cStat=100`) com `modFrete=2` confirmado no XML efetivamente transmitido. O ambiente HOM permanece disponível para os testes que a OMS chinesa (CC) considerar necessários; o planejamento de go-live só se inicia após a validação final do CC. PRD não está validada e o sistema não está em produção.
+> **Ressalva de estado (10-08-2026):** o Gate 1 da máquina de estados fiscal de numeração foi fechado — ciclo operacional do nNF (`nfe_emissao`), gate de série ativa em `nfe_sequencia`, isolamento multiempresa com fail-closed para usuário sem tenant e sem `ROLE_ADMIN`, e classificação de falha pré-transmissão por fase de execução. Detalhes nas seções 4.4, 5.9, 9.7 e 11.2a. Código revisado e com suíte de testes verde; ainda **não commitado** — commit manual pendente de revisão final do pacote. Gate 2 (classificação semântica de `cStat`), Gate 3 (reconciliação de timeout/crash) e o retorno de `serie`/`numeroNFe` no `/emitir`/`/situacao` (Gate 5) permanecem não implementados — ver seção 1.2. O restante da ressalva de 22-07-2026 (proteção contra emissão concorrente por claim, contexto fiscal multi-CNPJ nos eventos pós-emissão, baseline seguro de numeração, `indFinal`/`indIntermed`, revogação/rotação de token OMS, `modFrete` por fluxo) permanece validado como registrado abaixo. PRD não está validada e o sistema não está em produção.
 
 > **Histórico de versões:**
 > - v1.0 (11-05-2026): documento inicial, fases 1–9 + fase 10 em elaboração
@@ -27,6 +27,7 @@
 > - v2.9 (14-07-2026): causa raiz real do `cStat=225` identificada e corrigida — o motor assinava o XML com algoritmo divergente do exigido pelo schema oficial da SEFAZ; XSD local realinhado ao pacote oficial vigente; `AssinaturaXmlService` corrigido para RSA-SHA1/SHA-1. Grupo `indIntermed` adicionado a `<ide>`; ajuste provisório de `indFinal` (à época, inferido do tipo de documento do destinatário — já substituído, ver seção 5.7); IE do emitente corrigida no cadastro de uma das empresas de teste; exigências de payload do lado OMS (CFOP por UF, endereço completo do destinatário, texto padrão de homologação). Resultado: `cStat=100` obtido em HOM/SP pela primeira vez no projeto, em teste interno e em teste cruzado do integrador via OMS, confirmado no portal público da SEFAZ. Seção 13 reescrita com o histórico completo da investigação.
 > - v3.0 (16-07-2026): consolidação documental — `indFinal` atualizado para o modelo configurável por empresa (heurística por CPF/CNPJ removida); nova subseção técnica para `indIntermed`; documentadas a proteção contra emissão concorrente, o baseline seguro de numeração e o contexto fiscal multi-CNPJ nos eventos pós-emissão; migrations V029/V030 adicionadas; nova seção sobre a distinção entre certificados de HOM e de PRD; nova seção de gap regulatório da Reforma Tributária do Consumo (IBS/CBS/IS); identidade de empresas e pessoas reais neutralizada em todo o documento; consolidação de bloqueadores de PRD (segurança e contingência).
 > - v3.1 (22-07-2026): revogação e rotação global de autorização/token OMS implementada (JwtFilter valida a autorização ativa a cada requisição, endpoints `/api/admin/oms-authorizations/{id}/revogar` e `/rotacionar`, auditoria append-only, controle otimista por versão, `Idempotency-Key` obrigatória, JWT nunca persistido — seção 11.8) — V032; modalidade de frete (`modFrete`) passa a ser explícita por fluxo de emissão (enum `ModalidadeFrete`, seção 5.8) — fluxo OMS/marketplace declara `CONTA_TERCEIROS` (código 2), endpoint legado preserva `SEM_OCORRENCIA_TRANSPORTE` (código 9); todas as funcionalidades que aguardavam validação integrada em HOM (seção 1.1) foram validadas, incluindo nova autorização SEFAZ real com `cStat=100` e `modFrete=2` confirmado no XML transmitido.
+> - v3.2 (10-08-2026): **Gate 1 fechado** — máquina de estados fiscal de numeração. Nova tabela `nfe_emissao` (V033) representa o ciclo operacional do nNF (estados `RESERVADO`/`TRANSMITIDO`/`AUTORIZADO`/`AGUARDANDO_CORRECAO`/`DENEGADO`/`PENDENTE_CONFIRMACAO`), substituindo o sequenciador simples anterior; `nfe_sequencia.emissao_ativa_id` (V034) implementa o gate por CNPJ+série — nenhum número seguinte é alocado enquanto o número anterior da mesma série não tiver destino definitivo (seção 5.9). Ordem canônica de lock (`nfe_sequencia` → `nfe_emissao`) elimina deadlock real reproduzido e corrigido contra MySQL (seção 4.4). Isolamento multiempresa: `JwtFilter` passa a negar (HTTP 403, `errorCode: TENANT_REQUIRED`) usuário autenticado sem empresa vinculada e sem `ROLE_ADMIN` — fecha o fallback global que antes tratava tenant ausente como acesso irrestrito (seção 9.7/11.2a). Classificação de falha pré-transmissão corrigida: a fronteira entre falha comprovadamente local (nunca chegou a tocar a rede) e resultado fiscal incerto (rede tocada, desfecho desconhecido) passa a ser determinada pela fase real de execução — não por uma lista de tipos de exceção — via `SefazTransmissaoIncertaException`, lançada exclusivamente ao redor da chamada real de transmissão em `NfeOrquestradorService`; novo `errorCode: LOCAL_PROCESSING_FAILURE` (HTTP 422, `retryable=false`) para falha local comprovada (seção 7.5). Nenhuma alteração de contrato público além do novo `errorCode`. Gate 2 (classificação semântica de `cStat`), Gate 3 (reconciliação) e retorno de `serie`/`numeroNFe` (Gate 5) permanecem não implementados. Código com suíte de testes verde (borurio-web 306/306, borurio-fiscal 73/73 com 1 skip intencional, borurio-app 20/20); commit manual ainda pendente nesta revisão documental.
 
 ---
 
@@ -130,6 +131,11 @@ O documento destina-se a:
 | Revogação e rotação global de autorização/token OMS, com auditoria append-only, controle otimista por versão e idempotência (ver seção 11.5) | ✓ HOM/SP — 22-07-2026 |
 | V029–V032 aplicados em HOM (Flyway em v032)                                                          | ✓ HOM/SP — 22-07-2026 |
 | Segunda autorização real em HOM com `cStat=100` e `modFrete=2` confirmado no XML transmitido (empresa vinculada ao token com cadastro fiscal aceito pela SEFAZ) | ✓ HOM/SP — 22-07-2026 |
+| Gate 1 — ciclo operacional do nNF (`nfe_emissao`) e gate de série ativa (`nfe_sequencia.emissao_ativa_id`); nenhum número seguinte é alocado enquanto o anterior da mesma série não tiver destino definitivo (ver seção 5.9) | ✓ Código — 10-08-2026, revisão técnica completa e suíte de testes verde; **não commitado** |
+| Ordem canônica de lock (`nfe_sequencia` → `nfe_emissao`) — elimina deadlock real reproduzido contra MySQL em `resolverCiclo` | ✓ Código — 10-08-2026; **não commitado** |
+| Isolamento multiempresa fail-closed — `JwtFilter` nega (403 `TENANT_REQUIRED`) usuário autenticado sem empresa vinculada e sem `ROLE_ADMIN`; ADMIN sem tenant continua com acesso administrativo global; contrato OMS inalterado (ver seção 9.7/11.2a) | ✓ Código — 10-08-2026; **não commitado** |
+| Classificação de falha pré-transmissão por fase de execução — falha local comprovada (`LOCAL_PROCESSING_FAILURE`, 422, não-retryable) distinta de resultado fiscal incerto (`PENDENTE_CONFIRMACAO`, conservador); não antecipa Gate 2 (ver seção 7.5) | ✓ Código — 10-08-2026; **não commitado** |
+| V033 (`nfe_emissao`) e V034 (`nfe_sequencia.emissao_ativa_id`) — migrations do ciclo do nNF | ✓ Código — 10-08-2026; aplicação em MySQL real validada contra container efêmero de teste; **não aplicada em HOM** |
 
 ### 1.2 O que está PENDENTE
 
@@ -143,6 +149,13 @@ O documento destina-se a:
 | Secrets fora de arquivos versionados, rotação de credenciais, sanitização de logs | Fase 11 | Ver seção 13 (segurança) |
 | Smoke test multi-CNPJ real dos eventos pós-emissão (P0.2) em HOM      | Fase 11 | Ver seção 9.6                       |
 | Adequação da NF-e à Reforma Tributária do Consumo (IBS/CBS/IS)        | Gap regulatório | Ver seção 17 — trilha própria, não implementado nesta consolidação |
+| Gate 2 — classificação semântica definitiva de `cStat` (distinguir denegação real de processamento ainda incerto, ex.: 110 vs. 104) | Pós-Gate 1 | Hoje todo cStat que não é 100 nem ≥200 cai no balde conservador `PENDENTE_CONFIRMACAO` — ver seção 5.9 |
+| Gate 3 — reconciliação ativa de `TRANSMITIDO`/`PENDENTE_CONFIRMACAO` via consulta à SEFAZ pela chave já congelada | Pós-Gate 1 | Hoje só existe o bloqueio (`EMISSAO_AGUARDANDO_RECONCILIACAO`), não a resolução automática — ver seção 5.9 |
+| Gate 5 — retorno de `serie`/`numeroNFe` no `/emitir` e/ou `/situacao` | Pós-Gate 1 | Contrato de integração ainda não expõe esses campos no payload de resposta |
+| Correção final do fluxo de cancelamento — interpretação de `cStat`/`xMotivo`, não marcar `CANCELADO` em rejeição, tratamento de timeout/idempotência | Pendente CC | Solicitado pelo integrador chinês (CC) — não iniciado após o Gate 1 |
+| CC-e final — interpretação completa do retorno SEFAZ antes da rodada de integração com o CC | Pendente CC | Endpoint existe e transmite; interpretação do retorno ainda não fechada |
+| Configuração de estoque para o cenário do CC (`controleEstoqueAtivo=false` na empresa usada nos testes dele) | Pendente CC | Mecanismo já existe por empresa; falta aplicar/validar na empresa específica do CC |
+| Contingência fiscal formal (SVC-AN/SVC-RS/EPEC, `tpEmis`, `dhCont`, `xJust`) | Pendente CC / Fase 11 | Retry curto + HTTP 503 `retryable=true` já existem; não substituem contingência formal — ver seção 16 |
 
 ---
 
@@ -232,8 +245,10 @@ A bridge entre os dois domínios é exclusivamente o módulo `borurio-web`. Quan
 | V030        | `empresa.ind_final_padrao` CHAR(1) NOT NULL DEFAULT `'1'` — padrão de `indFinal` por empresa emitente | Aplicada em HOM — confirmada 22-07-2026 |
 | V031        | `nfe_sequencia_auditoria` — auditoria de sincronização de série/numeração fiscal                     | Aplicada em HOM — confirmada 22-07-2026 |
 | V032        | `oms_fiscal_authorization_audit` (append-only) + coluna `versao` em `oms_fiscal_authorization` — revogação/rotação de autorização OMS (Gate 7H) | Aplicada em HOM — 22-07-2026, Flyway em v032, 0 falhas |
+| V033        | `nfe_emissao` — ciclo operacional do nNF (Gate 1); `numero_nfe` único por `(cnpj_emitente, modelo, serie)`, `chave_nfe` única | Validada contra MySQL real (container efêmero de teste) — **não aplicada em HOM** |
+| V034        | `nfe_sequencia.emissao_ativa_id` — gate de série ativa (Gate 1); aponta para `nfe_emissao.id` enquanto o ciclo não for terminal | Validada contra MySQL real (container efêmero de teste) — **não aplicada em HOM** |
 
-> V029–V032 seguem o mesmo padrão de migration das anteriores. Todas confirmadas aplicadas contra o MySQL real de HOM em 22-07-2026 (`flyway_schema_history`, 32 migrations, 0 falhas).
+> V029–V032 seguem o mesmo padrão de migration das anteriores. Todas confirmadas aplicadas contra o MySQL real de HOM em 22-07-2026 (`flyway_schema_history`, 32 migrations, 0 falhas). V033/V034 foram validadas nesta revisão (10-08-2026) contra um container MySQL 8.4 efêmero criado exclusivamente para a banca de testes, nunca contra os containers persistentes de HOM/DEV — aplicação em HOM depende do commit manual e do deploy correspondente, ainda não realizados.
 
 ### 3.2 Tabelas fiscais principais
 
@@ -387,7 +402,7 @@ PedidoEmissaoService (pós-emissão)
     │  └─ (v1.9) se REJEITADO: lança BusinessException.sefazRejected(cStat, xMotivo) — HTTP 422, não retorna 200
 ```
 
-Se uma exceção for lançada durante `nfeGeracaoService.gerar()`, o serviço chama `traduzirFalhaTransmissao()` (v1.9) pra classificar a causa antes de relançar: `XmlSchemaValidationException` → `XML_SCHEMA_INVALID` (422); `SocketTimeoutException` → `SEFAZ_TIMEOUT` (503, retryable); `ConnectException`/`UnknownHostException` → `SEFAZ_UNAVAILABLE` (503, retryable); qualquer outra exceção não classificada → HTTP 500 genérico (retryable=false). Em todos os casos o pedido fica em `ERRO`, preservando a `chaveNfe` que já existia (se houver).
+Se uma exceção for lançada durante `nfeGeracaoService.gerar()`, o serviço chama `traduzirFalhaTransmissao()` pra classificar a causa antes de relançar. **Corrigido em 10-08-2026 (Gate 1, P1 pré-transmissão):** a fronteira entre falha local e resultado incerto deixou de ser uma lista de tipos de exceção reconhecidos e passou a ser determinada pela fase real de execução — ver seção 5.9 e 7.5 para o mecanismo completo (`SefazTransmissaoIncertaException`). Classificação atual: `XmlSchemaValidationException` → `XML_SCHEMA_INVALID` (422, não-retryable); `SocketTimeoutException` (rede comprovadamente tocada) → `SEFAZ_TIMEOUT` (503, retryable); `ConnectException`/`UnknownHostException` (rede tocada) → `SEFAZ_UNAVAILABLE` (503, retryable); qualquer falha comprovadamente local e não-XSD (ex.: assinatura digital, colisão de chave em `marcarTransmitido`) → `LOCAL_PROCESSING_FAILURE` (422, não-retryable — substituiu o HTTP 500 genérico anterior); qualquer exceção não classificada, mas ocorrida comprovadamente durante ou após a chamada de transmissão → `SEFAZ_UNAVAILABLE` (503, retryable, fail-safe conservador). Em todos os casos o pedido fica em `ERRO`, preservando a `chaveNfe` que já existia (se houver); o ciclo do nNF (`nfe_emissao`) reflete a classificação de forma independente — ver seção 5.9.
 
 ### 4.2 Status semântico do pedido
 
@@ -430,11 +445,13 @@ Duas chamadas simultâneas a `POST /api/app/pedidos/{id}/emitir` para o mesmo pe
 |---|---|---|---|
 | `EMISSAO_EM_ANDAMENTO` | 409 | `true` | Não criar um pedido novo. `retryable: true` aqui não significa repetição imediata: aguardar um intervalo curto, consultar `GET /api/app/pedidos/{id}/situacao` e repetir `/emitir` somente se o estado do pedido ainda permitir. |
 
-A numeração por CNPJ+série permanece protegida como já estava (ver seção 5.6).
+A numeração por CNPJ+série permanece protegida como já estava (ver seção 5.6), agora reforçada pelo gate de série ativa do Gate 1 (seção 5.9).
 
 **Cobertura de teste:** validado por teste automatizado com 2 e 10 threads reais concorrentes. Isso não substitui um teste de concorrência contra um banco MySQL real em ambiente integrado — o teste automatizado usa a mesma instância de banco de teste do projeto, não um ambiente de HOM sob carga real.
 
-**Riscos residuais:** resposta perdida após transmissão à SEFAZ deixa o pedido em estado incerto até reconciliação manual/consulta; número alocado não equivale a NF-e autorizada; o sistema não reutiliza automaticamente um número já consumido.
+**Riscos residuais (pré-Gate 1):** resposta perdida após transmissão à SEFAZ deixava o pedido em estado incerto até reconciliação manual/consulta; número alocado não equivale a NF-e autorizada; o sistema não reutilizava automaticamente um número já consumido. O Gate 1 (seção 5.9) fecha a parte estrutural desse risco — o número permanece "em voo" e o gate da série não libera enquanto o resultado não for definitivo — mas a reconciliação ativa automática contra a SEFAZ (Gate 3) ainda não existe; hoje o sistema só bloqueia nova tentativa (`EMISSAO_AGUARDANDO_RECONCILIACAO`), sem resolver sozinho.
+
+**Ordem canônica de lock (P0-3, 10-08-2026):** operações que precisam travar tanto `nfe_sequencia` quanto `nfe_emissao` na mesma transação seguem sempre a ordem `nfe_sequencia → nfe_emissao`, nunca a inversa — um deadlock real (`ER_LOCK_DEADLOCK`/1213) foi reproduzido contra MySQL com a ordem invertida em `resolverCiclo` e corrigido ajustando o isolamento de `SERIALIZABLE` para `REPEATABLE_READ` nesse método (SERIALIZABLE promove leituras simples a shared lock implícito no InnoDB, o que quebrava a pré-leitura não-bloqueante). Validado por 9 cenários reais contra MySQL (deadlock pré-fix reproduzido, pós-fix não reproduzido, corridas concorrentes, rollback, TOCTOU).
 
 ---
 
@@ -558,6 +575,37 @@ O grupo `<transporta>` (dados do transportador) é `minOccurs="0"` no XSD oficia
 
 **Validado em HOM/SP em 22-07-2026:** autorização real (`cStat=100`) com `<modFrete>2</modFrete>` confirmado no XML efetivamente transmitido e autorizado pela SEFAZ (empresa vinculada ao token com cadastro fiscal aceito pela SEFAZ, fluxo multi-CNPJ).
 
+### 5.9 Ciclo operacional do nNF — `nfe_emissao` (Gate 1, 10-08-2026)
+
+Substitui o sequenciador simples anterior (contador que só incrementava, sem volta) por um ciclo com estado — o número fiscal fica "em voo" até ter destino definitivo, e só é fiscalmente consumido (`nfe_sequencia.ultimo_numero`) quando o ciclo chega a um resultado terminal.
+
+**Tabela `nfe_emissao` (V033):** uma linha por tentativa de emissão, atualizada in-place a cada nova tentativa do mesmo pedido (o histórico bruto por tentativa continua em `nfe_log`). `numero_nfe` único por `(cnpj_emitente, modelo, serie)` e `chave_nfe` única — constraints físicas, não apenas lógica de aplicação.
+
+**Estados do ciclo:**
+
+```
+RESERVADO ──► TRANSMITIDO ──► AUTORIZADO            (terminal — libera gate, consome número)
+                          └──► AGUARDANDO_CORRECAO   (não-terminal — mantém gate ocupado)
+                          └──► PENDENTE_CONFIRMACAO  (não-terminal — mantém gate ocupado)
+                          └──► DENEGADO              (terminal — inatingível no fluxo atual; ver seção 1.2, Gate 2)
+```
+
+**Gate de série (`nfe_sequencia.emissao_ativa_id`, V034):** aponta para a `nfe_emissao` ativa da série enquanto o ciclo não for terminal. Nenhum outro pedido da mesma série (CNPJ+série) consegue abrir um ciclo novo enquanto o gate estiver ocupado — recebe `EMISSAO_EM_ANDAMENTO_NA_SERIE` (409, retryable). Isso vale para **todos** os estados não-terminais, inclusive `RESERVADO` (ainda nem transmitiu) e `PENDENTE_CONFIRMACAO` (timeout) — não é "roubável" em nenhum estado intermediário.
+
+**Retomada do mesmo pedido:**
+- Ciclo em `RESERVADO` (crash antes de transmitir) → retoma o mesmo número, estoque intocado.
+- Ciclo em `AGUARDANDO_CORRECAO` → retoma reaproveitando o **mesmo** número, incrementa tentativas.
+- Ciclo em `TRANSMITIDO`/`PENDENTE_CONFIRMACAO` (resultado ainda incerto) → bloqueado com `EMISSAO_AGUARDANDO_RECONCILIACAO` (409, retryable); nunca gera chave nova enquanto a anterior não tiver destino definitivo.
+
+**Efeitos de estoque por tipo de abertura:** abertura nova e retomada de `AGUARDANDO_CORRECAO` reservam estoque novamente (a reserva anterior, se houve, já foi desfeita ao entrar em `AGUARDANDO_CORRECAO`); retomada de `RESERVADO` nunca reserva de novo — a reserva original continua de pé e a operação de reserva não é idempotente.
+
+**O que o Gate 1 propositalmente NÃO cobre:**
+- Classificação semântica fina de `cStat` (Gate 2) — o chamador (`PedidoEmissaoService`) decide o estado-alvo com a mesma lógica binária de sempre (100 → `AUTORIZADO`; ≥200 → `AGUARDANDO_CORRECAO`; resto → `PENDENTE_CONFIRMACAO`, o balde conservador).
+- Reconciliação ativa de `TRANSMITIDO`/`PENDENTE_CONFIRMACAO` via consulta à SEFAZ (Gate 3) — só existe o bloqueio, não a resolução automática.
+- Retorno de `serie`/`numeroNFe` no contrato OMS (Gate 5).
+
+**Cobertura de teste:** unitário (`NfeEmissaoServiceTest`, `NfeEmissaoServiceAdversarialTest`) e MySQL real (`NfeEmissaoLockOrderRealMySqlIT`, 9 cenários — deadlock pré/pós-fix, corridas concorrentes, isolamento entre CNPJs/séries, rollback, TOCTOU) contra um container MySQL 8.4 efêmero de teste, nunca contra HOM/DEV.
+
 ---
 
 ## 6. ASSINATURA DIGITAL XMLDSIG
@@ -671,6 +719,31 @@ A SEFAZ retorna um envelope SOAP com `retEnviNFe`. O `NfeSefazRetornoParser` ext
 | `nProt`   | Número do protocolo de autorização (presente apenas se cStat=100)      |
 | `chNFe`   | Chave de acesso retornada pela SEFAZ                                   |
 
+### 7.5 Fronteira local/transmissão — classificação de falha pré-transmissão (P1, 10-08-2026)
+
+**Problema corrigido:** antes desta correção, `PedidoEmissaoService.falhaOcorreuAntesDaTransmissao()` só reconhecia `XmlSchemaValidationException` como falha local segura — qualquer outra falha ocorrida antes de qualquer I/O de rede (falha de assinatura digital, colisão de chave em `marcarTransmitido`) era tratada como "resultado fiscal incerto" (`PENDENTE_CONFIRMACAO`), travando o gate da série indefinidamente, já que a reconciliação (Gate 3) não existe. Essas falhas também vazavam como exceção crua, sem `errorCode`/`retryable` estruturado.
+
+**Solução — fronteira por fase, não por tipo de exceção:** `NfeOrquestradorService.processar()` envolve exclusivamente a chamada real de transmissão (`NfeTransmitService.transmitirXml`, o único ponto de todo o pipeline que efetivamente toca a rede) numa nova exceção, `SefazTransmissaoIncertaException`. Nenhuma etapa anterior — conversão do XML, validação XSD, assinatura digital, ou `marcarTransmitido()` (que ocorre em `NfeGeracaoService`, antes até de `processar()` ser chamado) — consegue produzir essa marca.
+
+```
+FASE LOCAL (nunca produz SefazTransmissaoIncertaException)
+    geração do XML → validação XSD → assinatura digital → marcarTransmitido()
+                                                                    │
+                                                                    ▼
+FASE EXTERNA (única fonte de SefazTransmissaoIncertaException)
+    NfeTransmitService.transmitirXml()  ← único I/O real de rede
+```
+
+`falhaOcorreuAntesDaTransmissao()` foi invertida: local passa a ser o comportamento padrão — só deixa de ser local se `SefazTransmissaoIncertaException` estiver comprovadamente na cadeia de causas da exceção capturada.
+
+**Novo `errorCode`: `LOCAL_PROCESSING_FAILURE`** (HTTP 422, `retryable=false`) — falha comprovadamente local, ocorrida antes de qualquer possibilidade de transmissão à SEFAZ. Não representa rejeição SEFAZ, timeout, nem resultado fiscal incerto. O ciclo do nNF volta para `RESERVADO` (`NfeEmissaoService.reverterParaReservadoPorFalhaLocal`) — número não é consumido nem perdido, disponível para nova tentativa deliberada.
+
+**Colisão de chave (`DuplicateKeyException` em `marcarTransmitido`):** tratada como falha local (nunca toca a rede), mas com `retryable=false` — nunca assumida como retry simples. Auditoria da causa possível: `chave_nfe` embute `cnpj+serie+nNF+aaMM+cNF(aleatório 8 dígitos)`; `numero_nfe` já é único por `(cnpj_emitente, modelo, serie)` antes de `marcarTransmitido` (que é um `UPDATE` por PK, não `INSERT`) — uma colisão exigiria coincidência do `cNF` aleatório com outra linha, ou um bug real de geração. O ciclo reverte para `RESERVADO` (invariante de numeração preservada — número não consumido, sequência não avançada), mas `retryable=false` força decisão/investigação antes de nova tentativa, em vez de auto-retry cego.
+
+**Timeout/conexão (rede comprovadamente tocada) — comportamento conservador preservado sem alteração:** `SocketTimeoutException` → `SEFAZ_TIMEOUT` (503, retryable); `ConnectException`/`UnknownHostException` → `SEFAZ_UNAVAILABLE` (503, retryable); causa não classificada mas rede tocada → `SEFAZ_UNAVAILABLE` (503, retryable), fail-safe. Em todos os três, `PENDENTE_CONFIRMACAO`, chave e nNF permanecem congelados, gate permanece ocupado — Gate 3 continua responsável pela reconciliação, ainda não implementada.
+
+**Cobertura de teste:** `PedidoEmissaoServiceAdversarialTest` e `PedidoEmissaoServiceTest` — prova de zero chamada SEFAZ, número não consumido, sequência não avançada e `errorCode` estruturado para os dois cenários locais; prova de que timeout/`ConnectException`/erro de rede não classificado continuam produzindo `PENDENTE_CONFIRMACAO` exatamente como antes.
+
 ---
 
 ## 8. PERSISTÊNCIA E AUDITORIA FISCAL
@@ -760,7 +833,9 @@ Controllers
 
 ### 9.3 Fallback de compatibilidade
 
-Quando `empresaId == null` (usuário sem empresa associada, ou ambiente dev sem JWT):
+**Corrigido em 10-08-2026 — ver seção 9.7 para o mecanismo completo.** Quando `empresaId == null`, o fallback abaixo só se aplica a usuário autenticado com `ROLE_ADMIN`. Usuário autenticado sem `ROLE_ADMIN` e sem empresa vinculada é negado no `JwtFilter` (403 `TENANT_REQUIRED`) antes de alcançar qualquer controller/service — nunca chega a este fallback.
+
+Para ADMIN sem tenant (ou ambiente dev sem JWT):
 
 - `listarTodos()` é usado no lugar de `listarPorEmpresa()`
 - `EmitenteProperties` é usado como emitente no lugar de `Empresa`
@@ -852,6 +927,31 @@ A emissão já resolvia empresa e certificado corretamente pelo CNPJ do pedido (
 **Cobertura de teste e risco residual:** implementação validada por teste automatizado (isolamento entre CNPJs, falha explícita de resolução de contexto). Smoke test real multi-CNPJ desses quatro eventos (cancelamento, CC-e, consulta, inutilização) em HOM ainda está pendente — distinto da emissão (abaixo), que já foi validada em contexto multi-CNPJ real.
 
 **Evidência real da emissão multi-CNPJ (22-07-2026):** uma tentativa de emissão pela empresa padrão associada ao token do integrador OMS chegou à SEFAZ e retornou `cStat=209` ("IE do emitente inválida") — achado cadastral fiscal real, tratado corretamente pelo sistema (rejeição estruturada, `errorCode: SEFAZ_REJECTED`, HTTP 422, nenhum dado alterado indevidamente). Em seguida, uma emissão para uma segunda empresa vinculada ao mesmo token (com Inscrição Estadual ativa e cadastro completo) foi autorizada com `cStat=100` e `<modFrete>2</modFrete>` confirmado no XML transmitido — comprovando que `FiscalContextoResolver`/`resolverPorJtiECnpj` selecionam corretamente empresa e certificado por `cnpjEmitente`, sem exigir um token diferente por emitente.
+
+### 9.7 Isolamento tenant-null fail-closed (P0-2, 10-08-2026)
+
+**Vulnerabilidade corrigida:** `EmpresaContextHolder.get() == null` era tratado, em toda a API (`PedidoController`, `ClienteController`, `ProdutoController`, `NfeLogController`), como sinal implícito de acesso administrativo global — sem checar se o usuário autenticado de fato tinha `ROLE_ADMIN`. Um usuário `OPERADOR` com `empresa_id = NULL` no banco (estado real possível: cadastro incompleto, ou criado por um ADMIN sem informar a empresa) conseguia listar, consultar e emitir pedidos de **qualquer** empresa.
+
+**Correção — ponto central único, não checagem espalhada por controller:** `JwtFilter.autenticarUsuario()` passa a determinar `ROLE_ADMIN` exclusivamente pelas authorities reais carregadas por `UserDetailsService` (nunca por `empresaId == null`, e-mail, claim do cliente ou header). Regra aplicada antes de colocar a autenticação no `SecurityContext`:
+
+```
+tenant presente
+    → autentica normalmente; EmpresaContextHolder recebe o eid.
+
+tenant ausente + ROLE_ADMIN explícita
+    → autentica normalmente; EmpresaContextHolder permanece null;
+      acesso administrativo global continua possível (seção 9.3).
+
+tenant ausente + NÃO ADMIN
+    → HTTP 403, errorCode: TENANT_REQUIRED, retryable=false;
+      FilterChain NÃO continua — controller/service/mapper nunca são alcançados.
+```
+
+**OMS inalterado:** o token OMS já exige `eid` obrigatório desde sua concepção (`JwtFilter.autenticarOms` rejeita com `INVALID_OMS_TOKEN` se ausente) — nenhuma mudança nesta correção.
+
+**Ponto adjacente identificado, não corrigido nesta etapa:** `UsuarioController`/`UsuarioService` hoje permitem que um ADMIN crie um `OPERADOR` com `empresa_id = NULL` (endpoint já protegido por `hasRole("ADMIN")` no `SecurityConfig` — não é a vulnerabilidade em si, mas a origem de contas nesse estado). Registrado como hardening operacional posterior (P1), fora do escopo desta correção. **Verificação obrigatória antes de qualquer deploy em HOM/PRD:** `SELECT id, email, role FROM db_user WHERE empresa_id IS NULL` — contas não-ADMIN nesse estado passam a receber 403 corretamente após o deploy desta correção.
+
+**Cobertura de teste:** `JwtFilterTest` (cenários unitários A–H); `PedidoControllerTest` (prova HTTP real via `@WebMvcTest` + `SecurityConfig` real, JwtFilter não mockado); `P02TenantNullFailClosedRealMySqlIT` (4 cenários contra MySQL real efêmero — OPERADOR sem tenant bloqueado antes de qualquer efeito, com contagens antes/depois idênticas em pedido/estoque/`nfe_emissao`/`nfe_sequencia`/`nfe_log`; ADMIN sem tenant preservado; OPERADOR com tenant escopado corretamente).
 
 ---
 
@@ -979,6 +1079,10 @@ Restrições aplicadas em `SecurityConfig` (validado em HOM):
 ```
 
 > **Atenção:** `/api/app/usuarios` (sem trailing slash) e `/api/app/usuarios/**` são matchers distintos e ambos necessários — `AntPathRequestMatcher("/api/app/usuarios/**")` não cobre o path raiz sem segmento adicional.
+
+### 11.2a Tenant-null fail-closed (P0-2, 10-08-2026)
+
+A regra `.anyRequest().authenticated()` acima cobre autenticação, mas não isolamento multiempresa por si só — rotas fora da lista `ADMIN`-only aceitam qualquer usuário autenticado, e o isolamento por `empresa_id` dependia até 10-08-2026 de cada controller checar `EmpresaContextHolder.get() != null`, sem validar `ROLE_ADMIN` no caso `null`. Corrigido de forma centralizada no `JwtFilter`, não espalhada por controller — ver seção 9.7 para o mecanismo completo, o `errorCode TENANT_REQUIRED` e a cobertura de teste.
 
 ### 11.3 Endpoints públicos (sem autenticação)
 

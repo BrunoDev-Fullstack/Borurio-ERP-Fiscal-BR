@@ -14,8 +14,12 @@ import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.dto.NfeSefazRetorno;
+import br.com.borurio.fiscal.entity.NfeEmissao;
+import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
+import br.com.borurio.fiscal.exception.XmlSchemaValidationException;
 import br.com.borurio.fiscal.service.NfeSefazRetornoParser;
-import br.com.borurio.web.dto.ReservaFiscalResultado;
+import br.com.borurio.web.dto.AberturaCicloResultado;
+import br.com.borurio.web.dto.TipoAberturaCiclo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -27,28 +31,46 @@ import java.util.List;
 
 /**
  * Bridge: Pedido + snapshot fiscal → NfeEmissaoRequest → motor fiscal.
- * Após transmissão:
- *   cStat=100  → AUTORIZADO  + baixa definitiva de estoque
- *   cStat≥200  → REJEITADO   + desfaz reserva de estoque
- *   lote aceito sem infProt → AGUARDANDO (reserva mantida — Opção A)
- *   exceção     → ERRO       + desfaz reserva de estoque
  *
- * Reemissão: pedidos em REJEITADO ou ERRO podem chamar emitir() novamente —
- * cada tentativa gera nNF/chave novos via NfeSequenciaService, sem risco de duplicidade na SEFAZ.
+ * Ciclo do nNF (Gate 1 — NfeEmissaoService, 07-08-2026): o número fiscal fica "em voo" em
+ * nfe_emissao até ter destino definitivo. Após transmissão, o estado do CICLO (não o status do
+ * Pedido, que mantém o vocabulário de sempre) é:
+ *   cStat=100                → AUTORIZADO            + baixa definitiva de estoque
+ *   cStat≥200                → AGUARDANDO_CORRECAO   + desfaz reserva de estoque (Pedido=REJEITADO)
+ *   demais casos (110, 104   → PENDENTE_CONFIRMACAO  + estoque intocado (Pedido=AGUARDANDO) —
+ *   sem infProt, retorno nulo)                          classificação fina (denegação vs.
+ *                                                        processamento) é Gate 2, ainda não
+ *                                                        implementada; por ora tudo que não é
+ *                                                        100/≥200 cai neste balde conservador.
+ *   falha local pré-rede (XSD/assinatura) → reverte para RESERVADO, estoque intocado
+ *   falha de rede (timeout/indisponível)  → PENDENTE_CONFIRMACAO, estoque intocado
  *
- * Concorrência (P0.1): antes de tocar no sequenciador, emitir() reivindica o pedido com um
- * claim atômico (RASCUNHO/REJEITADO/ERRO → EMITINDO via UPDATE condicional). Só a chamada que
- * vence o claim prossegue; qualquer outra chamada concorrente pro mesmo pedidoId — retry de
- * rede, corrida real — recebe EMISSAO_EM_ANDAMENTO em vez de alocar um segundo nNF. EMITINDO
- * nunca é um status terminal: toda falha depois do claim (validação, estoque, SEFAZ) devolve o
- * pedido para ERRO antes de propagar a exceção, então ele nunca fica preso em EMITINDO.
+ * AGUARDANDO_CORRECAO e PENDENTE_CONFIRMACAO NÃO liberam o gate da série (nfe_sequencia
+ * .emissao_ativa_id) — o número continua pertencendo a este pedido até ser autorizado ou
+ * denegado. Reconciliação ativa de PENDENTE_CONFIRMACAO/TRANSMITIDO via consulta à SEFAZ é
+ * Gate 3, ainda não implementada: por ora, uma nova chamada de emitir() nesse estado só recebe
+ * EMISSAO_AGUARDANDO_RECONCILIACAO (bloqueado, sem retransmitir e sem gerar chave nova).
+ *
+ * Reemissão: pedidos em REJEITADO ou ERRO podem chamar emitir() novamente. Diferente de antes,
+ * nem toda reemissão gera nNF novo — retry de AGUARDANDO_CORRECAO reaproveita o mesmo número
+ * (NfeEmissaoService.abrirCiclo decide isso, não mais um sequenciador simples).
+ *
+ * Concorrência (P0.1 + Gate 1): antes de tocar no ciclo do nNF, emitir() reivindica o pedido com
+ * um claim atômico (RASCUNHO/REJEITADO/ERRO → EMITINDO via UPDATE condicional). Só a chamada que
+ * vence o claim prossegue. Pedido já em EMITINDO (retomada após interrupção do processo, não uma
+ * corrida nova) é tratado num caminho separado: busca o ciclo de nNF mais recente e retoma dali —
+ * se não existir ciclo nenhum, a interrupção ocorreu antes até da reserva de estoque, e não há
+ * como retomar com segurança (PEDIDO_EMISSAO_INCONSISTENTE, exige verificação manual).
  *
  * emitir() lança BusinessException (não retorna 200 disfarçado de sucesso) quando:
- *   claim perdido       → EMISSAO_EM_ANDAMENTO (retryable=true — outra emissão já está em curso)
- *   REJEITADO         → SEFAZ_REJECTED (cStat/xMotivo no campo `data`, retryable=false — geralmente é dado incorreto)
- *   timeout de rede    → SEFAZ_TIMEOUT (retryable=true)
- *   SEFAZ inacessível  → SEFAZ_UNAVAILABLE (retryable=true)
- *   schema inválido    → XML_SCHEMA_INVALID (retryable=false)
+ *   claim perdido            → EMISSAO_EM_ANDAMENTO (retryable=true)
+ *   outro pedido dono do gate → EMISSAO_EM_ANDAMENTO_NA_SERIE (retryable=true)
+ *   ciclo aguardando reconciliação → EMISSAO_AGUARDANDO_RECONCILIACAO (retryable=true)
+ *   pedido EMITINDO sem ciclo → PEDIDO_EMISSAO_INCONSISTENTE (retryable=false)
+ *   AGUARDANDO_CORRECAO       → SEFAZ_REJECTED (cStat/xMotivo em `data`, retryable=false)
+ *   timeout de rede           → SEFAZ_TIMEOUT (retryable=true)
+ *   SEFAZ inacessível         → SEFAZ_UNAVAILABLE (retryable=true)
+ *   schema inválido           → XML_SCHEMA_INVALID (retryable=false)
  */
 @Service
 public class PedidoEmissaoService {
@@ -62,7 +84,7 @@ public class PedidoEmissaoService {
     private final NfeSefazRetornoParser retornoParser;
     private final EstoqueService estoqueService;
     private final EmpresaMapper empresaMapper;
-    private final ReservaFiscalService reservaFiscalService;
+    private final NfeEmissaoService nfeEmissaoService;
     private final EmitenteProperties emitente;
 
     public PedidoEmissaoService(PedidoService pedidoService,
@@ -70,32 +92,58 @@ public class PedidoEmissaoService {
                                 NfeSefazRetornoParser retornoParser,
                                 EstoqueService estoqueService,
                                 EmpresaMapper empresaMapper,
-                                ReservaFiscalService reservaFiscalService,
+                                NfeEmissaoService nfeEmissaoService,
                                 EmitenteProperties emitente) {
         this.pedidoService     = pedidoService;
         this.nfeGeracaoService = nfeGeracaoService;
         this.retornoParser     = retornoParser;
         this.estoqueService    = estoqueService;
         this.empresaMapper     = empresaMapper;
-        this.reservaFiscalService = reservaFiscalService;
+        this.nfeEmissaoService = nfeEmissaoService;
         this.emitente           = emitente;
     }
 
     public NfeGeracaoResult emitir(Long pedidoId) throws Exception {
-        Pedido pedido = pedidoService.buscarComItens(pedidoId);
+        // P0-2 (07-08-2026, hardening pós-banca): fronteira de isolamento multiempresa — falha
+        // (404/NoSuchElementException) ANTES de qualquer efeito (claim, gate, estoque, SEFAZ)
+        // se o pedido não pertencer ao tenant autenticado. Nunca confia em pedidoId sozinho.
+        Pedido pedido = pedidoService.buscarComItensDoTenanteAtual(pedidoId);
 
-        if (!STATUS_EMISSIVEIS.contains(pedido.getStatus())) {
+        boolean retomadaEmitindo = "EMITINDO".equals(pedido.getStatus());
+
+        if (!retomadaEmitindo && !STATUS_EMISSIVEIS.contains(pedido.getStatus())) {
             throw BusinessException.invalidOrderStatus(
                     "Pedido não pode ser emitido no status atual: " + pedido.getStatus()
                             + ". Permitido apenas para RASCUNHO, REJEITADO ou ERRO.");
         }
 
-        // Claim atômico (P0.1) — o SELECT acima já confirmou status emissível, mas não protege
-        // a janela entre leitura e escrita. Esta UPDATE condicional (RASCUNHO/REJEITADO/ERRO →
-        // EMITINDO) é o ponto real de exclusão mútua: duas chamadas concorrentes pro mesmo
-        // pedido (retry de rede, corrida real) só deixam UMA prosseguir. A outra recebe
-        // EMISSAO_EM_ANDAMENTO em vez de alocar um segundo nNF e gerar uma segunda NF-e.
-        if (!pedidoService.reivindicarParaEmissao(pedidoId)) {
+        if (retomadaEmitindo) {
+            // Pedido já reivindicado (EMITINDO) numa chamada anterior interrompida antes de
+            // concluir — não repete o claim atômico, só decide o que fazer com base no ciclo de
+            // nNF mais recente.
+            NfeEmissao ultimaEmissao = nfeEmissaoService.buscarUltimaEmissaoDoPedido(pedidoId);
+            if (ultimaEmissao == null) {
+                // Sem nenhum ciclo registrado: a interrupção ocorreu antes até da reserva de
+                // estoque/número. Não há como saber com segurança o que já aconteceu, não tenta
+                // adivinhar.
+                throw BusinessException.pedidoEmissaoInconsistente(pedidoId);
+            }
+            if (NfeEmissao.Estados.isTerminal(ultimaEmissao.getEstado())) {
+                // O ciclo já chegou a um resultado definitivo (o gate já foi liberado em
+                // resolverCiclo) — a interrupção aconteceu na janela estreita entre essa
+                // transação e a atualização de Pedido.status, não antes dela. Corrige o status e
+                // para: NUNCA reabrir ciclo aqui, ou o gate livre seria lido como "abertura nova"
+                // e alocaria um número seguinte para um pedido que já está resolvido.
+                String statusResolvido = mapearStatusPedido(ultimaEmissao.getEstado());
+                pedidoService.atualizarStatus(pedidoId, statusResolvido, pedido.getChaveNfe());
+                throw BusinessException.pedidoJaResolvido(pedidoId, statusResolvido);
+            }
+        } else if (!pedidoService.reivindicarParaEmissao(pedidoId)) {
+            // Claim atômico (P0.1) — o SELECT acima já confirmou status emissível, mas não
+            // protege a janela entre leitura e escrita. Esta UPDATE condicional
+            // (RASCUNHO/REJEITADO/ERRO → EMITINDO) é o ponto real de exclusão mútua: duas
+            // chamadas concorrentes pro mesmo pedido (retry de rede, corrida real) só deixam UMA
+            // prosseguir. A outra recebe EMISSAO_EM_ANDAMENTO em vez de alocar um segundo nNF.
             throw BusinessException.emissaoEmAndamento(pedidoId);
         }
 
@@ -126,77 +174,101 @@ public class PedidoEmissaoService {
             // Empresa âncora (dona do estoque) decide se o fluxo controla estoque — não confundir
             // com `empresa`, que pode ser outro CNPJ do mesmo cliente OMS (fluxo multi-CNPJ).
             controlaEstoque = controlaEstoque(empresaId);
-
-            // Reserva ANTES da chamada SEFAZ — lança IllegalStateException (→ 422) se insuficiente
-            if (controlaEstoque) {
-                estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
-            }
         } catch (Exception e) {
-            // Falha antes de qualquer chamada à SEFAZ (itens vazios, empresa/certificado não
-            // resolvido, estoque insuficiente) — nenhum nNF foi alocado ainda, mas o pedido já
-            // está em EMITINDO por causa do claim acima e precisa voltar a um status emissível,
-            // senão fica preso pra sempre (EMITINDO não está em STATUS_EMISSIVEIS).
+            // Falha antes de qualquer chamada à SEFAZ ou ao ciclo do nNF (itens vazios,
+            // empresa/certificado não resolvido) — nenhum nNF foi tocado ainda, mas o pedido já
+            // está em EMITINDO por causa do claim/retomada acima e precisa voltar a um status
+            // emissível, senão fica preso pra sempre.
             pedidoService.atualizarStatus(pedidoId, "ERRO", pedido.getChaveNfe());
             throw e;
         }
 
-        // Reserva atômica de série + número + persistência do snapshot no pedido — tudo numa
-        // única transação em ReservaFiscalService.reservar() (20-07-2026, revisão pós-review:
-        // antes a escrita do snapshot era uma chamada separada depois desta, criando uma janela
-        // em que o número já estava consumido sem o snapshot correspondente no pedido).
-        // "Emissão iniciada" começa AQUI, não na criação do pedido. cnpjEmitente espelha a mesma
-        // resolução usada por NfeGeracaoService.gerar() para manter os dois pontos consistentes.
+        // Gate 1 do ciclo do nNF — abre (ou retoma) o ciclo ANTES de decidir se reserva estoque:
+        // a matriz de efeitos de estoque depende do tipo de transição (ver javadoc da classe).
+        // cnpjEmitente espelha a mesma resolução usada por NfeGeracaoService.gerar() para manter
+        // os dois pontos consistentes.
         String cnpjParaReserva = resolverCnpjParaReserva(empresa);
-        ReservaFiscalResultado reserva;
+        AberturaCicloResultado abertura;
         try {
-            reserva = reservaFiscalService.reservar(pedidoId, cnpjParaReserva);
+            abertura = nfeEmissaoService.abrirCiclo(pedidoId, cnpjParaReserva);
         } catch (Exception e) {
             pedidoService.atualizarStatus(pedidoId, "ERRO", pedido.getChaveNfe());
-            if (controlaEstoque) {
-                desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
-            }
             throw e;
         }
+        NfeEmissao emissao = abertura.emissao();
 
-        NfeEmissaoRequest req = montarRequest(pedido, reserva);
+        // Matriz de efeitos de estoque por tipo de transição: NOVA_ABERTURA e retomada de
+        // AGUARDANDO_CORRECAO reservam de novo (a reserva anterior, se houve, já foi desfeita ao
+        // entrar em AGUARDANDO_CORRECAO); RETOMADA_RESERVADO nunca reserva de novo — a reserva da
+        // tentativa original continua de pé, e a operação de reserva não é idempotente (chamar de
+        // novo duplicaria o efeito).
+        if (controlaEstoque && abertura.tipo() != TipoAberturaCiclo.RETOMADA_RESERVADO) {
+            try {
+                estoqueService.reservarItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            } catch (Exception e) {
+                pedidoService.atualizarStatus(pedidoId, "ERRO", pedido.getChaveNfe());
+                throw e;
+            }
+        }
 
-        log.info("[PedidoEmissao] Transmitindo | pedidoId={} | dest={} | empresaId={} | itens={}",
-                pedidoId, pedido.getDestCnpjCpf(), empresaId, req.getItens().size());
+        NfeEmissaoRequest req = montarRequest(pedido, emissao);
+
+        log.info("[PedidoEmissao] Transmitindo | pedidoId={} | emissaoId={} | nNF={} | dest={} | empresaId={} | itens={}",
+                pedidoId, emissao.getId(), emissao.getNumeroNfe(), pedido.getDestCnpjCpf(), empresaId, req.getItens().size());
 
         NfeGeracaoResult result;
         try {
             // Fluxo OMS de marketplaces: transporte contratado/operado pela plataforma, nunca
             // pelo emitente nem pelo destinatário — modFrete=2 (Terceiros).
-            result = nfeGeracaoService.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS);
+            result = nfeGeracaoService.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS, emissao.getId());
         } catch (Exception e) {
             // Preserva a chaveNfe já persistida (ex.: retry de um pedido REJEITADO que já
             // tinha uma chave real conhecida pela SEFAZ) — nunca zera com um UPDATE incondicional.
             pedidoService.atualizarStatus(pedidoId, "ERRO", pedido.getChaveNfe());
-            if (controlaEstoque) {
-                desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
+            // Estoque NUNCA é desfeito aqui (diferente de antes do Gate 1): o número continua
+            // pertencendo a este pedido em ambos os sub-casos abaixo, e a matriz de estoque
+            // (RESERVADO/PENDENTE_CONFIRMACAO) diz para manter a reserva intocada até um destino
+            // definitivo.
+            if (falhaOcorreuAntesDaTransmissao(e)) {
+                // XSD/assinatura: certeza local e síncrona de que nada foi enviado à SEFAZ —
+                // seguro reverter a chave "congelada" e deixar o ciclo pronto pra retomar em
+                // RESERVADO na próxima chamada, sem esperar reconciliação (Gate 3).
+                nfeEmissaoService.reverterParaReservadoPorFalhaLocal(emissao.getId());
+            } else {
+                // Timeout/indisponibilidade/qualquer exceção não classificada: não há certeza de
+                // que a SEFAZ não recebeu a transmissão — fail-safe pra PENDENTE_CONFIRMACAO, que
+                // mantém o gate ocupado e bloqueia nova tentativa até reconciliar (Gate 3).
+                nfeEmissaoService.resolverCiclo(emissao.getId(), NfeEmissao.Estados.PENDENTE_CONFIRMACAO,
+                        null, null, null);
             }
             throw traduzirFalhaTransmissao(e);
         }
 
         NfeSefazRetorno retorno = parseRetornoSeguro(result.getSoapRetorno());
-        String novoStatus = resolverStatus(retorno);
+        String novoEstadoEmissao = resolverEstadoEmissao(retorno);
+        nfeEmissaoService.resolverCiclo(emissao.getId(), novoEstadoEmissao,
+                retorno != null ? retorno.getCStat() : null,
+                retorno != null ? retorno.getXMotivo() : null,
+                retorno != null ? retorno.getNProt() : null);
+
+        String novoStatus = mapearStatusPedido(novoEstadoEmissao);
         pedidoService.atualizarStatus(pedidoId, novoStatus, result.getChaveNfe());
 
         if (controlaEstoque) {
-            if ("AUTORIZADO".equals(novoStatus)) {
+            if (NfeEmissao.Estados.AUTORIZADO.equals(novoEstadoEmissao)) {
                 estoqueService.baixaDefinitivaItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
-            } else if ("REJEITADO".equals(novoStatus)) {
+            } else if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(novoEstadoEmissao)) {
                 desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
             }
+            // PENDENTE_CONFIRMACAO: estoque intocado, de propósito — ver javadoc da classe.
         }
-        // AGUARDANDO: reserva mantida (Opção A — liberar manualmente ou no próximo ciclo de consulta)
 
-        log.info("[PedidoEmissao] Concluído | pedidoId={} | status={} | chave={}",
-                pedidoId, novoStatus, result.getChaveNfe());
+        log.info("[PedidoEmissao] Concluído | pedidoId={} | status={} | estadoEmissao={} | chave={}",
+                pedidoId, novoStatus, novoEstadoEmissao, result.getChaveNfe());
 
         // A SEFAZ processou a chamada (HTTP 200 internamente), mas rejeitou a NF-e — não é sucesso
         // para quem integra. Expõe cStat/xMotivo estruturados em vez de mascarar como 200 OK.
-        if ("REJEITADO".equals(novoStatus) && retorno != null) {
+        if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(novoEstadoEmissao) && retorno != null) {
             throw BusinessException.sefazRejected(retorno.getCStat(), retorno.getXMotivo());
         }
 
@@ -216,33 +288,91 @@ public class PedidoEmissaoService {
         }
     }
 
-    private String resolverStatus(NfeSefazRetorno retorno) {
-        if (retorno == null) return "AGUARDANDO";
-        if (retorno.isAutorizada()) return "AUTORIZADO";   // cStat=100
-        if (retorno.getCStat() >= 200) return "REJEITADO"; // cStat 2xx–9xx
-        return "AGUARDANDO"; // cStat=104: lote aceito, aguardando autorização individual
+    /**
+     * Classificação MÍNIMA do retorno SEFAZ para o ciclo de nfe_emissao — mesma lógica binária
+     * que existia antes (só reconhece cStat=100 e cStat>=200), agora mapeada pros nomes de estado
+     * do Gate 1. A classificação semântica fina (distinguir denegação real, ex. cStat=110, de
+     * "ainda em processamento", ex. cStat=104 sem infProt) é Gate 2 — ainda não implementada, por
+     * isso ambos caem hoje em PENDENTE_CONFIRMACAO, o balde conservador que nunca libera o gate
+     * nem toca estoque.
+     */
+    private String resolverEstadoEmissao(NfeSefazRetorno retorno) {
+        if (retorno == null) return NfeEmissao.Estados.PENDENTE_CONFIRMACAO;
+        if (retorno.isAutorizada()) return NfeEmissao.Estados.AUTORIZADO;      // cStat=100
+        if (retorno.getCStat() >= 200) return NfeEmissao.Estados.AGUARDANDO_CORRECAO; // cStat 2xx–9xx
+        return NfeEmissao.Estados.PENDENTE_CONFIRMACAO; // cStat=104/110/etc — ver nota acima
     }
 
     /**
-     * Traduz falhas técnicas de transmissão em códigos padronizados (Requisito 4),
-     * distinguindo o que vale a pena retry (timeout/indisponibilidade) do que não
-     * (schema inválido — precisa corrigir o dado antes de tentar de novo).
+     * Traduz o estado do ciclo do nNF (vocabulário novo, interno) para o status do Pedido
+     * (vocabulário OMS, inalterado neste Gate — formalizar PENDENTE_CONFIRMACAO no contrato é
+     * Gate 5). AGUARDANDO_CORRECAO mantém o nome "REJEITADO" que a OMS já conhece; qualquer coisa
+     * que não seja AUTORIZADO/AGUARDANDO_CORRECAO (hoje só PENDENTE_CONFIRMACAO) vira "AGUARDANDO",
+     * igual ao comportamento anterior ao Gate 1.
      */
-    private Exception traduzirFalhaTransmissao(Exception e) {
-        if (e instanceof br.com.borurio.fiscal.exception.XmlSchemaValidationException) {
-            return BusinessException.xmlSchemaInvalid(e.getMessage());
-        }
+    private String mapearStatusPedido(String estadoEmissao) {
+        if (NfeEmissao.Estados.AUTORIZADO.equals(estadoEmissao)) return "AUTORIZADO";
+        if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(estadoEmissao)) return "REJEITADO";
+        return "AGUARDANDO";
+    }
+
+    /**
+     * Falha ocorrida ANTES de qualquer I/O de rede com a SEFAZ. Determinada pela FASE real de
+     * execução, não por uma lista de tipos de exceção reconhecidos (P1 corrigido em 10-08-2026 —
+     * a lista anterior só reconhecia XmlSchemaValidationException, deixando assinatura digital e
+     * colisão de chave local classificadas incorretamente como "resultado incerto").
+     *
+     * NfeOrquestradorService.processar() envolve SOMENTE a chamada real de transmissão
+     * (NfeTransmitService.transmitirXml) e relança qualquer falha dali como
+     * SefazTransmissaoIncertaException — é o único ponto de todo o pipeline (conversão XML,
+     * validação XSD, assinatura digital, marcarTransmitido) capaz de produzir esse tipo. Local é
+     * portanto o comportamento padrão: só deixa de ser local se essa marca (ou algo que a
+     * envolva na cadeia de causas) estiver comprovadamente presente.
+     */
+    private boolean falhaOcorreuAntesDaTransmissao(Exception e) {
+        return !contemTransmissaoIncerta(e);
+    }
+
+    private boolean contemTransmissaoIncerta(Throwable e) {
         Throwable causa = e;
         while (causa != null) {
-            if (causa instanceof java.net.SocketTimeoutException) {
-                return BusinessException.sefazTimeout();
-            }
-            if (causa instanceof java.net.ConnectException || causa instanceof java.net.UnknownHostException) {
-                return BusinessException.sefazUnavailable();
+            if (causa instanceof SefazTransmissaoIncertaException) {
+                return true;
             }
             causa = causa.getCause();
         }
-        return e;
+        return false;
+    }
+
+    /**
+     * Traduz falhas técnicas de transmissão em códigos padronizados (Requisito 4), distinguindo
+     * o que vale a pena retry (timeout/indisponibilidade — rede comprovadamente tocada, resultado
+     * incerto) do que não (schema inválido, ou qualquer outra falha local comprovada — precisa
+     * corrigir o dado/config antes de tentar de novo, nunca reconciliação SEFAZ).
+     */
+    private Exception traduzirFalhaTransmissao(Exception e) {
+        if (e instanceof XmlSchemaValidationException) {
+            return BusinessException.xmlSchemaInvalid(e.getMessage());
+        }
+        if (contemTransmissaoIncerta(e)) {
+            Throwable causa = e;
+            while (causa != null) {
+                if (causa instanceof java.net.SocketTimeoutException) {
+                    return BusinessException.sefazTimeout();
+                }
+                if (causa instanceof java.net.ConnectException || causa instanceof java.net.UnknownHostException) {
+                    return BusinessException.sefazUnavailable();
+                }
+                causa = causa.getCause();
+            }
+            // Rede comprovadamente tocada (SefazTransmissaoIncertaException presente), mas a
+            // causa raiz não é um dos tipos de transporte reconhecidos — mesmo fail-safe
+            // conservador de antes: trata como indisponibilidade, retryable.
+            return BusinessException.sefazUnavailable();
+        }
+        // Falha local comprovada pela fase (nunca tocou a rede) — nunca era traduzida antes
+        // desta correção, vazava como exceção crua (500 genérico sem errorCode/retryable).
+        return BusinessException.localProcessingFailure(e.getMessage());
     }
 
     // -------------------------------------------------------------------------
@@ -344,10 +474,10 @@ public class PedidoEmissaoService {
                 : emitente.getCnpj().replaceAll("\\D", "");
     }
 
-    private NfeEmissaoRequest montarRequest(Pedido pedido, ReservaFiscalResultado reserva) {
+    private NfeEmissaoRequest montarRequest(Pedido pedido, NfeEmissao emissao) {
         NfeEmissaoRequest req = new NfeEmissaoRequest();
-        req.setSerie(reserva.serie());
-        req.setNumero(String.valueOf(reserva.numero()));
+        req.setSerie(emissao.getSerie());
+        req.setNumero(String.valueOf(emissao.getNumeroNfe()));
         req.setNaturezaOperacao(pedido.getNaturezaOperacao());
         req.setDestCnpjCpf(pedido.getDestCnpjCpf());
         req.setDestRazaoSocial(pedido.getDestRazaoSocial());

@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                                    |
 |------------------------|------------------------------------------|
-| Versão                 | 1.14                                     |
-| Data                   | 2026-07-22                               |
+| Versão                 | 1.15                                     |
+| Data                   | 2026-08-10                               |
 | Ambiente de referência | HOM — release `4a39a88`, disponível para os testes que o CC considerar necessários; acesso externo fornecido apenas durante janela controlada de teste; nenhuma URL fixa deve ser assumida pelo time integrador |
 | Documento de suporte   | `docs/manual/INTEGRATION_CONTRACT_EN.md` |
 | Status                 | IMPLEMENTADO, VALIDADO EM HOM — token OMS rotacionado, aguardando testes do CC |
@@ -414,7 +414,8 @@ Formato de resposta de erro de negócio:
 | `HTTP 409` + `errorCode: "EMISSAO_EM_ANDAMENTO"` | Outra chamada já assumiu a emissão deste pedido. Não criar pedido novo. Aguardar um intervalo curto, consultar `GET /api/app/pedidos/{id}/situacao` e repetir `/emitir` somente se a situação ainda permitir. `retryable: true`. |
 | `HTTP 422` + `errorCode: "IND_FINAL_PADRAO_INVALIDO"` | Configuração fiscal inválida no cadastro da empresa emitente (interna ao Borurio) — não é um erro corrigível pelo OMS; acionar a operação responsável pelo Borurio. `retryable: false`. |
 | `HTTP 503` + `errorCode: "SEFAZ_TIMEOUT"`/`"SEFAZ_UNAVAILABLE"` | Falha de rede transitória — `retryable: true`, seguro reemitir sem alterar nada |
-| `HTTP 500`                                        | Exceção não classificada — pedido vai para `ERRO`, `retryable: false`        |
+| `HTTP 422` + `errorCode: "LOCAL_PROCESSING_FAILURE"` (10-08-2026) | Falha comprovadamente local, antes de qualquer possibilidade de transmissão à SEFAZ — não é rejeição SEFAZ, timeout nem resultado incerto. `retryable: false` — corrigir a causa antes de chamar `/emitir` de novo no mesmo pedido |
+| `HTTP 500`                                        | Exceção não classificada, sem evidência de fase — pedido vai para `ERRO`, `retryable: false`        |
 
 - [ ] Tentar emitir pedido com `status` = `AUTORIZADO`/`AGUARDANDO`/`CANCELADO` → confirmar `HTTP 422` com `"errorCode": "INVALID_ORDER_STATUS"`
 - [ ] (v1.9) Se um pedido ficar `REJEITADO` ou `ERRO`: chamar `/emitir` de novo **no mesmo `pedidoId`** → confirmar que não precisa criar pedido novo e que `chaveNfe` retornada é diferente da tentativa anterior

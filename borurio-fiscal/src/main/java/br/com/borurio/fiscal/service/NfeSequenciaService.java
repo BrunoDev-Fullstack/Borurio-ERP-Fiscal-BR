@@ -1,6 +1,7 @@
 package br.com.borurio.fiscal.service;
 
 import br.com.borurio.fiscal.dto.AtualizacaoSequenciaResultado;
+import br.com.borurio.fiscal.entity.NfeSequencia;
 
 public interface NfeSequenciaService {
 
@@ -57,4 +58,52 @@ public interface NfeSequenciaService {
      * @throws IllegalStateException se proximoNumero representar uma regressão de numeração
      */
     AtualizacaoSequenciaResultado atualizarSequencia(String cnpjEmitente, String serie, int proximoNumero);
+
+    // -------------------------------------------------------------------------
+    // Gate 1 — ciclo do nNF (NfeEmissaoService). Estes métodos NÃO incrementam
+    // ultimo_numero na reserva — só na resolução terminal (consumirNumero), diferente de
+    // proximoNumero() acima, que permanece intocado para o caminho de fallback legado.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Bloqueia (FOR UPDATE) a linha de (cnpjEmitente, serie), criando-a com ultimoNumero=0 se
+     * ainda não existir. Base para peekProximoNumero() e para o chamador ler emissaoAtivaId
+     * (estado do gate) dentro da mesma transação.
+     *
+     * @throws IllegalArgumentException se cnpjEmitente/serie forem nulos ou vazios
+     */
+    NfeSequencia buscarOuCriarParaAtualizar(String cnpjEmitente, String serie);
+
+    /**
+     * Mesmo lock (FOR UPDATE) de buscarOuCriarParaAtualizar(), mas NUNCA cria a linha — devolve
+     * null se a sequência ainda não existir. Uso: checagens somente-leitura de gate
+     * (emissaoAtivaId) num CNPJ+série que o chamador não pretende necessariamente escrever (ex.:
+     * FiscalNumberingService checando a série que está sendo abandonada numa troca de série —
+     * criar uma linha ali só para ler seria um efeito colateral indevido).
+     */
+    NfeSequencia buscarSeExistirParaAtualizar(String cnpjEmitente, String serie);
+
+    /**
+     * Devolve o próximo número candidato (ultimoNumero + 1) SEM persistir — a diferença central
+     * para proximoNumero(), que persiste o incremento imediatamente. O candidato só vira
+     * definitivo quando consumirNumero() for chamado, na resolução terminal do ciclo.
+     */
+    int peekProximoNumero(String cnpjEmitente, String serie);
+
+    /** Ocupa o gate da série com o id de uma nfe_emissao — mesma transação de buscarOuCriarParaAtualizar. */
+    void ocuparGate(String cnpjEmitente, String serie, Long emissaoAtivaId);
+
+    /** Libera o gate da série (emissao_ativa_id = NULL) — chamado só ao alcançar estado terminal. */
+    void liberarGate(String cnpjEmitente, String serie);
+
+    /**
+     * Persiste definitivamente o consumo de um número — só deve ser chamado quando o ciclo do
+     * nNF chega a um estado terminal (AUTORIZADO ou DENEGADO).
+     *
+     * @throws IllegalStateException se a sequência não existir, ou se {@code numero} não for
+     *         exatamente ultimoNumero + 1 no momento da chamada — proteção contra desvio entre a
+     *         máquina de estados de nfe_emissao e o contador real, nunca deve acontecer em uso
+     *         normal (o gate impede outra reserva concorrente no meio do caminho).
+     */
+    void consumirNumero(String cnpjEmitente, String serie, int numero);
 }

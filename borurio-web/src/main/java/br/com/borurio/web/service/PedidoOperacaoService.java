@@ -74,7 +74,8 @@ public class PedidoOperacaoService {
     // -------------------------------------------------------------------------
 
     public Map<String, Object> consultarSituacao(Long pedidoId) throws Exception {
-        Pedido pedido = pedidoService.buscarPorId(pedidoId);
+        // P0-2 (07-08-2026, hardening pós-banca) — mesma fronteira de isolamento de emitir().
+        Pedido pedido = pedidoService.buscarPorIdDoTenanteAtual(pedidoId);
         String chave  = validarChave(pedido);
         validarCnpjDocumento(chave, pedido);
 
@@ -125,7 +126,8 @@ public class PedidoOperacaoService {
                     "Justificativa de cancelamento deve ter no mínimo 15 caracteres.");
         }
 
-        Pedido pedido = pedidoService.buscarComItens(pedidoId);
+        // P0-2 (07-08-2026, hardening pós-banca) — mesma fronteira de isolamento de emitir().
+        Pedido pedido = pedidoService.buscarComItensDoTenanteAtual(pedidoId);
         if (!"AUTORIZADO".equals(pedido.getStatus())) {
             throw BusinessException.invalidOrderStatus(
                     "Cancelamento só é permitido para pedidos com status AUTORIZADO. " +
@@ -188,7 +190,8 @@ public class PedidoOperacaoService {
                     "Texto da correção deve ter no mínimo 15 caracteres.");
         }
 
-        Pedido pedido = pedidoService.buscarPorId(pedidoId);
+        // P0-2 (07-08-2026, hardening pós-banca) — mesma fronteira de isolamento de emitir().
+        Pedido pedido = pedidoService.buscarPorIdDoTenanteAtual(pedidoId);
         if (!"AUTORIZADO".equals(pedido.getStatus())) {
             throw BusinessException.invalidOrderStatus(
                     "CC-e só é permitida para pedidos com status AUTORIZADO. " +

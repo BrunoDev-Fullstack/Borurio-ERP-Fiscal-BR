@@ -1,5 +1,6 @@
 package br.com.borurio.web.service;
 
+import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
@@ -13,6 +14,7 @@ import br.com.borurio.fiscal.service.NfeCancelamentoService;
 import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
 import br.com.borurio.fiscal.service.NfeTransmitService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -106,7 +109,7 @@ class PedidoOperacaoServiceTest {
     void cancelar_controlaEstoqueTrue_estornaBaixa() throws Exception {
         Pedido pedido = pedidoAutorizado(CNPJ_A);
         Empresa empresaA = empresa(10L, CNPJ_A, "SP", true);
-        when(pedidoService.buscarComItens(50L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaA, certificado(10L)));
@@ -122,7 +125,7 @@ class PedidoOperacaoServiceTest {
     void cancelar_controlaEstoqueFalse_naoEstornaBaixa() throws Exception {
         Pedido pedido = pedidoAutorizado(CNPJ_A);
         Empresa empresaA = empresa(10L, CNPJ_A, "SP", false);
-        when(pedidoService.buscarComItens(50L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaA, certificado(10L)));
@@ -138,7 +141,7 @@ class PedidoOperacaoServiceTest {
     void cancelar_empresaEstoqueNaoEncontrada_defaultEstornaBaixa() throws Exception {
         Pedido pedido = pedidoAutorizado(CNPJ_A);
         Empresa empresaA = empresa(10L, CNPJ_A, "SP", true);
-        when(pedidoService.buscarComItens(50L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaA, certificado(10L)));
@@ -163,7 +166,7 @@ class PedidoOperacaoServiceTest {
         Empresa empresaB = empresa(8L, CNPJ_B, "SP", true);
         CertificadoContexto certB = certificado(8L);
 
-        when(pedidoService.buscarComItens(50L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaB, certB));
@@ -184,7 +187,7 @@ class PedidoOperacaoServiceTest {
         Empresa empresaB = empresa(8L, CNPJ_B, "SP", true);
         CertificadoContexto certB = certificado(8L);
 
-        when(pedidoService.buscarPorId(50L)).thenReturn(pedido);
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaB, certB));
         when(cceService.corrigir(any(), eq(CNPJ_B), eq("SP"), eq(certB))).thenReturn("<retEvento/>");
 
@@ -201,7 +204,7 @@ class PedidoOperacaoServiceTest {
         pedido.setNumero("PED-00000050");
         Empresa empresaB = empresa(8L, CNPJ_B, "SP", true);
 
-        when(pedidoService.buscarPorId(50L)).thenReturn(pedido);
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe())).thenReturn(Optional.empty());
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaB, certificado(8L)));
         // tpAmb não é injetado pelo Spring fora de contexto real — fica no default do campo (0).
@@ -225,8 +228,8 @@ class PedidoOperacaoServiceTest {
         CertificadoContexto certA = certificado(1L);
         CertificadoContexto certB = certificado(8L);
 
-        when(pedidoService.buscarComItens(51L)).thenReturn(pedidoA);
-        when(pedidoService.buscarComItens(52L)).thenReturn(pedidoB);
+        when(pedidoService.buscarComItensDoTenanteAtual(51L)).thenReturn(pedidoA);
+        when(pedidoService.buscarComItensDoTenanteAtual(52L)).thenReturn(pedidoB);
         when(documentoService.buscarPorChave(pedidoA.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(documentoService.buscarPorChave(pedidoB.getChaveNfe()))
@@ -251,7 +254,7 @@ class PedidoOperacaoServiceTest {
         // de fato transmitido — cenário que a checagem precisa pegar antes de prosseguir.
         pedido.setChaveNfe(chaveComCnpj(CNPJ_B));
 
-        when(pedidoService.buscarComItens(50L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> service.cancelar(50L, "Cliente desistiu da compra"));
@@ -266,7 +269,7 @@ class PedidoOperacaoServiceTest {
     @DisplayName("Resolução de contexto fiscal falha (empresa/certificado ausente) propaga o erro, não cancela silenciosamente")
     void cancelar_resolucaoDeContextoFalha_propagaErro() throws Exception {
         Pedido pedido = pedidoAutorizado(CNPJ_B);
-        when(pedidoService.buscarComItens(50L)).thenReturn(pedido);
+        when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido))
@@ -276,5 +279,39 @@ class PedidoOperacaoServiceTest {
 
         verifyNoInteractions(cancelamentoService);
         verifyNoInteractions(estoqueService);
+    }
+
+    // -------------------------------------------------------------------------
+    // P0-2 (07-08-2026, hardening pós-banca) — isolamento multiempresa em cancelar/CC-e.
+    // (situacao é coberto em PedidoTenantIsolationAdversarialTest, junto com a prova de emitir.)
+    // -------------------------------------------------------------------------
+
+    @AfterEach
+    void limparContextoTenant() {
+        EmpresaContextHolder.clear();
+    }
+
+    @Test
+    @DisplayName("P0-2 H) cancelar: pedido de outra empresa é bloqueado antes de qualquer efeito, nenhum dado vaza")
+    void cancelar_pedidoDeOutraEmpresa_bloqueadoAntesDeQualquerEfeito() {
+        EmpresaContextHolder.set(99L);
+        when(pedidoService.buscarComItensDoTenanteAtual(50L))
+                .thenThrow(new NoSuchElementException("Pedido não encontrado: id=50"));
+
+        assertThrows(NoSuchElementException.class, () -> service.cancelar(50L, "Cliente desistiu da compra"));
+
+        verifyNoInteractions(cancelamentoService, contextoResolver, documentoService, estoqueService);
+    }
+
+    @Test
+    @DisplayName("P0-2 H) CC-e: pedido de outra empresa é bloqueado antes de qualquer efeito, nenhum dado vaza")
+    void emitirCce_pedidoDeOutraEmpresa_bloqueadoAntesDeQualquerEfeito() {
+        EmpresaContextHolder.set(99L);
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L))
+                .thenThrow(new NoSuchElementException("Pedido não encontrado: id=50"));
+
+        assertThrows(NoSuchElementException.class, () -> service.emitirCce(50L, "Correção do endereço do destinatário"));
+
+        verifyNoInteractions(cceService, contextoResolver);
     }
 }

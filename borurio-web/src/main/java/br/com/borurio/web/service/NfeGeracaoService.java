@@ -72,6 +72,7 @@ public class NfeGeracaoService {
     private final NfeDocumentoService documentoService;
     private final EmpresaCertificadoService empresaCertificadoService;
     private final OmsCertificadoService omsCertificadoService;
+    private final NfeEmissaoService nfeEmissaoService;
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
@@ -85,7 +86,8 @@ public class NfeGeracaoService {
                              NfeSefazRetornoParser retornoParser,
                              NfeDocumentoService documentoService,
                              EmpresaCertificadoService empresaCertificadoService,
-                             OmsCertificadoService omsCertificadoService) {
+                             OmsCertificadoService omsCertificadoService,
+                             NfeEmissaoService nfeEmissaoService) {
         this.emitente = emitente;
         this.nfeXmlBuilder = nfeXmlBuilder;
         this.nfeOrquestradorService = nfeOrquestradorService;
@@ -96,14 +98,30 @@ public class NfeGeracaoService {
         this.documentoService = documentoService;
         this.empresaCertificadoService = empresaCertificadoService;
         this.omsCertificadoService = omsCertificadoService;
+        this.nfeEmissaoService = nfeEmissaoService;
     }
 
     /**
      * Assinatura única e explícita: cada chamador declara a modalidade de frete do seu fluxo
      * (ver ModalidadeFrete). Não existe overload que a omita — isso evitaria que um novo
      * chamador esqueça de declarar o fluxo e herde silenciosamente um valor incorreto.
+     *
+     * Sem emissaoId (Gate 1 do ciclo do nNF) — usado pelo caminho legado (NfeEnvioController,
+     * deprecated) e por testes que não passam pelo ciclo de nfe_emissao. O fluxo real
+     * (PedidoEmissaoService) usa o overload abaixo.
      */
     public NfeGeracaoResult gerar(NfeEmissaoRequest req, Empresa empresa, ModalidadeFrete modalidadeFrete) throws Exception {
+        return gerar(req, empresa, modalidadeFrete, null);
+    }
+
+    /**
+     * @param emissaoId id da nfe_emissao (Gate 1) cujo ciclo esta tentativa pertence — se não
+     *                  nulo, a chave é persistida (NfeEmissaoService.marcarTransmitido) assim que
+     *                  calculada, ANTES da chamada à SEFAZ, para que uma reconciliação futura
+     *                  (Gate 3) saiba qual chave consultar em caso de timeout.
+     */
+    public NfeGeracaoResult gerar(NfeEmissaoRequest req, Empresa empresa, ModalidadeFrete modalidadeFrete,
+                                   Long emissaoId) throws Exception {
         Objects.requireNonNull(modalidadeFrete, "modalidadeFrete não pode ser nulo");
         validarRequest(req);
         validarEnderecoEmitente(empresa);
@@ -134,6 +152,13 @@ public class NfeGeracaoService {
         String chave43 = cUF + aaaMM + cnpj + "55" + serie + nNF + tpEmis + cNF;
         String cDV     = calcularCDV(chave43);
         String chave   = chave43 + cDV;
+
+        // Congela a chave desta tentativa ANTES de qualquer chamada de rede — Gate 1 do ciclo do
+        // nNF. Sem isso, uma reconciliação futura (Gate 3) não saberia qual chave consultar na
+        // SEFAZ em caso de timeout.
+        if (emissaoId != null) {
+            nfeEmissaoService.marcarTransmitido(emissaoId, chave);
+        }
 
         // SEFAZ XSD TSerie=0|[1-9][0-9]{0,2} and TNF=[1-9][0-9]{0,8}: no leading zeros in XML elements
         String serieXml = stripLeadingZeros(serie);

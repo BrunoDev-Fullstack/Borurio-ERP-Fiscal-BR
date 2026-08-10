@@ -248,6 +248,24 @@ public class BusinessException extends RuntimeException {
     }
 
     /**
+     * PROPOSTO 10-08-2026 (Gate 1.2, correção do P1 de classificação pré-transmissão) — falha
+     * comprovadamente local, ocorrida antes de qualquer I/O de rede com a SEFAZ (assinatura
+     * digital, persistência local como colisão de chave em marcarTransmitido, ou qualquer outra
+     * etapa anterior à chamada de transmissão). Nunca retryable automaticamente: ao contrário de
+     * timeout/indisponibilidade, a causa não se resolve sozinha com um novo envio — precisa de
+     * correção de configuração/certificado ou investigação (ex.: colisão de chave). O ciclo do
+     * nNF volta para RESERVADO (NfeEmissaoService.reverterParaReservadoPorFalhaLocal) — número não
+     * é consumido nem perdido, só aguarda uma nova tentativa deliberada.
+     */
+    public static BusinessException localProcessingFailure(String detail) {
+        return new BusinessException(
+                "LOCAL_PROCESSING_FAILURE",
+                "Falha local antes da transmissão à SEFAZ: " + detail,
+                422,
+                false);
+    }
+
+    /**
      * Empresa.indFinalPadrao contém um valor fora do domínio válido ("0" ou "1") — falha explícita
      * antes de montar/transmitir o XML, em vez de normalizar silenciosamente para um padrão.
      */
@@ -261,6 +279,75 @@ public class BusinessException extends RuntimeException {
     }
 
     // -------------------------------------------------------------------------
+    // Ciclo do nNF (Gate 1 — NfeEmissaoService)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Outro pedido é dono do gate fiscal desta série (nfe_sequencia.emissao_ativa_id aponta para
+     * uma nfe_emissao de outro pedido, ainda sem resultado definitivo). retryable=true: o gate
+     * libera assim que o ciclo ativo chegar a AUTORIZADO ou DENEGADO — não é erro de dado.
+     */
+    public static BusinessException emissaoEmAndamentoNaSerie(String cnpjEmitente, String serie) {
+        return new BusinessException(
+                "EMISSAO_EM_ANDAMENTO_NA_SERIE",
+                "Já existe uma emissão em andamento para CNPJ=" + cnpjEmitente + " série=" + serie
+                        + ". Aguarde o ciclo ativo chegar a um resultado definitivo.",
+                409,
+                true);
+    }
+
+    /**
+     * O pedido tem uma nfe_emissao em TRANSMITIDO/PENDENTE_CONFIRMACAO — resultado ainda incerto
+     * (timeout, ou JVM interrompida entre marcar TRANSMITIDO e receber a resposta da SEFAZ).
+     * Nunca deve disparar nova transmissão às cegas: precisa reconciliar contra a SEFAZ pela
+     * chave já congelada antes de decidir qualquer coisa (Gate 3 — reconciliação ainda não
+     * implementada nesta etapa; por ora, esta exceção apenas impede a retransmissão).
+     */
+    public static BusinessException emissaoAguardandoReconciliacao(Long pedidoId) {
+        return new BusinessException(
+                "EMISSAO_AGUARDANDO_RECONCILIACAO",
+                "O pedido " + pedidoId + " tem uma tentativa de emissão com resultado ainda incerto. "
+                        + "É necessário reconciliar com a SEFAZ pela chave já transmitida antes de "
+                        + "qualquer nova tentativa.",
+                409,
+                true);
+    }
+
+    /**
+     * Pedido em EMITINDO sem nenhuma nfe_emissao correspondente — a JVM foi interrompida antes
+     * mesmo de abrir o ciclo do nNF (ex.: entre o claim de emissão e a reserva de estoque/gate).
+     * Não há como saber com segurança se algum efeito colateral (reserva de estoque) já ocorreu;
+     * não tenta adivinhar. retryable=false: exige intervenção manual, não simples nova tentativa.
+     */
+    /**
+     * Pedido em EMITINDO cujo ciclo de emissão fiscal mais recente já chegou a um resultado
+     * definitivo (AUTORIZADO/DENEGADO), mas a atualização de Pedido.status foi interrompida antes
+     * de refletir isso — janela estreita entre a transação que resolve o ciclo (libera o gate) e
+     * a que atualiza o status do pedido. O status já foi corrigido nesta mesma chamada para
+     * refletir o resultado real; não há nova tentativa de transmissão. retryable=false: repetir
+     * a chamada não muda nada, o resultado já está definitivo.
+     */
+    public static BusinessException pedidoJaResolvido(Long pedidoId, String statusResolvido) {
+        return new BusinessException(
+                "PEDIDO_JA_RESOLVIDO",
+                "Pedido " + pedidoId + " já tinha um resultado fiscal definitivo (" + statusResolvido
+                        + ") de uma tentativa anterior interrompida antes de atualizar o status. "
+                        + "O status foi corrigido; nenhuma nova tentativa de transmissão foi feita.",
+                409,
+                false);
+    }
+
+    public static BusinessException pedidoEmissaoInconsistente(Long pedidoId) {
+        return new BusinessException(
+                "PEDIDO_EMISSAO_INCONSISTENTE",
+                "Pedido " + pedidoId + " está em EMITINDO sem nenhum ciclo de emissão fiscal "
+                        + "registrado — provável interrupção antes da reserva do número. Requer "
+                        + "verificação manual antes de qualquer nova tentativa.",
+                409,
+                false);
+    }
+
+    // -------------------------------------------------------------------------
     // Sincronização de série/numeração (OMS → Borurio)
     // -------------------------------------------------------------------------
 
@@ -270,6 +357,25 @@ public class BusinessException extends RuntimeException {
 
     public static BusinessException numeracaoInvalida(String detalhe) {
         return new BusinessException("NUMERACAO_INVALIDA", "Próximo número inválido: " + detalhe, 422, false);
+    }
+
+    /**
+     * A OMS tentou sincronizar série/numeração de um CNPJ+série que tem um ciclo fiscal ativo
+     * (Gate 1 — número reservado, transmitido ou aguardando confirmação). Nunca expõe o id
+     * interno da emissão/pedido — só CNPJ e série, que já é o padrão dos demais erros desta
+     * família (ver numeracaoInferiorAtual). retryable=true: assim que o ciclo ativo chegar a um
+     * resultado definitivo (autorizado ou denegado), a mesma sincronização pode ser reenviada e
+     * será aplicada normalmente.
+     */
+    public static BusinessException numeracaoComEmissaoEmAndamento(String cnpj, String serie) {
+        return new BusinessException(
+                "NUMERACAO_COM_EMISSAO_EM_ANDAMENTO",
+                "Não é possível sincronizar numeração/série de CNPJ=" + cnpj + " série=" + serie
+                        + ": existe uma emissão fiscal em andamento para esta série. Aguarde o "
+                        + "ciclo ativo chegar a um resultado definitivo (autorizado ou denegado) "
+                        + "e tente novamente.",
+                409,
+                true);
     }
 
     /**

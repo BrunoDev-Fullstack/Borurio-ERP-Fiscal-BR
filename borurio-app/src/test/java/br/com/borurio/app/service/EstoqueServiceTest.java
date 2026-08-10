@@ -4,6 +4,7 @@ import br.com.borurio.app.entity.EstoqueMovimento;
 import br.com.borurio.app.entity.EstoqueSaldo;
 import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.entity.Produto;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EstoqueMovimentoMapper;
 import br.com.borurio.app.mapper.ProdutoMapper;
 import br.com.borurio.app.service.impl.EstoqueServiceImpl;
@@ -62,9 +63,10 @@ class EstoqueServiceTest {
         when(produtoMapper.reservarEstoque(1L, item.getQuantidade(), 10L)).thenReturn(0);
         when(produtoMapper.buscarPorIdEEmpresa(1L, 10L)).thenReturn(produto);
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+        BusinessException ex = assertThrows(BusinessException.class, () ->
                 service.reservarItens(List.of(item), 10L, 99L, "user1"));
 
+        assertEquals("INSUFFICIENT_STOCK", ex.getErrorCode());
         assertTrue(ex.getMessage().contains("Estoque insuficiente"));
         verify(movimentoMapper, never()).inserir(any());
     }
@@ -74,9 +76,10 @@ class EstoqueServiceTest {
         when(produtoMapper.reservarEstoque(1L, item.getQuantidade(), 10L)).thenReturn(0);
         when(produtoMapper.buscarPorIdEEmpresa(1L, 10L)).thenReturn(null);
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+        BusinessException ex = assertThrows(BusinessException.class, () ->
                 service.reservarItens(List.of(item), 10L, 99L, "user1"));
 
+        assertEquals("PRODUCT_NOT_FOUND", ex.getErrorCode());
         assertTrue(ex.getMessage().contains("Produto não encontrado"));
     }
 

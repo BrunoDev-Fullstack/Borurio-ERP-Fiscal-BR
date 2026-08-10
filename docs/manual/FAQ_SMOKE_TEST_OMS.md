@@ -2,8 +2,8 @@
 
 | Atributo               | Valor                              |
 |------------------------|-------------------------------------|
-| Versão                 | 1.7                                 |
-| Data                   | 2026-07-22                          |
+| Versão                 | 1.8                                 |
+| Data                   | 2026-08-10                          |
 | Ambiente de referência | HOM — acesso externo disponibilizado somente durante janela controlada de teste. Nenhuma URL fixa deve ser assumida pelo integrador. |
 | Relacionado a          | `CHECKLIST_OMS_ONBOARDING.md`      |
 
@@ -167,6 +167,7 @@ Códigos disponíveis:
 | `SEFAZ_REJECTED` **(v1.9)**             | SEFAZ processou e rejeitou a NF-e (cStat≥200) | 422 | false | Ver `data.cStat`/`data.xMotivo`; corrigir e reemitir no mesmo pedido (Q26) |
 | `SEFAZ_TIMEOUT` **(v1.9)**              | Timeout na chamada à SEFAZ | 503 | **true** | Reenviar `/emitir` sem alterar nada |
 | `SEFAZ_UNAVAILABLE` **(v1.9)**          | SEFAZ inacessível | 503 | **true** | Reenviar `/emitir` sem alterar nada |
+| `LOCAL_PROCESSING_FAILURE` **(10-08-2026)** | Falha comprovadamente local, antes de qualquer possibilidade de transmissão à SEFAZ — nunca é timeout, rejeição SEFAZ ou resultado incerto | 422 | false | Corrigir a causa antes de reemitir no mesmo pedido; não é retry automático |
 | `XML_SCHEMA_INVALID` **(v1.9)**         | XML não passou na validação de schema local | 422 | false | Verificar dados do pedido/produto |
 
 Formato de resposta de erro de negócio:

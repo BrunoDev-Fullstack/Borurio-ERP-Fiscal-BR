@@ -2,6 +2,7 @@ package br.com.borurio.fiscal.service.impl;
 
 import br.com.borurio.fiscal.dto.AtualizacaoSequenciaResultado;
 import br.com.borurio.fiscal.entity.NfeSequencia;
+import br.com.borurio.fiscal.exception.SequenciaComEmissaoAtivaException;
 import br.com.borurio.fiscal.mapper.NfeSequenciaMapper;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
 import org.springframework.dao.DuplicateKeyException;
@@ -152,9 +153,97 @@ public class NfeSequenciaServiceImpl implements NfeSequenciaService {
                             + ". Regressão de numeração não é permitida.");
         }
 
+        // Gate 1 / P0-1 (07-08-2026, hardening pós-banca): uma sincronização externa nunca pode
+        // avançar ultimo_numero enquanto existe um ciclo fiscal em voo (emissao_ativa_id não
+        // nulo) para este CNPJ+série — faria nfe_sequencia divergir do número que a nfe_emissao
+        // ativa está prestes a consumir, e uma autorização real da SEFAZ chegaria sem conseguir
+        // ser consolidada (consumirNumero() rejeitaria por mismatch). Só bloqueia quando há
+        // avanço de fato — o branch de idempotência acima já retornou antes de chegar aqui.
+        if (seq.getEmissaoAtivaId() != null) {
+            throw new SequenciaComEmissaoAtivaException(cnpjEmitente, serie, seq.getEmissaoAtivaId());
+        }
+
         seq.setUltimoNumero(ultimoNumeroAlvo);
         mapper.atualizarNumero(seq);
         return new AtualizacaoSequenciaResultado(
                 cnpjEmitente, serie, ultimoNumeroAtual + 1, ultimoNumeroAlvo + 1, true, LocalDateTime.now());
+    }
+
+    // -------------------------------------------------------------------------
+    // Gate 1 — ciclo do nNF (NfeEmissaoService)
+    // -------------------------------------------------------------------------
+
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public NfeSequencia buscarOuCriarParaAtualizar(String cnpjEmitente, String serie) {
+        if (cnpjEmitente == null || cnpjEmitente.isBlank()) {
+            throw new IllegalArgumentException("cnpjEmitente é obrigatório.");
+        }
+        if (serie == null || serie.isBlank()) {
+            throw new IllegalArgumentException("serie é obrigatória.");
+        }
+
+        NfeSequencia seq = mapper.buscarParaAtualizar(cnpjEmitente, serie);
+        if (seq != null) {
+            return seq;
+        }
+
+        NfeSequencia novo = new NfeSequencia();
+        novo.setCnpjEmitente(cnpjEmitente);
+        novo.setSerie(serie);
+        novo.setUltimoNumero(0);
+        mapper.inserir(novo);
+        return novo;
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public NfeSequencia buscarSeExistirParaAtualizar(String cnpjEmitente, String serie) {
+        if (cnpjEmitente == null || cnpjEmitente.isBlank()) {
+            throw new IllegalArgumentException("cnpjEmitente é obrigatório.");
+        }
+        if (serie == null || serie.isBlank()) {
+            throw new IllegalArgumentException("serie é obrigatória.");
+        }
+        return mapper.buscarParaAtualizar(cnpjEmitente, serie);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public int peekProximoNumero(String cnpjEmitente, String serie) {
+        NfeSequencia seq = buscarOuCriarParaAtualizar(cnpjEmitente, serie);
+        return seq.getUltimoNumero() + 1;
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public void ocuparGate(String cnpjEmitente, String serie, Long emissaoAtivaId) {
+        mapper.ocuparGate(cnpjEmitente, serie, emissaoAtivaId);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public void liberarGate(String cnpjEmitente, String serie) {
+        mapper.liberarGate(cnpjEmitente, serie);
+    }
+
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public void consumirNumero(String cnpjEmitente, String serie, int numero) {
+        NfeSequencia seq = mapper.buscarParaAtualizar(cnpjEmitente, serie);
+        if (seq == null) {
+            throw new IllegalStateException(
+                    "Sequência não encontrada para CNPJ=" + cnpjEmitente + " série=" + serie
+                            + " ao tentar consumir número=" + numero + ".");
+        }
+        int esperado = seq.getUltimoNumero() + 1;
+        if (numero != esperado) {
+            throw new IllegalStateException(
+                    "Número a consumir (" + numero + ") não corresponde ao próximo esperado ("
+                            + esperado + ") para CNPJ=" + cnpjEmitente + " série=" + serie
+                            + " — possível desvio entre a máquina de estados do ciclo do nNF e o contador real.");
+        }
+        seq.setUltimoNumero(numero);
+        mapper.atualizarNumero(seq);
     }
 }

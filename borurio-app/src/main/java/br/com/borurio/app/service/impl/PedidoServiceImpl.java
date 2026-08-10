@@ -1,5 +1,6 @@
 package br.com.borurio.app.service.impl;
 
+import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.entity.Produto;
@@ -118,6 +119,25 @@ public class PedidoServiceImpl implements PedidoService {
         Pedido pedido = pedidoMapper.buscarPorId(id);
         if (pedido == null) throw new NoSuchElementException("Pedido não encontrado: id=" + id);
         return pedido;
+    }
+
+    @Override
+    public Pedido buscarPorIdEEmpresa(Long id, Long empresaId) {
+        Pedido pedido = pedidoMapper.buscarPorIdEEmpresa(id, empresaId);
+        if (pedido == null) throw new NoSuchElementException("Pedido não encontrado: id=" + id);
+        return pedido;
+    }
+
+    @Override
+    public Pedido buscarComItensDoTenanteAtual(Long id) {
+        Long empresaId = EmpresaContextHolder.get();
+        return empresaId != null ? buscarComItensEEmpresa(id, empresaId) : buscarComItens(id);
+    }
+
+    @Override
+    public Pedido buscarPorIdDoTenanteAtual(Long id) {
+        Long empresaId = EmpresaContextHolder.get();
+        return empresaId != null ? buscarPorIdEEmpresa(id, empresaId) : buscarPorId(id);
     }
 
     @Override
