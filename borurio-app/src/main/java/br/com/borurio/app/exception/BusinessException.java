@@ -299,9 +299,12 @@ public class BusinessException extends RuntimeException {
     /**
      * O pedido tem uma nfe_emissao em TRANSMITIDO/PENDENTE_CONFIRMACAO — resultado ainda incerto
      * (timeout, ou JVM interrompida entre marcar TRANSMITIDO e receber a resposta da SEFAZ).
-     * Nunca deve disparar nova transmissão às cegas: precisa reconciliar contra a SEFAZ pela
-     * chave já congelada antes de decidir qualquer coisa (Gate 3 — reconciliação ainda não
-     * implementada nesta etapa; por ora, esta exceção apenas impede a retransmissão).
+     * Nunca dispara nova transmissão às cegas. Lançada em dois momentos (Gate 3, 10-08-2026):
+     * (1) claim de reconciliação não vencido (backoff ainda não liberou a janela, ou outra
+     * chamada concorrente já está reconciliando) — nenhuma consulta à SEFAZ ocorreu nesta
+     * chamada; (2) a reconciliação rodou (consultou a SEFAZ ou resolveu localmente) mas o
+     * resultado continua inconclusivo (217/635/falha de transporte/falha de parse) — o ciclo
+     * seguirá pendente até uma próxima tentativa, respeitando o mesmo backoff.
      */
     public static BusinessException emissaoAguardandoReconciliacao(Long pedidoId) {
         return new BusinessException(
@@ -311,6 +314,25 @@ public class BusinessException extends RuntimeException {
                         + "qualquer nova tentativa.",
                 409,
                 true);
+    }
+
+    /**
+     * Reconciliação (Gate 3, 10-08-2026) provou que o número fiscal está definitivamente ocupado
+     * por identidade fiscal alheia (NF-e cancelada/denegada/inutilizada na base da SEFAZ, ou
+     * chave de acesso divergente confirmada) — a NF-e DESTE pedido nunca foi autorizada. O ciclo
+     * já foi resolvido como NUMERO_OCUPADO (número consumido, gate liberado) antes desta exceção
+     * ser lançada — retryable=true porque uma nova chamada a /emitir já abre um ciclo NOVO, com
+     * número seguinte; nunca reaproveita o número ocupado. cStat/xMotivo em `data` documentam a
+     * causa fiscal real para quem integra.
+     */
+    public static BusinessException numeroFiscalOcupado(Long pedidoId, Integer cStat, String xMotivo) {
+        return new BusinessException(
+                "NUMERO_FISCAL_OCUPADO",
+                "O número fiscal do pedido " + pedidoId + " está ocupado por outra identidade fiscal na SEFAZ "
+                        + "e não pôde ser autorizado. Uma nova tentativa de emissão usará o próximo número.",
+                409,
+                true,
+                Map.of("cStat", cStat != null ? cStat : -1, "xMotivo", xMotivo != null ? xMotivo : ""));
     }
 
     /**

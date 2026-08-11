@@ -18,10 +18,20 @@ public class NfeEmissao {
         public static final String AGUARDANDO_CORRECAO = "AGUARDANDO_CORRECAO";
         public static final String DENEGADO = "DENEGADO";
         public static final String PENDENTE_CONFIRMACAO = "PENDENTE_CONFIRMACAO";
+        /**
+         * Gate 3 (reconciliacao, 10-08-2026): a reconciliacao provou que o nNF esta definitivamente
+         * ocupado/inutilizavel por identidade fiscal alheia (NF-e cancelada/denegada/inutilizada na
+         * base da SEFAZ, ou chave de acesso divergente confirmada) — mas a NF-e DESTE pedido nunca
+         * foi autorizada. Distinto de DENEGADO: DENEGADO significa "a SEFAZ recusou esta tentativa
+         * de transmissao"; NUMERO_OCUPADO significa "esta tentativa nunca teve chance — o numero ja
+         * pertencia a outro documento". Terminal: consome o numero (nunca reutilizado) e libera o
+         * gate, mas o Pedido correspondente nunca vira AUTORIZADO.
+         */
+        public static final String NUMERO_OCUPADO = "NUMERO_OCUPADO";
 
         /** Estados que liberam o gate da sequencia (nfe_sequencia.emissao_ativa_id) ao serem alcancados. */
         public static boolean isTerminal(String estado) {
-            return AUTORIZADO.equals(estado) || DENEGADO.equals(estado);
+            return AUTORIZADO.equals(estado) || DENEGADO.equals(estado) || NUMERO_OCUPADO.equals(estado);
         }
 
         private Estados() {}
@@ -43,6 +53,8 @@ public class NfeEmissao {
     private int tentativas;
     private LocalDateTime transmitidoEm;
     private LocalDateTime resolvidoEm;
+    private LocalDateTime ultimaConsultaEm;
+    private int tentativasConsulta;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -93,6 +105,12 @@ public class NfeEmissao {
 
     public LocalDateTime getResolvidoEm() { return resolvidoEm; }
     public void setResolvidoEm(LocalDateTime resolvidoEm) { this.resolvidoEm = resolvidoEm; }
+
+    public LocalDateTime getUltimaConsultaEm() { return ultimaConsultaEm; }
+    public void setUltimaConsultaEm(LocalDateTime ultimaConsultaEm) { this.ultimaConsultaEm = ultimaConsultaEm; }
+
+    public int getTentativasConsulta() { return tentativasConsulta; }
+    public void setTentativasConsulta(int tentativasConsulta) { this.tentativasConsulta = tentativasConsulta; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

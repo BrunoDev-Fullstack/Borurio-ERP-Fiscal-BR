@@ -54,6 +54,7 @@ class PedidoEmissaoServiceTest {
     @Mock EstoqueService estoqueService;
     @Mock EmpresaMapper empresaMapper;
     @Mock NfeEmissaoService nfeEmissaoService;
+    @Mock NfeReconciliacaoService nfeReconciliacaoService;
 
     PedidoEmissaoService service;
 
@@ -63,7 +64,7 @@ class PedidoEmissaoServiceTest {
         emitente.setCnpj("11222333000181"); // fallback legado quando empresa não tem CNPJ (helper de teste não seta)
         service = new PedidoEmissaoService(
                 pedidoService, nfeGeracaoService, retornoParser, estoqueService, empresaMapper,
-                nfeEmissaoService, emitente);
+                nfeEmissaoService, nfeReconciliacaoService, emitente);
         EmpresaContextHolder.clear();
         // Default "feliz" pro claim atômico (P0.1) — testes que não mexem nisso continuam
         // passando; os testes de concorrência/claim sobrescrevem explicitamente por teste.
@@ -136,8 +137,12 @@ class PedidoEmissaoServiceTest {
         service.emitir(99L);
 
         verify(estoqueService).reservarItens(pedido.getItens(), 10L, 99L, "sistema");
-        verify(estoqueService).baixaDefinitivaItens(pedido.getItens(), 10L, 99L, "sistema");
-        verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
+        // Gate 3 (10-08-2026): baixa definitiva de estoque passou a ser aplicada por
+        // NfeEmissaoService.resolverCicloComEfeitos, na MESMA transação do ciclo fiscal — provar
+        // que PedidoEmissaoService delega com controlaEstoque=true é a prova correta aqui; o
+        // mecanismo real de baixa é coberto por NfeEmissaoServiceTest.
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null,
+                99L, "AUTORIZADO", "chave123", true, pedido.getItens(), 10L, "sistema");
     }
 
     /**
@@ -171,8 +176,8 @@ class PedidoEmissaoServiceTest {
         service.emitir(99L);
 
         verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
-        verify(estoqueService, never()).baixaDefinitivaItens(any(), any(), any(), any());
-        verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null,
+                99L, "AUTORIZADO", "chave123", false, pedido.getItens(), 10L, "sistema");
     }
 
     @Test
@@ -189,7 +194,8 @@ class PedidoEmissaoServiceTest {
         assertFalse(ex.isRetryable());
 
         verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
-        verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 225, null, null,
+                99L, "REJEITADO", null, false, pedido.getItens(), 10L, "sistema");
     }
 
     @Test
@@ -253,7 +259,8 @@ class PedidoEmissaoServiceTest {
         service.emitir(99L);
 
         verify(estoqueService).reservarItens(pedido.getItens(), 10L, 99L, "sistema");
-        verify(estoqueService).baixaDefinitivaItens(pedido.getItens(), 10L, 99L, "sistema");
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null,
+                99L, "AUTORIZADO", "chave123", true, pedido.getItens(), 10L, "sistema");
     }
 
     @Test
@@ -268,7 +275,8 @@ class PedidoEmissaoServiceTest {
         NfeGeracaoResult result = service.emitir(99L);
 
         assertEquals("chaveNova", result.getChaveNfe());
-        verify(pedidoService).atualizarStatus(99L, "AUTORIZADO", "chaveNova");
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null,
+                99L, "AUTORIZADO", "chaveNova", true, pedido.getItens(), 10L, "sistema");
     }
 
     @Test
@@ -568,7 +576,8 @@ class PedidoEmissaoServiceTest {
         verify(pedidoService, never()).reivindicarParaEmissao(any());
         // RESERVADO retomado: a reserva de estoque da tentativa original continua de pé.
         verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
-        verify(estoqueService).baixaDefinitivaItens(pedido.getItens(), 10L, 99L, "sistema");
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null,
+                99L, "AUTORIZADO", "chave123", true, pedido.getItens(), 10L, "sistema");
     }
 
     @Test
@@ -657,7 +666,8 @@ class PedidoEmissaoServiceTest {
 
         service.emitir(99L);
 
-        verify(nfeEmissaoService).resolverCiclo(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null);
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null,
+                99L, "AUTORIZADO", "chave123", true, pedido.getItens(), 10L, "sistema");
     }
 
     @Test
@@ -671,7 +681,228 @@ class PedidoEmissaoServiceTest {
 
         assertThrows(BusinessException.class, () -> service.emitir(99L));
 
-        verify(nfeEmissaoService).resolverCiclo(501L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 225, null, null);
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 225, null, null,
+                99L, "REJEITADO", null, true, pedido.getItens(), 10L, "sistema");
+    }
+
+    // -------------------------------------------------------------------------
+    // Gate 2 — matriz de classificação semântica do cStat (10-08-2026)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void emitir_cStat150_resolveCicloComoAutorizado_consomeNumeroEBaixaEstoque() throws Exception {
+        // 150 = autorizado fora do prazo, mesma classe fiscal de 100 — número consumido, gate
+        // liberado, estoque baixado definitivamente.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(150));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 150, null, null,
+                99L, "AUTORIZADO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat302_resolveCicloComoAguardandoCorrecao() throws Exception {
+        // 302 = rejeição por irregularidade fiscal do destinatário (Ajuste SINIEF 43/23 — deixou
+        // de ser denegação em 01-08-2024) — mesmo nNF, gate mantido, reserva desfeita.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult(null, "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(302));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("SEFAZ_REJECTED", ex.getErrorCode());
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 302, null, null,
+                99L, "REJEITADO", null, true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat303_resolveCicloComoAguardandoCorrecao() throws Exception {
+        // 303 = rejeição por destinatário não habilitado a operar na UF — mesma classe de 302.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult(null, "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(303));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("SEFAZ_REJECTED", ex.getErrorCode());
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 303, null, null,
+                99L, "REJEITADO", null, true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat301_resolveCicloComoPendenteConfirmacao_naoTrataComoRejeicaoCorrigivel() throws Exception {
+        // 301 = "irregularidade fiscal do emitente" (nome histórico do MOC 7.0) — a NT 2024.001
+        // EXCLUIU a regra que produzia especificamente este código; diferente de 302/303 (que
+        // mantiveram o número com efeito alterado), não há evidência de que a SEFAZ ainda devolva
+        // 301 para modelo 55 — fail-safe conservador, nunca reaproveitamento automático.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(301));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 301, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat103LoteAindaProcessando_resolveCicloComoPendenteConfirmacao() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(103));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 103, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat104SemInfProt_resolveCicloComoPendenteConfirmacao_naoDuplicaExtracaoDoParser() throws Exception {
+        // Com indSinc=1 (único modo do Borurio), o cStat individual real já deveria ter vindo
+        // dentro de infProt e sido extraído por NfeSefazRetornoParser ANTES deste método ser
+        // chamado. Se este método recebe 104 literal, é porque infProt estava ausente — resposta
+        // anômala, não o caminho feliz de indSinc=1. Prova o fallback, não reimplementa o parser.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(104));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 104, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat105LoteEmProcessamento_resolveCicloComoPendenteConfirmacao() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(105));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 105, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat106LoteNaoLocalizado_resolveCicloComoPendenteConfirmacao() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(106));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 106, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat110UsoDenegadoHistorico_resolveCicloComoPendenteConfirmacao_nuncaAutomatico() throws Exception {
+        // "Uso Denegado" — revogado pelo Ajuste SINIEF 43/23 desde 01-08-2024 para modelo 55. Se
+        // ainda assim ocorrer, sem evidência oficial de tratamento seguro: nunca decide sozinho.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(110));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 110, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat204Duplicidade_resolveCicloComoPendenteConfirmacao_naoDecideIdempotenciaSozinho() throws Exception {
+        // Duplicidade pode legitimamente vir com protocolo já emitido (idempotência real) — mas
+        // auditar isso é Gate 3; este método nunca decide automaticamente aqui.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(204));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 204, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat205JaDenegadaNaBase_resolveCicloComoPendenteConfirmacao_nuncaReaproveitaNumero() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(205));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 205, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat218JaCanceladaNaBase_resolveCicloComoPendenteConfirmacao_nuncaReaproveitaNumero() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(218));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 218, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
+    }
+
+    @Test
+    void emitir_cStat539DuplicidadeComChaveDiferente_resolveCicloComoPendenteConfirmacao_nuncaLiberaGate() throws Exception {
+        // Caso mais sensível da tabela: identidade lógica já existe com chave de acesso diferente
+        // da que acabamos de transmitir — nunca libera o gate, nunca gera chave nova sozinho.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(539));
+
+        service.emitir(99L);
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 539, null, null,
+                99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
     }
 
     private br.com.borurio.fiscal.dto.NfeSefazRetorno autorizada() {
@@ -683,6 +914,12 @@ class PedidoEmissaoServiceTest {
     private br.com.borurio.fiscal.dto.NfeSefazRetorno rejeitada() {
         br.com.borurio.fiscal.dto.NfeSefazRetorno r = new br.com.borurio.fiscal.dto.NfeSefazRetorno();
         r.setCStat(225);
+        return r;
+    }
+
+    private br.com.borurio.fiscal.dto.NfeSefazRetorno comCStat(int cStat) {
+        br.com.borurio.fiscal.dto.NfeSefazRetorno r = new br.com.borurio.fiscal.dto.NfeSefazRetorno();
+        r.setCStat(cStat);
         return r;
     }
 }

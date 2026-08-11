@@ -4,6 +4,8 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.mapper.PedidoMapper;
+import br.com.borurio.app.service.EstoqueService;
+import br.com.borurio.fiscal.config.SefazReconciliacaoProperties;
 import br.com.borurio.fiscal.dto.AtualizacaoSequenciaResultado;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeSequencia;
@@ -46,6 +48,7 @@ class NfeEmissaoServiceAdversarialTest {
     @Mock PedidoMapper pedidoMapper;
     @Mock NfeSequenciaService sequenciaService;
     @Mock NfeEmissaoMapper nfeEmissaoMapper;
+    @Mock EstoqueService estoqueService;
 
     NfeEmissaoService service;
 
@@ -56,7 +59,8 @@ class NfeEmissaoServiceAdversarialTest {
 
     @BeforeEach
     void setUp() {
-        service = new NfeEmissaoService(empresaMapper, pedidoMapper, sequenciaService, nfeEmissaoMapper);
+        service = new NfeEmissaoService(empresaMapper, pedidoMapper, sequenciaService, nfeEmissaoMapper,
+                estoqueService, new SefazReconciliacaoProperties());
     }
 
     private Empresa empresa(Long id, String serie) {
@@ -201,7 +205,8 @@ class NfeEmissaoServiceAdversarialTest {
 
         // 2) NfeEmissaoService.abrirCiclo, usando essa MESMA implementação real de sequenciaService
         //    (não um mock reafirmando o número à mão) — candidato precisa ser 5.
-        NfeEmissaoService serviceReal = new NfeEmissaoService(empresaMapper, pedidoMapper, sequenciaReal, nfeEmissaoMapper);
+        NfeEmissaoService serviceReal = new NfeEmissaoService(empresaMapper, pedidoMapper, sequenciaReal, nfeEmissaoMapper,
+                estoqueService, new SefazReconciliacaoProperties());
         when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ_A)).thenReturn(empresa(8L, "1"));
         doAnswer(inv -> {
             NfeEmissao e = inv.getArgument(0);

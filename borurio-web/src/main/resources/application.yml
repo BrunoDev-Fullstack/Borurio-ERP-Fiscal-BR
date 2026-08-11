@@ -106,6 +106,18 @@ sefaz:
     max-attempts: ${SEFAZ_RETRY_MAX_ATTEMPTS:3}
     wait-seconds: ${SEFAZ_RETRY_WAIT_SECONDS:2}
 
+  #############################################################################################
+  # RECONCILIACAO FISCAL (Gate 3) — backoff da Consulta Situacao sobre ciclos
+  # TRANSMITIDO/PENDENTE_CONFIRMACAO. Defaults conservadores; nunca hardcoded no Java porque os
+  # critérios de consumo indevido (cStat 656) são definidos pelo autorizador e podem mudar.
+  #############################################################################################
+  reconciliacao:
+    backoff-inicial-segundos: ${SEFAZ_RECONCILIACAO_BACKOFF_INICIAL_SEGUNDOS:30}
+    backoff-multiplicador: ${SEFAZ_RECONCILIACAO_BACKOFF_MULTIPLICADOR:2.0}
+    backoff-maximo-segundos: ${SEFAZ_RECONCILIACAO_BACKOFF_MAXIMO_SEGUNDOS:600}
+    limite-tentativas: ${SEFAZ_RECONCILIACAO_LIMITE_TENTATIVAS:10}
+    idade-maxima-minutos: ${SEFAZ_RECONCILIACAO_IDADE_MAXIMA_MINUTOS:60}
+
 ###############################################################################################
 # NOTAS TÉCNICAS
 #

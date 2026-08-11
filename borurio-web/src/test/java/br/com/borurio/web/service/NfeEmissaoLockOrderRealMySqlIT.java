@@ -209,8 +209,10 @@ class NfeEmissaoLockOrderRealMySqlIT {
         when(empresaMapperMock.buscarPorCnpjParaAtualizar(any())).thenReturn(empresa);
 
         PedidoMapper pedidoMapperMock = mock(PedidoMapper.class);
+        br.com.borurio.app.service.EstoqueService estoqueServiceMock = mock(br.com.borurio.app.service.EstoqueService.class);
 
-        return new NfeEmissaoService(empresaMapperMock, pedidoMapperMock, sequenciaService, emissaoMapper);
+        return new NfeEmissaoService(empresaMapperMock, pedidoMapperMock, sequenciaService, emissaoMapper,
+                estoqueServiceMock, new br.com.borurio.fiscal.config.SefazReconciliacaoProperties());
     }
 
     // =========================================================================================

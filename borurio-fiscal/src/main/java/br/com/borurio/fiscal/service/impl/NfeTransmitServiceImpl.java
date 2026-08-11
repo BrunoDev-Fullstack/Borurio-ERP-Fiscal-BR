@@ -1,6 +1,7 @@
 package br.com.borurio.fiscal.service.impl;
 
 import br.com.borurio.fiscal.entity.NfeLog;
+import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.mapper.NfeLogMapper;
 import br.com.borurio.fiscal.service.CertificadoService;
 import br.com.borurio.fiscal.service.NfeTransmitService;
@@ -215,7 +216,11 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
             logFiscal.setDataEvento(LocalDateTime.now());
             salvarLogSeguro(logFiscal);
             log.error("[NF-e] Erro ao consultar NF-e | chave={}", chaveNfe, e);
-            throw new RuntimeException("Falha ao consultar NF-e na SEFAZ", e);
+            // Falha real de transporte (enviarSoap não completou) — nunca uma resposta SEFAZ com
+            // cStat conhecido, que já teria retornado normalmente acima. Tipada para permitir à
+            // reconciliação (Gate 3) distinguir FALHA_TRANSPORTE de CONSULTA_RESPONDIDA sem
+            // depender de mensagem de texto.
+            throw new SefazTransmissaoIncertaException(e);
         }
     }
 

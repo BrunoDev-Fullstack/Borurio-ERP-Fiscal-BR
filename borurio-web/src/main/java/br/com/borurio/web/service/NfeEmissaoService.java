@@ -4,6 +4,9 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.mapper.PedidoMapper;
+import br.com.borurio.app.entity.PedidoItem;
+import br.com.borurio.app.service.EstoqueService;
+import br.com.borurio.fiscal.config.SefazReconciliacaoProperties;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeSequencia;
 import br.com.borurio.fiscal.mapper.NfeEmissaoMapper;
@@ -15,6 +18,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Gate 1 da máquina de estados fiscal de numeração — ciclo operacional do nNF. Substitui
@@ -50,13 +54,18 @@ public class NfeEmissaoService {
     private final PedidoMapper pedidoMapper;
     private final NfeSequenciaService sequenciaService;
     private final NfeEmissaoMapper nfeEmissaoMapper;
+    private final EstoqueService estoqueService;
+    private final SefazReconciliacaoProperties reconciliacaoProperties;
 
     public NfeEmissaoService(EmpresaMapper empresaMapper, PedidoMapper pedidoMapper,
-                              NfeSequenciaService sequenciaService, NfeEmissaoMapper nfeEmissaoMapper) {
+                              NfeSequenciaService sequenciaService, NfeEmissaoMapper nfeEmissaoMapper,
+                              EstoqueService estoqueService, SefazReconciliacaoProperties reconciliacaoProperties) {
         this.empresaMapper = empresaMapper;
         this.pedidoMapper = pedidoMapper;
         this.sequenciaService = sequenciaService;
         this.nfeEmissaoMapper = nfeEmissaoMapper;
+        this.estoqueService = estoqueService;
+        this.reconciliacaoProperties = reconciliacaoProperties;
     }
 
     @Transactional(isolation = Isolation.SERIALIZABLE)
@@ -201,6 +210,73 @@ public class NfeEmissaoService {
     // chave única de uma linha já existente, nunca um range scan concorrente com INSERT.
     @Transactional(isolation = Isolation.REPEATABLE_READ)
     public void resolverCiclo(Long emissaoId, String novoEstado, Integer cStat, String xMotivo, String nProt) {
+        aplicarNovoEstado(emissaoId, novoEstado, cStat, xMotivo, nProt);
+    }
+
+    /**
+     * Finalização atômica do ciclo (Gate 3, 10-08-2026 — fecha a janela de crash comprovada na
+     * auditoria entre resolverCiclo() e os efeitos de Pedido/Estoque, que antes eram aplicados em
+     * transações separadas por PedidoEmissaoService). Uma única transação: nfe_emissao (+
+     * nfe_sequencia quando terminal) -> Pedido -> Estoque. Ou tudo persiste, ou nada persiste.
+     *
+     * Exactly-once do CONJUNTO: se o ciclo já estava terminal (chamada duplicada — retry,
+     * reconciliação concorrente), {@link #aplicarNovoEstado} devolve {@code false} e este método
+     * para imediatamente, sem tocar Pedido/Estoque — os efeitos já foram aplicados juntos, na
+     * mesma transação, pela chamada que venceu a primeira vez. Nunca é possível aplicar o efeito
+     * fiscal sem o efeito operacional, nem vice-versa.
+     *
+     * Ordem de lock estendida: Empresa -> nfe_sequencia -> nfe_emissao -> Pedido -> Estoque —
+     * primeira vez que Pedido/Estoque entram na mesma transação que nfe_sequencia/nfe_emissao;
+     * antes disso as duas fases eram sempre sequenciais (transações disjuntas no tempo).
+     *
+     * pedidoMapper é usado diretamente aqui (não via PedidoService), mesmo padrão já usado por
+     * abrirCicloNovo/retomarCicloAtivo para atualizarSerieReservada — a existência do Pedido já é
+     * garantida por quem chama este método (sempre a partir de um ciclo real de nfe_emissao).
+     */
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    public void resolverCicloComEfeitos(Long emissaoId, String novoEstado, Integer cStat, String xMotivo, String nProt,
+                                         Long pedidoId, String statusPedido, String chaveNfeParaPedido,
+                                         boolean controlaEstoque, List<PedidoItem> itens, Long empresaId, String criadoPor) {
+        boolean aplicado = aplicarNovoEstado(emissaoId, novoEstado, cStat, xMotivo, nProt);
+        if (!aplicado) {
+            return;
+        }
+
+        pedidoMapper.atualizarStatus(pedidoId, statusPedido, chaveNfeParaPedido);
+
+        if (controlaEstoque) {
+            if (NfeEmissao.Estados.AUTORIZADO.equals(novoEstado)) {
+                estoqueService.baixaDefinitivaItens(itens, empresaId, pedidoId, criadoPor);
+            } else if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(novoEstado)
+                    || NfeEmissao.Estados.NUMERO_OCUPADO.equals(novoEstado)) {
+                estoqueService.desfazerReservaItens(itens, empresaId, pedidoId, criadoPor);
+            }
+            // PENDENTE_CONFIRMACAO nunca chega aqui como terminal — aplicarNovoEstado não altera
+            // nfe_sequencia para esse estado, mas o CHAMADOR também nunca deve invocar este método
+            // (que assume estado final decidido) para PENDENTE_CONFIRMACAO; ver NfeReconciliacaoService.
+        }
+    }
+
+    /**
+     * Claim atômico da janela de reconciliação (Gate 3) — UPDATE condicional único (ver
+     * NfeEmissaoMapper.tentarAdquirirJanelaConsulta), nunca lock explícito + leitura + decisão.
+     * Transação própria, curta, sem nenhuma chamada de rede dentro dela — a Consulta Situação só
+     * acontece depois que esta transação já commitou, do lado de fora de qualquer @Transactional.
+     */
+    @Transactional
+    public boolean tentarAdquirirJanelaConsulta(Long emissaoId) {
+        int affected = nfeEmissaoMapper.tentarAdquirirJanelaConsulta(
+                emissaoId,
+                LocalDateTime.now(),
+                reconciliacaoProperties.getBackoffInicialSegundos(),
+                reconciliacaoProperties.getBackoffMultiplicador(),
+                reconciliacaoProperties.getBackoffMaximoSegundos());
+        return affected == 1;
+    }
+
+    // Retorna true se o novo estado foi de fato aplicado nesta chamada; false se o ciclo já
+    // estava terminal (no-op idempotente).
+    private boolean aplicarNovoEstado(Long emissaoId, String novoEstado, Integer cStat, String xMotivo, String nProt) {
         // Ordem canônica de lock do projeto: Empresa -> nfe_sequencia -> nfe_emissao (mesma de
         // abrirCiclo/retomarCicloAtivo e de FiscalNumberingService). Este método recebe só o id
         // da emissão, então precisa descobrir cnpj/série ANTES de travar nfe_sequencia — mas essa
@@ -227,9 +303,11 @@ public class NfeEmissaoService {
         }
         if (NfeEmissao.Estados.isTerminal(emissao.getEstado())) {
             // Idempotência: decidida pelo estado já travado (a fonte válida), nunca pela
-            // pré-leitura de cima — protege contra uma segunda resolução do mesmo ciclo
-            // (relevante para Gate 3, quando reconciliação puder ser chamada mais de uma vez).
-            return;
+            // pré-leitura de cima — protege contra uma segunda resolução do mesmo ciclo (Gate 3:
+            // reconciliação pode ser chamada mais de uma vez). false sinaliza ao chamador
+            // (resolverCicloComEfeitos) que os efeitos de Pedido/Estoque já foram aplicados antes,
+            // na transação que resolveu este ciclo pela primeira vez — nunca reaplicar.
+            return false;
         }
 
         if (terminal) {
@@ -262,5 +340,6 @@ public class NfeEmissaoService {
             sequenciaService.consumirNumero(emissao.getCnpjEmitente(), emissao.getSerie(), emissao.getNumeroNfe());
             sequenciaService.liberarGate(emissao.getCnpjEmitente(), emissao.getSerie());
         }
+        return true;
     }
 }

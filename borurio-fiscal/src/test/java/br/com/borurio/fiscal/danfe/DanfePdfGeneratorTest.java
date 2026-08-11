@@ -1,8 +1,11 @@
 package br.com.borurio.fiscal.danfe;
 
+import com.lowagie.text.pdf.PdfReader;
+import com.lowagie.text.pdf.parser.PdfTextExtractor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -59,6 +62,14 @@ public class DanfePdfGeneratorTest {
         return d;
     }
 
+    private String extrairTextoPagina1(byte[] pdf) {
+        try (PdfReader reader = new PdfReader(pdf)) {
+            return new PdfTextExtractor(reader).getTextFromPage(1);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Testes estruturais
     // -------------------------------------------------------------------------
@@ -90,6 +101,50 @@ public class DanfePdfGeneratorTest {
 
         assertNotNull(pdf);
         assertTrue(pdf.length > 1_000);
+    }
+
+    @Test
+    @DisplayName("cStat=100 com nProt exibe PROTOCOLO DE AUTORIZAÇÃO DE USO")
+    void deveExibirProtocoloAutorizacaoParaCStat100() {
+        DanfeData d = dadosHom();
+        d.tpAmb    = "1";
+        d.cStat    = "100";
+        d.nProt    = "135260000000001";
+        d.dhRecbto = "2026-05-21T10:31:00-03:00";
+
+        String texto = extrairTextoPagina1(generator.gerar(d));
+
+        assertTrue(texto.contains("PROTOCOLO DE AUTORIZAÇÃO DE USO"));
+        assertTrue(texto.contains("135260000000001"));
+    }
+
+    @Test
+    @DisplayName("cStat=150 (autorizado fora do prazo) com nProt exibe PROTOCOLO DE AUTORIZAÇÃO DE USO")
+    void deveExibirProtocoloAutorizacaoParaCStat150() {
+        DanfeData d = dadosHom();
+        d.tpAmb    = "1";
+        d.cStat    = "150";
+        d.nProt    = "135260000000002";
+        d.dhRecbto = "2026-05-21T10:31:00-03:00";
+
+        String texto = extrairTextoPagina1(generator.gerar(d));
+
+        assertTrue(texto.contains("PROTOCOLO DE AUTORIZAÇÃO DE USO"));
+        assertTrue(texto.contains("135260000000002"));
+    }
+
+    @Test
+    @DisplayName("cStat=225 (rejeitado, sem protocolo) mantém comportamento anterior — nunca exibe PROTOCOLO DE AUTORIZAÇÃO DE USO")
+    void naoDeveExibirProtocoloAutorizacaoParaRejeitado() {
+        DanfeData d = dadosHom();
+        d.tpAmb = "2";
+        d.cStat = "225";
+        d.nProt = null;
+
+        String texto = extrairTextoPagina1(generator.gerar(d));
+
+        assertFalse(texto.contains("PROTOCOLO DE AUTORIZAÇÃO DE USO"));
+        assertTrue(texto.contains("cStat: 225"));
     }
 
     @Test

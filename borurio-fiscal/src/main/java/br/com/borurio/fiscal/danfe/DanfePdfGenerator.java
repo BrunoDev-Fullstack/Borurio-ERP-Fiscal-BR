@@ -107,11 +107,13 @@ public class DanfePdfGenerator {
         cDanfe.addElement(new Phrase("Folha 1/1", FONTE_VALOR));
         t.addCell(cDanfe);
 
-        // Protocolo — label condicional: só usa "AUTORIZAÇÃO" se realmente autorizado
+        // Protocolo — label condicional: só usa "AUTORIZAÇÃO" se realmente autorizado.
+        // cStat 100 e 150 são a mesma classe fiscal de autorização (150 = autorizado fora do
+        // prazo) — mesmo critério usado em PedidoEmissaoService.resolverEstadoEmissao().
         PdfPCell cProt = new PdfPCell();
         cProt.setBorder(Rectangle.BOX);
         cProt.setPadding(4);
-        if ("100".equals(d.cStat) && d.nProt != null && !d.nProt.isBlank()) {
+        if (("100".equals(d.cStat) || "150".equals(d.cStat)) && d.nProt != null && !d.nProt.isBlank()) {
             addLabeled(cProt, "PROTOCOLO DE AUTORIZAÇÃO DE USO", null, null);
             cProt.addElement(new Phrase(safe(d.nProt), FONTE_VALOR));
             cProt.addElement(new Phrase(safe(d.dhRecbto), FONTE_VALOR));

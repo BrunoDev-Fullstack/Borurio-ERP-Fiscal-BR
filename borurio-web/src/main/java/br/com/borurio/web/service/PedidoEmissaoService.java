@@ -34,14 +34,12 @@ import java.util.List;
  *
  * Ciclo do nNF (Gate 1 — NfeEmissaoService, 07-08-2026): o número fiscal fica "em voo" em
  * nfe_emissao até ter destino definitivo. Após transmissão, o estado do CICLO (não o status do
- * Pedido, que mantém o vocabulário de sempre) é:
- *   cStat=100                → AUTORIZADO            + baixa definitiva de estoque
- *   cStat≥200                → AGUARDANDO_CORRECAO   + desfaz reserva de estoque (Pedido=REJEITADO)
- *   demais casos (110, 104   → PENDENTE_CONFIRMACAO  + estoque intocado (Pedido=AGUARDANDO) —
- *   sem infProt, retorno nulo)                          classificação fina (denegação vs.
- *                                                        processamento) é Gate 2, ainda não
- *                                                        implementada; por ora tudo que não é
- *                                                        100/≥200 cai neste balde conservador.
+ * Pedido, que mantém o vocabulário de sempre) é decidido pela classificação semântica do cStat
+ * (Gate 2, 10-08-2026 — ver {@link #resolverEstadoEmissao}):
+ *   cStat=100/150             → AUTORIZADO            + baixa definitiva de estoque
+ *   cStat=225/302/303         → AGUARDANDO_CORRECAO   + desfaz reserva de estoque (Pedido=REJEITADO)
+ *   cStat=103/104/105/106/    → PENDENTE_CONFIRMACAO  + estoque intocado (Pedido=AGUARDANDO)
+ *   110/204/205/218/301/539
  *   falha local pré-rede (XSD/assinatura) → reverte para RESERVADO, estoque intocado
  *   falha de rede (timeout/indisponível)  → PENDENTE_CONFIRMACAO, estoque intocado
  *
@@ -85,6 +83,7 @@ public class PedidoEmissaoService {
     private final EstoqueService estoqueService;
     private final EmpresaMapper empresaMapper;
     private final NfeEmissaoService nfeEmissaoService;
+    private final NfeReconciliacaoService nfeReconciliacaoService;
     private final EmitenteProperties emitente;
 
     public PedidoEmissaoService(PedidoService pedidoService,
@@ -93,6 +92,7 @@ public class PedidoEmissaoService {
                                 EstoqueService estoqueService,
                                 EmpresaMapper empresaMapper,
                                 NfeEmissaoService nfeEmissaoService,
+                                NfeReconciliacaoService nfeReconciliacaoService,
                                 EmitenteProperties emitente) {
         this.pedidoService     = pedidoService;
         this.nfeGeracaoService = nfeGeracaoService;
@@ -100,6 +100,7 @@ public class PedidoEmissaoService {
         this.estoqueService    = estoqueService;
         this.empresaMapper     = empresaMapper;
         this.nfeEmissaoService = nfeEmissaoService;
+        this.nfeReconciliacaoService = nfeReconciliacaoService;
         this.emitente           = emitente;
     }
 
@@ -110,6 +111,14 @@ public class PedidoEmissaoService {
         Pedido pedido = pedidoService.buscarComItensDoTenanteAtual(pedidoId);
 
         boolean retomadaEmitindo = "EMITINDO".equals(pedido.getStatus());
+
+        // Gate 3 (10-08-2026): "AGUARDANDO" não é status emissível (não entra em
+        // STATUS_EMISSIVEIS de propósito — nunca dispara transmissão nova às cegas), mas pode ter
+        // um ciclo fiscal TRANSMITIDO/PENDENTE_CONFIRMACAO esperando reconciliação. Rota separada,
+        // nunca cai no branch de transmissão normal abaixo.
+        if (!retomadaEmitindo && "AGUARDANDO".equals(pedido.getStatus())) {
+            return reconciliarPedidoAguardando(pedido);
+        }
 
         if (!retomadaEmitindo && !STATUS_EMISSIVEIS.contains(pedido.getStatus())) {
             throw BusinessException.invalidOrderStatus(
@@ -246,22 +255,18 @@ public class PedidoEmissaoService {
 
         NfeSefazRetorno retorno = parseRetornoSeguro(result.getSoapRetorno());
         String novoEstadoEmissao = resolverEstadoEmissao(retorno);
-        nfeEmissaoService.resolverCiclo(emissao.getId(), novoEstadoEmissao,
+        String novoStatus = mapearStatusPedido(novoEstadoEmissao);
+
+        // Gate 3 (10-08-2026): nfe_emissao + nfe_sequencia (quando terminal) + Pedido + Estoque
+        // resolvidos em UMA única transação — fecha a janela de crash comprovada em auditoria
+        // entre a resolução do ciclo fiscal e a aplicação dos efeitos operacionais. Ou tudo
+        // persiste, ou nada persiste; ver NfeEmissaoService.resolverCicloComEfeitos.
+        nfeEmissaoService.resolverCicloComEfeitos(emissao.getId(), novoEstadoEmissao,
                 retorno != null ? retorno.getCStat() : null,
                 retorno != null ? retorno.getXMotivo() : null,
-                retorno != null ? retorno.getNProt() : null);
-
-        String novoStatus = mapearStatusPedido(novoEstadoEmissao);
-        pedidoService.atualizarStatus(pedidoId, novoStatus, result.getChaveNfe());
-
-        if (controlaEstoque) {
-            if (NfeEmissao.Estados.AUTORIZADO.equals(novoEstadoEmissao)) {
-                estoqueService.baixaDefinitivaItens(pedido.getItens(), empresaId, pedidoId, criadoPor);
-            } else if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(novoEstadoEmissao)) {
-                desfazerReservaSeguro(pedido.getItens(), empresaId, pedidoId, criadoPor);
-            }
-            // PENDENTE_CONFIRMACAO: estoque intocado, de propósito — ver javadoc da classe.
-        }
+                retorno != null ? retorno.getNProt() : null,
+                pedidoId, novoStatus, result.getChaveNfe(),
+                controlaEstoque, pedido.getItens(), empresaId, criadoPor);
 
         log.info("[PedidoEmissao] Concluído | pedidoId={} | status={} | estadoEmissao={} | chave={}",
                 pedidoId, novoStatus, novoEstadoEmissao, result.getChaveNfe());
@@ -273,6 +278,37 @@ public class PedidoEmissaoService {
         }
 
         return result;
+    }
+
+    /**
+     * Gate 3 (10-08-2026) — pedido em "AGUARDANDO" (resultado incerto de uma tentativa anterior,
+     * cStat 103/104/105/106/110/204/205/218/301/539). Nunca transmite de novo: delega para
+     * {@link NfeReconciliacaoService}, que decide entre local-first, Consulta Situação pela chave
+     * já congelada, ou continuar pendente — nunca retransmissão cega.
+     */
+    private NfeGeracaoResult reconciliarPedidoAguardando(Pedido pedido) throws Exception {
+        Long pedidoId = pedido.getId();
+        NfeEmissao ultimaEmissao = nfeEmissaoService.buscarUltimaEmissaoDoPedido(pedidoId);
+        boolean cicloReconciliavel = ultimaEmissao != null
+                && (NfeEmissao.Estados.TRANSMITIDO.equals(ultimaEmissao.getEstado())
+                    || NfeEmissao.Estados.PENDENTE_CONFIRMACAO.equals(ultimaEmissao.getEstado()));
+        if (!cicloReconciliavel) {
+            // Pedido AGUARDANDO sem ciclo pendente correspondente — estado inconsistente, nunca
+            // adivinha (mesmo espírito de EMITINDO sem ciclo).
+            throw BusinessException.pedidoEmissaoInconsistente(pedidoId);
+        }
+
+        Empresa empresa = resolverEmpresaParaEmissao(pedido);
+        Long empresaId = pedido.getEmpresaId() != null ? pedido.getEmpresaId()
+                : (EmpresaContextHolder.get() != null ? EmpresaContextHolder.get()
+                   : (empresa != null ? empresa.getId() : null));
+        boolean controlaEstoque = controlaEstoque(empresaId);
+
+        nfeReconciliacaoService.reconciliar(pedido, ultimaEmissao, empresa, controlaEstoque);
+
+        // reconciliar() só retorna sem lançar quando resolveu AUTORIZADO — qualquer outro
+        // desfecho (pendente, NUMERO_OCUPADO, AGUARDANDO_CORRECAO) já lançou BusinessException.
+        return new NfeGeracaoResult(ultimaEmissao.getChaveNfe(), null);
     }
 
     // -------------------------------------------------------------------------
@@ -289,30 +325,106 @@ public class PedidoEmissaoService {
     }
 
     /**
-     * Classificação MÍNIMA do retorno SEFAZ para o ciclo de nfe_emissao — mesma lógica binária
-     * que existia antes (só reconhece cStat=100 e cStat>=200), agora mapeada pros nomes de estado
-     * do Gate 1. A classificação semântica fina (distinguir denegação real, ex. cStat=110, de
-     * "ainda em processamento", ex. cStat=104 sem infProt) é Gate 2 — ainda não implementada, por
-     * isso ambos caem hoje em PENDENTE_CONFIRMACAO, o balde conservador que nunca libera o gate
-     * nem toca estoque.
+     * Classificação semântica do retorno SEFAZ para o ciclo de nfe_emissao (Gate 2, 10-08-2026).
+     * Único ponto de classificação fiscal do sistema — nenhuma outra camada deve reimplementar
+     * esta lógica (ver {@link br.com.borurio.fiscal.danfe.DanfePdfGenerator}, que trata 100/150
+     * como equivalentes pelo mesmo motivo).
+     *
+     * Nunca classifica por faixa (nunca "cStat >= 200") — cada código é avaliado pelo significado
+     * fiscal real, com fonte oficial vigente:
+     *
+     * AUTORIZADO (consome nNF, libera gate, baixa estoque):
+     *   100 — Autorizado o uso da NF-e.
+     *   150 — Autorizado o uso da NF-e, autorização fora do prazo (mesma classe fiscal de 100).
+     *
+     * AGUARDANDO_CORRECAO (mantém o mesmo nNF, gate permanece ocupado, desfaz reserva de estoque,
+     * Pedido=REJEITADO — retorno SEFAZ conhecido e corrigível, permite nova tentativa do MESMO
+     * pedido após corrigir a causa):
+     *   225 — Falha no Schema XML do lote de NFe.
+     *   302 — Rejeição: irregularidade fiscal do destinatário.
+     *   303 — Rejeição: destinatário não habilitado a operar na UF.
+     *   (302/303 eram denegação até 31-07-2024; o Ajuste SINIEF 43/23 — CONFAZ, efeitos desde
+     *   01-08-2024 — moveu irregularidade fiscal de emitente/destinatário para o processo de
+     *   REJEIÇÃO e revogou o processo de denegação da NF-e; a NT 2024.001 aplicou a mudança ao
+     *   modelo 55, mantendo os mesmos números de cStat 302/303, só com efeito de rejeição
+     *   corrigível em vez de denegação permanente.)
+     *
+     * PENDENTE_CONFIRMACAO (nunca consome nem libera o gate — resultado ainda incerto ou
+     * situação excepcional sem tratamento seguro definido; reconciliação ativa é Gate 3, ainda
+     * não implementado; por ora só bloqueia nova tentativa cega):
+     *   103 — Lote recebido, ainda processando (nível de lote).
+     *   104 — Lote processado, mas SEM infProt individual embutido — resposta anômala: com
+     *         indSinc=1 (único modo usado pelo Borurio), o cStat individual real já deveria ter
+     *         chegado dentro de infProt e sido extraído por NfeSefazRetornoParser ANTES deste
+     *         método ser chamado — se este método recebe 104 literal, é porque infProt estava
+     *         ausente. Nunca duplicar aqui a extração que o parser já faz.
+     *   105 — Lote em processamento (típico do fluxo assíncrono; inesperado com indSinc=1).
+     *   106 — Lote não localizado (só ocorre em consulta por recibo, fora do fluxo ativo de
+     *         /emitir) — resposta inesperada/legada, tratamento conservador.
+     *   110 — "Uso Denegado" (nome histórico do MOC 7.0). O Ajuste SINIEF 43/23 revogou o
+     *         processo de denegação da NF-e desde 01-08-2024 — este cStat não deveria mais
+     *         ocorrer para modelo 55. Se ocorrer mesmo assim, não há evidência oficial vigente de
+     *         tratamento seguro: nunca decidir automaticamente (nem autorizar, nem liberar o
+     *         número para reaproveitamento) — fail-safe até reconciliação manual/Gate 3.
+     *   204 — Duplicidade de NF-e (a mesma identidade cnpj+modelo+série+nNF já existe na SEFAZ).
+     *         Pode legitimamente vir acompanhada do protocolo já emitido quando o DigestValue
+     *         coincide com um documento já autorizado (idempotência real) — auditar isso é Gate 3,
+     *         não decidir automaticamente aqui.
+     *   205 — NF-e já denegada na base da SEFAZ (conflito de identidade fiscal com documento
+     *         histórico) — nunca reaproveitar o número.
+     *   218 — NF-e já cancelada na base da SEFAZ (conflito de identidade fiscal com documento já
+     *         cancelado) — nunca reaproveitar o número.
+     *   301 — "Uso Denegado: irregularidade fiscal do emitente" (nome histórico do MOC 7.0). A NT
+     *         2024.001 EXCLUIU a regra que produzia este código especificamente (301_1C17-40) — a
+     *         condição de irregularidade do emitente hoje é coberta por outra regra de rejeição
+     *         (1C17-38). Diferente de 302/303 (que mantiveram o mesmo número, só com efeito
+     *         alterado), não há evidência de que 301 ainda seja um valor que a SEFAZ realmente
+     *         devolve para modelo 55 em 2026 — tratado como excepcional/fail-safe, nunca como
+     *         rejeição corrigível reutilizável automaticamente.
+     *   539 — Duplicidade de NF-e com diferença na chave de acesso — a identidade lógica já existe
+     *         com uma chave diferente da que acabamos de transmitir. Caso mais sensível da tabela:
+     *         nunca liberar o gate, nunca gerar uma chave nova automaticamente, sempre exigir
+     *         reconciliação (Gate 3).
+     *
+     * Qualquer cStat não listado acima também cai em PENDENTE_CONFIRMACAO (fallback conservador
+     * do default) — nunca em AUTORIZADO nem AGUARDANDO_CORRECAO por omissão.
      */
     private String resolverEstadoEmissao(NfeSefazRetorno retorno) {
         if (retorno == null) return NfeEmissao.Estados.PENDENTE_CONFIRMACAO;
-        if (retorno.isAutorizada()) return NfeEmissao.Estados.AUTORIZADO;      // cStat=100
-        if (retorno.getCStat() >= 200) return NfeEmissao.Estados.AGUARDANDO_CORRECAO; // cStat 2xx–9xx
-        return NfeEmissao.Estados.PENDENTE_CONFIRMACAO; // cStat=104/110/etc — ver nota acima
+        int cStat = retorno.getCStat();
+
+        if (cStat == 100 || cStat == 150) {
+            return NfeEmissao.Estados.AUTORIZADO;
+        }
+        if (cStat == 225 || cStat == 302 || cStat == 303) {
+            return NfeEmissao.Estados.AGUARDANDO_CORRECAO;
+        }
+        // 103, 104 (sem infProt), 105, 106, 110, 204, 205, 218, 301, 539, e qualquer cStat não
+        // listado — todos convergem para o balde conservador. Nunca consome número, nunca libera
+        // gate, nunca decide reaproveitamento automaticamente.
+        return NfeEmissao.Estados.PENDENTE_CONFIRMACAO;
     }
 
     /**
      * Traduz o estado do ciclo do nNF (vocabulário novo, interno) para o status do Pedido
-     * (vocabulário OMS, inalterado neste Gate — formalizar PENDENTE_CONFIRMACAO no contrato é
-     * Gate 5). AGUARDANDO_CORRECAO mantém o nome "REJEITADO" que a OMS já conhece; qualquer coisa
-     * que não seja AUTORIZADO/AGUARDANDO_CORRECAO (hoje só PENDENTE_CONFIRMACAO) vira "AGUARDANDO",
-     * igual ao comportamento anterior ao Gate 1.
+     * (vocabulário OMS, inalterado neste Gate — formalizar PENDENTE_CONFIRMACAO/NUMERO_OCUPADO no
+     * contrato é Gate de contrato OMS, ainda não este). AGUARDANDO_CORRECAO mantém o nome
+     * "REJEITADO" que a OMS já conhece. NUMERO_OCUPADO (Gate 3, 10-08-2026) vira "ERRO" — decisão
+     * explícita (Opção A): não cria vocabulário novo no contrato público agora, e "ERRO" já é
+     * status emissível (STATUS_EMISSIVEIS), então a próxima chamada de /emitir naturalmente abre
+     * um ciclo NOVO com número novo (o gate já foi liberado por NUMERO_OCUPADO ser terminal) — sem
+     * jamais reaproveitar o número ocupado. A precisão do motivo real fica em
+     * nfe_emissao.cstat/xmotivo, não no status do Pedido. Qualquer coisa que não seja
+     * AUTORIZADO/AGUARDANDO_CORRECAO/NUMERO_OCUPADO (hoje só PENDENTE_CONFIRMACAO) vira
+     * "AGUARDANDO", igual ao comportamento anterior ao Gate 1.
+     *
+     * Package-private + static: também usado por NfeReconciliacaoService (Gate 3), único outro
+     * ponto do sistema que decide o estado final de um ciclo — nunca duplicar esta tabela.
      */
-    private String mapearStatusPedido(String estadoEmissao) {
+    static String mapearStatusPedido(String estadoEmissao) {
         if (NfeEmissao.Estados.AUTORIZADO.equals(estadoEmissao)) return "AUTORIZADO";
         if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(estadoEmissao)) return "REJEITADO";
+        if (NfeEmissao.Estados.NUMERO_OCUPADO.equals(estadoEmissao)) return "ERRO";
         return "AGUARDANDO";
     }
 
@@ -375,19 +487,6 @@ public class PedidoEmissaoService {
         return BusinessException.localProcessingFailure(e.getMessage());
     }
 
-    // -------------------------------------------------------------------------
-    // Desfaz reserva sem mascarar o resultado SEFAZ
-    // -------------------------------------------------------------------------
-
-    private void desfazerReservaSeguro(List<PedidoItem> itens, Long empresaId,
-                                        Long pedidoId, String criadoPor) {
-        try {
-            estoqueService.desfazerReservaItens(itens, empresaId, pedidoId, criadoPor);
-        } catch (Exception e) {
-            log.error("[PedidoEmissao] Falha ao desfazer reserva | pedidoId={} | erro={}",
-                    pedidoId, e.getMessage());
-        }
-    }
 
     // -------------------------------------------------------------------------
     // Montagem do NfeEmissaoRequest a partir do snapshot fiscal do pedido

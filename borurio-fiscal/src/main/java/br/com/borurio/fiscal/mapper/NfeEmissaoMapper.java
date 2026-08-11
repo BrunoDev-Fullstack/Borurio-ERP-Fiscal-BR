@@ -3,6 +3,8 @@ package br.com.borurio.fiscal.mapper;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import org.apache.ibatis.annotations.*;
 
+import java.time.LocalDateTime;
+
 @Mapper
 public interface NfeEmissaoMapper {
 
@@ -10,6 +12,7 @@ public interface NfeEmissaoMapper {
             + "cnpj_emitente AS cnpjEmitente, modelo, serie, numero_nfe AS numeroNfe, "
             + "chave_nfe AS chaveNfe, estado, cstat, xmotivo, nprot, request_id AS requestId, "
             + "tentativas, transmitido_em AS transmitidoEm, resolvido_em AS resolvidoEm, "
+            + "ultima_consulta_em AS ultimaConsultaEm, tentativas_consulta AS tentativasConsulta, "
             + "created_at AS createdAt, updated_at AS updatedAt "
             + "FROM nfe_emissao ";
 
@@ -83,4 +86,36 @@ public interface NfeEmissaoMapper {
             WHERE id = #{id}
             """)
     int atualizarResultado(NfeEmissao emissao);
+
+    // Claim atomico da janela de reconciliacao (Gate 3) — UPDATE condicional unico, sem SELECT
+    // FOR UPDATE previo, mesmo padrao ja usado em PedidoMapper.reivindicarParaEmissao (P0.1).
+    // O backoff exponencial e calculado inline em SQL a partir de tentativas_consulta ja
+    // persistido, com teto em backoffMaximoSegundos — evita ler-decidir-escrever em passos
+    // separados, que permitiria duas chamadas concorrentes lerem "expirou" antes de qualquer
+    // uma escrever. affectedRows==1 (retorno > 0): esta chamada venceu e pode consultar a SEFAZ.
+    // affectedRows==0: estado ja nao e mais pendente, OU o backoff ainda nao venceu, OU outra
+    // chamada concorrente venceu a janela um instante antes — nos tres casos a resposta e a
+    // mesma, nunca tocar a rede.
+    @Update("""
+            UPDATE nfe_emissao SET
+                ultima_consulta_em  = #{agora},
+                tentativas_consulta = tentativas_consulta + 1
+            WHERE id = #{id}
+              AND estado IN ('TRANSMITIDO', 'PENDENTE_CONFIRMACAO')
+              AND (
+                    ultima_consulta_em IS NULL
+                    OR ultima_consulta_em <= DATE_SUB(
+                        #{agora},
+                        INTERVAL LEAST(
+                            #{backoffMaximoSegundos},
+                            #{backoffInicialSegundos} * POW(#{backoffMultiplicador}, tentativas_consulta)
+                        ) SECOND
+                    )
+              )
+            """)
+    int tentarAdquirirJanelaConsulta(@Param("id") Long id,
+                                      @Param("agora") LocalDateTime agora,
+                                      @Param("backoffInicialSegundos") int backoffInicialSegundos,
+                                      @Param("backoffMultiplicador") double backoffMultiplicador,
+                                      @Param("backoffMaximoSegundos") int backoffMaximoSegundos);
 }

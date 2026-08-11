@@ -88,6 +88,7 @@ class PedidoTenantIsolationAdversarialTest {
         @Mock EstoqueService estoqueService;
         @Mock EmpresaMapper empresaMapper;
         @Mock NfeEmissaoService nfeEmissaoService;
+        @Mock NfeReconciliacaoService nfeReconciliacaoService;
 
         PedidoEmissaoService service;
 
@@ -97,7 +98,7 @@ class PedidoTenantIsolationAdversarialTest {
             EmitenteProperties emitente = new EmitenteProperties();
             emitente.setCnpj("11222333000181");
             service = new PedidoEmissaoService(pedidoService, nfeGeracaoService, retornoParser,
-                    estoqueService, empresaMapper, nfeEmissaoService, emitente);
+                    estoqueService, empresaMapper, nfeEmissaoService, nfeReconciliacaoService, emitente);
         }
 
         @Test
@@ -121,7 +122,11 @@ class PedidoTenantIsolationAdversarialTest {
 
             assertDoesNotThrow(() -> service.emitir(777L));
 
-            verify(pedidoService).atualizarStatus(eq(777L), eq("AUTORIZADO"), anyString());
+            // Gate 3 (10-08-2026): atualização de Pedido.status passou a acontecer dentro de
+            // NfeEmissaoService.resolverCicloComEfeitos (mockado aqui) — prova correta agora é a
+            // delegação, com o status "AUTORIZADO" já corretamente calculado.
+            verify(nfeEmissaoService).resolverCicloComEfeitos(anyLong(), eq(NfeEmissao.Estados.AUTORIZADO), anyInt(), any(), any(),
+                    eq(777L), eq("AUTORIZADO"), anyString(), anyBoolean(), any(), any(), anyString());
         }
 
         @Test

@@ -1,9 +1,12 @@
 package br.com.borurio.web.service;
 
 import br.com.borurio.app.entity.Empresa;
+import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.mapper.PedidoMapper;
+import br.com.borurio.app.service.EstoqueService;
+import br.com.borurio.fiscal.config.SefazReconciliacaoProperties;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeSequencia;
 import br.com.borurio.fiscal.mapper.NfeEmissaoMapper;
@@ -18,6 +21,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -35,6 +42,7 @@ class NfeEmissaoServiceTest {
     @Mock PedidoMapper pedidoMapper;
     @Mock NfeSequenciaService sequenciaService;
     @Mock NfeEmissaoMapper nfeEmissaoMapper;
+    @Mock EstoqueService estoqueService;
 
     NfeEmissaoService service;
 
@@ -43,7 +51,8 @@ class NfeEmissaoServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new NfeEmissaoService(empresaMapper, pedidoMapper, sequenciaService, nfeEmissaoMapper);
+        service = new NfeEmissaoService(empresaMapper, pedidoMapper, sequenciaService, nfeEmissaoMapper,
+                estoqueService, new SefazReconciliacaoProperties());
     }
 
     private Empresa empresa(Long id, String serie) {
@@ -384,5 +393,147 @@ class NfeEmissaoServiceTest {
 
         verify(sequenciaService, never()).buscarSeExistirParaAtualizar(any(), any());
         verify(nfeEmissaoMapper, never()).buscarPorIdParaAtualizar(any());
+    }
+
+    // -------------------------------------------------------------------------
+    // Gate 3 (10-08-2026) — resolverCicloComEfeitos: finalização atômica com Pedido/Estoque
+    // -------------------------------------------------------------------------
+
+    private List<PedidoItem> itensPadrao() {
+        PedidoItem item = new PedidoItem();
+        item.setProdutoId(1L);
+        item.setQuantidade(new BigDecimal("2"));
+        return List.of(item);
+    }
+
+    @Test
+    @DisplayName("resolverCicloComEfeitos AUTORIZADO: consome número, libera gate, atualiza Pedido e baixa estoque na mesma chamada")
+    void resolverCicloComEfeitos_autorizado_aplicaTudoJunto() {
+        NfeEmissao preRead = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(preRead);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(4, 501L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "prot",
+                PEDIDO_ID, "AUTORIZADO", "chave123", true, itensPadrao(), 10L, "sistema");
+
+        verify(sequenciaService).consumirNumero(CNPJ, "1", 5);
+        verify(sequenciaService).liberarGate(CNPJ, "1");
+        verify(pedidoMapper).atualizarStatus(PEDIDO_ID, "AUTORIZADO", "chave123");
+        verify(estoqueService).baixaDefinitivaItens(itensPadrao(), 10L, PEDIDO_ID, "sistema");
+        verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("resolverCicloComEfeitos AGUARDANDO_CORRECAO: não consome número, atualiza Pedido e desfaz reserva")
+    void resolverCicloComEfeitos_aguardandoCorrecao_desfazReserva() {
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 225, "Erro de schema", null,
+                PEDIDO_ID, "REJEITADO", null, true, itensPadrao(), 10L, "sistema");
+
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verify(pedidoMapper).atualizarStatus(PEDIDO_ID, "REJEITADO", null);
+        verify(estoqueService).desfazerReservaItens(itensPadrao(), 10L, PEDIDO_ID, "sistema");
+        verify(estoqueService, never()).baixaDefinitivaItens(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("resolverCicloComEfeitos NUMERO_OCUPADO: consome número (nunca reutilizado), libera gate, desfaz reserva, Pedido=ERRO")
+    void resolverCicloComEfeitos_numeroOcupado_consomeELiberaGateDesfazReserva() {
+        NfeEmissao preRead = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 5);
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 5);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(preRead);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(4, 501L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.NUMERO_OCUPADO, 205, "NF-e já denegada", null,
+                PEDIDO_ID, "ERRO", "chave123", true, itensPadrao(), 10L, "sistema");
+
+        verify(sequenciaService).consumirNumero(CNPJ, "1", 5);
+        verify(sequenciaService).liberarGate(CNPJ, "1");
+        verify(pedidoMapper).atualizarStatus(PEDIDO_ID, "ERRO", "chave123");
+        verify(estoqueService).desfazerReservaItens(itensPadrao(), 10L, PEDIDO_ID, "sistema");
+    }
+
+    @Test
+    @DisplayName("resolverCicloComEfeitos PENDENTE_CONFIRMACAO: atualiza Pedido para AGUARDANDO, nunca toca estoque")
+    void resolverCicloComEfeitos_pendenteConfirmacao_naoTocaEstoque() {
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 103, null, null,
+                PEDIDO_ID, "AGUARDANDO", "chave123", true, itensPadrao(), 10L, "sistema");
+
+        verify(pedidoMapper).atualizarStatus(PEDIDO_ID, "AGUARDANDO", "chave123");
+        verify(estoqueService, never()).baixaDefinitivaItens(any(), any(), any(), any());
+        verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("resolverCicloComEfeitos com controlaEstoque=false: resolve o ciclo e atualiza Pedido, mas nunca toca estoque")
+    void resolverCicloComEfeitos_controlaEstoqueFalse_nuncaTocaEstoque() {
+        NfeEmissao preRead = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(preRead);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(4, 501L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "prot",
+                PEDIDO_ID, "AUTORIZADO", "chave123", false, itensPadrao(), 10L, "sistema");
+
+        verify(pedidoMapper).atualizarStatus(PEDIDO_ID, "AUTORIZADO", "chave123");
+        verifyNoInteractions(estoqueService);
+    }
+
+    @Test
+    @DisplayName("Exactly-once: ciclo já terminal -- resolverCicloComEfeitos não toca Pedido nem Estoque de novo")
+    void resolverCicloComEfeitos_cicloJaTerminal_naoReaplicaEfeitoOperacional() {
+        // Simula uma segunda chamada (retry, reconciliação concorrente) sobre um ciclo que outra
+        // chamada já resolveu — a proteção central do P0-A: efeito fiscal e efeito operacional
+        // nunca podem ficar dessincronizados, e a idempotência de aplicarNovoEstado já impede
+        // qualquer efeito de rodar de novo quando o estado já está travado como terminal.
+        NfeEmissao preRead = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.AUTORIZADO, 5);
+        NfeEmissao jaAutorizada = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.AUTORIZADO, 5);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(preRead);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(5, null));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(jaAutorizada);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "prot",
+                PEDIDO_ID, "AUTORIZADO", "chave123", true, itensPadrao(), 10L, "sistema");
+
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+        verifyNoInteractions(pedidoMapper, estoqueService);
+    }
+
+    // -------------------------------------------------------------------------
+    // Gate 3 (10-08-2026) — tentarAdquirirJanelaConsulta: claim atômico do backoff
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Claim vencido (UPDATE afetou 1 linha) -- retorna true e delega os parâmetros de backoff configurados")
+    void tentarAdquirirJanelaConsulta_claimVencido_retornaTrue() {
+        when(nfeEmissaoMapper.tentarAdquirirJanelaConsulta(eq(501L), any(LocalDateTime.class), eq(30), eq(2.0), eq(600)))
+                .thenReturn(1);
+
+        boolean venceu = service.tentarAdquirirJanelaConsulta(501L);
+
+        assertTrue(venceu);
+    }
+
+    @Test
+    @DisplayName("Claim não vencido (UPDATE afetou 0 linhas) -- retorna false")
+    void tentarAdquirirJanelaConsulta_claimNaoVencido_retornaFalse() {
+        when(nfeEmissaoMapper.tentarAdquirirJanelaConsulta(eq(501L), any(LocalDateTime.class), anyInt(), anyDouble(), anyInt()))
+                .thenReturn(0);
+
+        boolean venceu = service.tentarAdquirirJanelaConsulta(501L);
+
+        assertFalse(venceu);
     }
 }

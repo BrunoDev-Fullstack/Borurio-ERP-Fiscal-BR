@@ -56,6 +56,7 @@ class PedidoEmissaoServiceAdversarialTest {
     @Mock EstoqueService estoqueService;
     @Mock EmpresaMapper empresaMapper;
     @Mock NfeEmissaoService nfeEmissaoService;
+    @Mock NfeReconciliacaoService nfeReconciliacaoService;
 
     PedidoEmissaoService service;
 
@@ -65,7 +66,7 @@ class PedidoEmissaoServiceAdversarialTest {
         emitente.setCnpj("11222333000181");
         service = new PedidoEmissaoService(
                 pedidoService, nfeGeracaoService, retornoParser, estoqueService, empresaMapper,
-                nfeEmissaoService, emitente);
+                nfeEmissaoService, nfeReconciliacaoService, emitente);
         EmpresaContextHolder.clear();
         lenient().when(pedidoService.reivindicarParaEmissao(anyLong())).thenReturn(true);
         lenient().when(nfeEmissaoService.abrirCiclo(anyLong(), anyString()))
