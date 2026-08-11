@@ -905,6 +905,146 @@ class PedidoEmissaoServiceTest {
                 99L, "AGUARDANDO", "chave123", true, pedido.getItens(), 10L, "sistema");
     }
 
+    // -------------------------------------------------------------------------
+    // Gate de contrato OMS (11-08-2026) — serie/numeroNfe/estadoFiscal/cStat/xMotivo/nProt
+    // aditivos ao retorno de /emitir, sempre a partir de nfe_emissao.
+    // -------------------------------------------------------------------------
+
+    @Test
+    void emitir_autorizado100_retornaCamposFiscaisEnriquecidos() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        br.com.borurio.fiscal.dto.NfeSefazRetorno retorno = autorizada();
+        retorno.setXMotivo("Autorizado o uso da NF-e");
+        retorno.setNProt("135260000001234");
+        when(retornoParser.parse("<soap/>")).thenReturn(retorno);
+
+        NfeGeracaoResult result = service.emitir(99L);
+
+        assertEquals("chave123", result.getChaveNfe());
+        assertEquals("<soap/>", result.getSoapRetorno());
+        assertEquals("1", result.getSerie());
+        assertEquals(101, result.getNumeroNfe());
+        assertEquals(NfeEmissao.Estados.AUTORIZADO, result.getEstadoFiscal());
+        assertEquals(100, result.getCStat());
+        assertEquals("Autorizado o uso da NF-e", result.getXMotivo());
+        assertEquals("135260000001234", result.getNProt());
+    }
+
+    @Test
+    void emitir_autorizado150_retornaEstadoFiscalAutorizado() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(150));
+
+        NfeGeracaoResult result = service.emitir(99L);
+
+        assertEquals(NfeEmissao.Estados.AUTORIZADO, result.getEstadoFiscal());
+        assertEquals(150, result.getCStat());
+        assertEquals("1", result.getSerie());
+        assertEquals(101, result.getNumeroNfe());
+    }
+
+    @Test
+    void emitir_rejeicaoCorrigivel_dataContemSerieNumeroNfeEstadoFiscal() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult(null, "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(rejeitada());
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("SEFAZ_REJECTED", ex.getErrorCode());
+        assertEquals("1", ex.getData().get("serie"));
+        assertEquals(101, ex.getData().get("numeroNFe"));
+        assertEquals("AGUARDANDO_CORRECAO", ex.getData().get("estadoFiscal"));
+        assertEquals(225, ex.getData().get("cStat"));
+    }
+
+    @Test
+    void emitir_pendenteConfirmacaoSemRespostaSefaz_camposFiscaisNullMasEstadoFiscalPreenchido() throws Exception {
+        // retornoParser.parse falha (resposta ilegível) — parseRetornoSeguro devolve null, então
+        // cStat/xMotivo/nProt ficam null, mas o OMS ainda precisa distinguir isso de "sem dado
+        // nenhum": estadoFiscal e serie/numeroNfe continuam preenchidos.
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenThrow(new RuntimeException("falha ao parsear XML"));
+
+        NfeGeracaoResult result = service.emitir(99L);
+
+        assertEquals("chave123", result.getChaveNfe());
+        assertEquals("1", result.getSerie());
+        assertEquals(101, result.getNumeroNfe());
+        assertEquals(NfeEmissao.Estados.PENDENTE_CONFIRMACAO, result.getEstadoFiscal());
+        assertNull(result.getCStat());
+        assertNull(result.getXMotivo());
+        assertNull(result.getNProt());
+    }
+
+    @Test
+    void emitir_pendenteConfirmacaoComCStatConhecido_retornaCStatPreenchido() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(comCStat(103));
+
+        NfeGeracaoResult result = service.emitir(99L);
+
+        assertEquals(NfeEmissao.Estados.PENDENTE_CONFIRMACAO, result.getEstadoFiscal());
+        assertEquals(103, result.getCStat());
+        assertEquals("1", result.getSerie());
+        assertEquals(101, result.getNumeroNfe());
+    }
+
+    @Test
+    @DisplayName("reemissão/reconciliação: pedido AGUARDANDO resolvido como AUTORIZADO devolve os campos do ciclo persistido, não do objeto em memória pré-reconciliação")
+    void reconciliarAguardando_autorizado_retornaCamposFiscaisDoCicloResolvido() throws Exception {
+        Pedido pedido = pedidoComStatus("AGUARDANDO");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        NfeEmissao pendente = emissaoReservada(501L, "1", 101);
+        pendente.setEstado(NfeEmissao.Estados.TRANSMITIDO);
+        pendente.setChaveNfe("chavePendente");
+
+        NfeEmissao resolvida = emissaoReservada(501L, "1", 101);
+        resolvida.setEstado(NfeEmissao.Estados.AUTORIZADO);
+        resolvida.setChaveNfe("chavePendente");
+        resolvida.setCstat(100);
+        resolvida.setXmotivo("Autorizado o uso da NF-e");
+        resolvida.setNprot("135260000001234");
+
+        // reconciliar() persiste em nfe_emissao sem devolver o resultado — o serviço relê o ciclo
+        // depois da chamada, então o mock precisa refletir "antes" na 1ª leitura e "depois" na 2ª.
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(99L))
+                .thenReturn(pendente)
+                .thenReturn(resolvida);
+
+        NfeGeracaoResult result = service.emitir(99L);
+
+        assertEquals("chavePendente", result.getChaveNfe());
+        assertEquals("1", result.getSerie());
+        assertEquals(101, result.getNumeroNfe());
+        assertEquals(NfeEmissao.Estados.AUTORIZADO, result.getEstadoFiscal());
+        assertEquals(100, result.getCStat());
+        assertEquals("Autorizado o uso da NF-e", result.getXMotivo());
+        assertEquals("135260000001234", result.getNProt());
+        verify(nfeReconciliacaoService).reconciliar(eq(pedido), eq(pendente), any(), eq(true));
+    }
+
     private br.com.borurio.fiscal.dto.NfeSefazRetorno autorizada() {
         br.com.borurio.fiscal.dto.NfeSefazRetorno r = new br.com.borurio.fiscal.dto.NfeSefazRetorno();
         r.setCStat(100);

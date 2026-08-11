@@ -717,8 +717,15 @@ Authorization: Bearer {token}
   "code": 200,
   "message": "Sucesso",
   "data": {
-    "chaveNfe":    "35260512000000000000550010000000421000000424",
-    "soapRetorno": "<nfeProc ...>...</nfeProc>"
+    "chaveNfe":     "35260512000000000000550010000000421000000424",
+    "soapRetorno":  "<nfeProc ...>...</nfeProc>",
+
+    "serie":        "1",
+    "numeroNFe":    5,
+    "estadoFiscal": "AUTORIZADO",
+    "cStat":        100,
+    "xMotivo":      "Autorizado o uso da NF-e",
+    "nProt":        "135260512345678"
   }
 }
 ```
@@ -726,6 +733,8 @@ Authorization: Bearer {token}
 > `[CONTRATO]` Desde a v1.9, HTTP 200 só ocorre quando a NF-e foi **autorizada** (`AUTORIZADO`) ou está **aguardando** confirmação (`AGUARDANDO`). Uma rejeição da SEFAZ **não** retorna HTTP 200 — ver `SEFAZ_REJECTED` abaixo. O status real ainda pode ser confirmado via `GET /api/app/pedidos/{id}` ou `/situacao`.
 
 > `[CONTRATO]` O campo `data.chaveNfe` será uma string vazia `""` (não `null`) quando a SEFAZ não retornar chave de acesso.
+
+> `[CONTRATO]` **(11-08-2026, Gate de contrato OMS)** `serie`, `numeroNFe`, `estadoFiscal`, `cStat`, `xMotivo` e `nProt` são **aditivos** — `chaveNfe`/`soapRetorno` continuam com o mesmo nome e comportamento de sempre. Fonte única: `nfe_emissao` (o ciclo operacional/fiscal do número), nunca `nfe_documento`. Tipos: `serie` é `string`, `numeroNFe` é `integer` (nunca muda depois que o ciclo abre), `cStat` é `integer` **nullable** aqui em `/emitir` (distinto do `/situacao`, ver 6.5), `xMotivo`/`nProt` são `string` nullable. Em `AUTORIZADO` (`cStat` 100/150) todos os seis campos vêm preenchidos. Em `PENDENTE_CONFIRMACAO` (a NF-e ainda não tem resultado definitivo — ex.: timeout de rede sem resposta da SEFAZ), `estadoFiscal` vem preenchido mas `cStat`/`xMotivo`/`nProt` podem vir `null` — use `estadoFiscal` para distinguir os casos, nunca infira estado a partir de campos nulos.
 
 **Resposta — HTTP 422 (pré-condição de estado violada):**
 ```json
@@ -737,13 +746,34 @@ Authorization: Bearer {token}
 {
   "code": 422,
   "message": "NF-e rejeitada pela SEFAZ: Rejeição: Falha no Schema XML do lote de NFe",
-  "data": { "cStat": 225, "xMotivo": "Rejeição: Falha no Schema XML do lote de NFe" },
+  "data": {
+    "cStat": 225, "xMotivo": "Rejeição: Falha no Schema XML do lote de NFe",
+    "serie": "1", "numeroNFe": 6, "estadoFiscal": "AGUARDANDO_CORRECAO"
+  },
   "errorCode": "SEFAZ_REJECTED",
   "retryable": false
 }
 ```
 
 > `[CONTRATO]` `SEFAZ_REJECTED` expõe o `cStat`/`xMotivo` reais em `data` — não é preciso fazer parse do `soapRetorno` bruto para saber o motivo. `retryable: false` porque a causa geralmente é um dado incorreto (NCM, CFOP, CSOSN, endereço) que vai se repetir num reenvio sem correção. Corrija a causa e chame `/emitir` de novo no mesmo `pedidoId`.
+
+> `[CONTRATO]` **(11-08-2026)** `data.serie`/`data.numeroNFe` identificam qual número fiscal ficou pendente de correção — o número **não** é consumido nem liberado em `AGUARDANDO_CORRECAO` (continua reservado para este `pedidoId` até corrigir e reemitir).
+
+**Resposta — HTTP 409 (número fiscal ocupado por outra identidade fiscal na SEFAZ):**
+```json
+{
+  "code": 409,
+  "message": "O número fiscal do pedido 42 está ocupado por outra identidade fiscal na SEFAZ e não pôde ser autorizado. Uma nova tentativa de emissão usará o próximo número.",
+  "data": {
+    "cStat": null, "xMotivo": "NF-e já denegada",
+    "serie": "1", "numeroNFe": 6, "estadoFiscal": "NUMERO_OCUPADO"
+  },
+  "errorCode": "NUMERO_FISCAL_OCUPADO",
+  "retryable": true
+}
+```
+
+> `[CONTRATO]` **(11-08-2026)** `NUMERO_FISCAL_OCUPADO` (Gate 3, reconciliação) — o número identificado em `data.numeroNFe` foi **consumido e queimado**, nunca reaproveitado; uma nova chamada a `/emitir` no mesmo `pedidoId` já abre um ciclo novo com o número seguinte. `data.cStat` pode vir `null` quando a reconciliação resolveu localmente (via `nfe_documento`) sem um cStat de consulta explícito — use `data.estadoFiscal` para a semântica, nunca um valor sintético.
 
 **Resposta — HTTP 422 (cadastro do emitente incompleto — não chega a chamar a SEFAZ):**
 ```json
@@ -799,14 +829,16 @@ Authorization: Bearer {token}
 
 ### 6.5 Consulta de Situação (Etapa 5)
 
-> `[CONTRATO]` Pré-condição: pedido deve ter `chaveNfe` preenchida. Chamar antes da emissão retorna HTTP 422.
+> `[CONTRATO]` Pré-condição: o pedido ou seu ciclo fiscal (`nfe_emissao`) deve ter uma `chaveNfe` definida (ter passado por `/emitir`). Chamar antes de qualquer tentativa de emissão retorna HTTP 422.
+
+> `[CONTRATO]` **(11-08-2026, Gate de contrato OMS) — este endpoint é a fonte recomendada para polling do OMS e NUNCA chama a SEFAZ ao vivo.** É leitura pura do estado persistido em `nfe_emissao` — nunca dispara a consulta SOAP `consSitNFe` a cada `GET`. Uma consulta ao vivo por requisição contornaria exatamente o claim atômico e o backoff que o Gate 3 (reconciliação) construiu, com risco real de consumo indevido/`cStat 656` sob polling repetido. Se o ciclo estiver `TRANSMITIDO`/`PENDENTE_CONFIRMACAO`, a reconciliação ativa contra a SEFAZ só acontece pelo mecanismo protegido: chamar `POST /emitir` de novo no mesmo `pedidoId` (delega para `NfeReconciliacaoService`, com claim+backoff).
 
 ```
 GET /api/app/pedidos/{pedidoId}/situacao
 Authorization: Bearer {token}
 ```
 
-**Resposta — HTTP 200:**
+**Resposta — HTTP 200 (com ciclo fiscal em `nfe_emissao`):**
 ```json
 {
   "code": 200,
@@ -817,25 +849,34 @@ Authorization: Bearer {token}
     "status":        "AUTORIZADO",
     "chaveNfe":      "35260512000000000000550010000000421000000424",
 
+    "serie":         "1",
+    "numeroNFe":     5,
+    "estadoFiscal":  "AUTORIZADO",
     "cStat":         "100",
     "xMotivo":       "Autorizado o uso da NF-e",
     "nProt":         "135260512345678",
     "dhRecbto":      "2026-05-12T10:10:00",
 
-    "consultaSefaz": "<retConsSitNFe>...</retConsSitNFe>"
+    "consultaSefaz": null
   }
 }
 ```
 
-> `[CONTRATO]` Os campos `cStat`, `xMotivo`, `nProt` e `dhRecbto` são **opcionais** na resposta — presentes somente se o documento fiscal já foi registrado internamente.
+> `[CONTRATO]` **(11-08-2026)** `serie`, `numeroNFe`, `estadoFiscal`, `cStat`, `xMotivo`, `nProt` e `chaveNfe` vêm de `nfe_emissao` (o ciclo operacional/fiscal do número) sempre que existe um ciclo para o pedido — nunca de `nfe_documento` nesse caso. Diferente de `/emitir`, aqui **`cStat` é `string`** (ex.: `"100"`), preservando o mesmo tipo que o contrato usava antes desta versão — nunca alterna para `integer` conforme a origem interna do dado. `estadoFiscal` distingue explicitamente `AUTORIZADO`, `AGUARDANDO_CORRECAO`, `PENDENTE_CONFIRMACAO`, `NUMERO_OCUPADO` e demais estados do ciclo — use este campo em vez de inferir a partir de `cStat`/HTTP/campos nulos. Em `PENDENTE_CONFIRMACAO` sem resposta SEFAZ ainda, `cStat`/`xMotivo`/`nProt` vêm `null`, mas `estadoFiscal`, `serie` e `numeroNFe` continuam preenchidos.
 
-> `[CONTRATO]` O campo `consultaSefaz` (XML bruto da chamada `consSitNFe`) está **sempre presente**.
+> `[CONTRATO]` **(11-08-2026) `consultaSefaz` está DEPRECATED.** Mantido no payload por retrocompatibilidade (o contrato anterior o documentava como sempre presente) — sempre `null` a partir desta versão. Nunca mais executa a consulta live `consSitNFe`. Clientes que hoje fazem parse desse XML devem migrar para os campos estruturados acima (`cStat`/`xMotivo`/`nProt`/`estadoFiscal`).
 
-| Campo                                      | Presença    | Origem                              |
-|--------------------------------------------|-------------|-------------------------------------|
-| `pedidoId`, `numero`, `status`, `chaveNfe` | Sempre      | Banco de dados local                |
-| `cStat`, `xMotivo`, `nProt`, `dhRecbto`    | Condicional | Tabela `nfe_documento` (se existir) |
-| `consultaSefaz`                            | Sempre      | Chamada live `consSitNFe` à SEFAZ   |
+> `[CONTRATO]` **Fallback legado sem `nfe_emissao`** (pedidos emitidos antes do Gate 1, 07-08-2026): `serie`/`numeroNFe`/`estadoFiscal` não aparecem na resposta; `chaveNfe`/`cStat`/`xMotivo`/`nProt`/`dhRecbto` vêm de `nfe_documento` como antes. `nfe_emissao` tem **precedência absoluta** sempre que existe — este fallback é exceção, nunca o caminho normal.
+
+> `[CONTRATO]` **Chave fiscal quando `Pedido.chaveNfe` está `null`:** é possível `nfe_emissao.chaveNfe` estar congelada (após montagem do XML, antes da chamada à SEFAZ) enquanto `Pedido.chaveNfe` ainda está `null` — ex.: primeira tentativa de emissão que falhou por timeout de rede antes de qualquer resposta. Nesse cenário `/situacao` funciona normalmente, usando a chave de `nfe_emissao` — a pré-condição de chave nunca bloqueia exatamente o caso em que o polling da OMS é mais necessário.
+
+| Campo                                                          | Presença                        | Origem                                                    |
+|------------------------------------------------------------------|----------------------------------|------------------------------------------------------------|
+| `pedidoId`, `numero`, `status`                                  | Sempre                          | Banco de dados local (`pedido`)                             |
+| `chaveNfe`, `cStat`, `xMotivo`, `nProt`                          | Presentes sempre que há ciclo   | `nfe_emissao`; fallback `nfe_documento` só sem ciclo         |
+| `serie`, `numeroNFe`, `estadoFiscal`                             | Presentes somente com ciclo     | `nfe_emissao` — ausentes no fallback legado                 |
+| `dhRecbto`                                                       | Condicional                     | `nfe_documento` (se existir)                                 |
+| `consultaSefaz`                                                  | Sempre presente, sempre `null`  | Campo legado/deprecated — nunca mais consulta a SEFAZ        |
 
 ---
 

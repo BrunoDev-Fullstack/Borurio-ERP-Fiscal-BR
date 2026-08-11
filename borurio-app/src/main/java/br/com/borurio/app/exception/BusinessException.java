@@ -220,6 +220,29 @@ public class BusinessException extends RuntimeException {
                 Map.of("cStat", cStat, "xMotivo", xMotivo != null ? xMotivo : ""));
     }
 
+    /**
+     * Mesmo desfecho de {@link #sefazRejected(int, String)}, acrescentando serie/numeroNfe/
+     * estadoFiscal (Gate de contrato OMS, 11-08-2026) — o número fiscal continua ocupado por este
+     * pedido em AGUARDANDO_CORRECAO (não é consumido nem liberado), então a OMS precisa saber qual
+     * número está pendente de correção antes de reemitir. cStat é {@code Integer} (nullable) —
+     * nunca um valor sintético como -1 quando não há código real da SEFAZ; mesma regra já aplicada
+     * a {@link #numeroFiscalOcupado(Long, Integer, String, String, Integer)}.
+     */
+    public static BusinessException sefazRejected(Integer cStat, String xMotivo, String serie, Integer numeroNfe) {
+        java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("cStat", cStat);
+        data.put("xMotivo", xMotivo != null ? xMotivo : "");
+        data.put("serie", serie);
+        data.put("numeroNFe", numeroNfe);
+        data.put("estadoFiscal", "AGUARDANDO_CORRECAO");
+        return new BusinessException(
+                "SEFAZ_REJECTED",
+                "NF-e rejeitada pela SEFAZ: " + xMotivo,
+                422,
+                false,
+                data);
+    }
+
     /** Timeout de rede na chamada à SEFAZ — falha transitória, retry é seguro. */
     public static BusinessException sefazTimeout() {
         return new BusinessException(
@@ -322,17 +345,26 @@ public class BusinessException extends RuntimeException {
      * chave de acesso divergente confirmada) — a NF-e DESTE pedido nunca foi autorizada. O ciclo
      * já foi resolvido como NUMERO_OCUPADO (número consumido, gate liberado) antes desta exceção
      * ser lançada — retryable=true porque uma nova chamada a /emitir já abre um ciclo NOVO, com
-     * número seguinte; nunca reaproveita o número ocupado. cStat/xMotivo em `data` documentam a
-     * causa fiscal real para quem integra.
+     * número seguinte; nunca reaproveita o número ocupado. cStat/xMotivo/serie/numeroNFe/
+     * estadoFiscal em `data` documentam a causa fiscal real e qual número foi queimado para quem
+     * integra (Gate de contrato OMS, 11-08-2026). cStat fica `null` quando não há código SEFAZ
+     * real — nunca um valor sintético como -1, que não é um cStat válido.
      */
-    public static BusinessException numeroFiscalOcupado(Long pedidoId, Integer cStat, String xMotivo) {
+    public static BusinessException numeroFiscalOcupado(Long pedidoId, Integer cStat, String xMotivo,
+                                                          String serie, Integer numeroNfe) {
+        java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("cStat", cStat);
+        data.put("xMotivo", xMotivo != null ? xMotivo : "");
+        data.put("serie", serie);
+        data.put("numeroNFe", numeroNfe);
+        data.put("estadoFiscal", "NUMERO_OCUPADO");
         return new BusinessException(
                 "NUMERO_FISCAL_OCUPADO",
                 "O número fiscal do pedido " + pedidoId + " está ocupado por outra identidade fiscal na SEFAZ "
                         + "e não pôde ser autorizado. Uma nova tentativa de emissão usará o próximo número.",
                 409,
                 true,
-                Map.of("cStat", cStat != null ? cStat : -1, "xMotivo", xMotivo != null ? xMotivo : ""));
+                data);
     }
 
     /**

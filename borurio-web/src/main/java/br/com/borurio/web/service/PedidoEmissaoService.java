@@ -274,10 +274,21 @@ public class PedidoEmissaoService {
         // A SEFAZ processou a chamada (HTTP 200 internamente), mas rejeitou a NF-e — não é sucesso
         // para quem integra. Expõe cStat/xMotivo estruturados em vez de mascarar como 200 OK.
         if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(novoEstadoEmissao) && retorno != null) {
-            throw BusinessException.sefazRejected(retorno.getCStat(), retorno.getXMotivo());
+            throw BusinessException.sefazRejected(retorno.getCStat(), retorno.getXMotivo(),
+                    emissao.getSerie(), emissao.getNumeroNfe());
         }
 
-        return result;
+        // Gate de contrato OMS (11-08-2026): serie/numeroNfe/estadoFiscal/cStat/xMotivo/nProt são
+        // aditivos ao retorno de sempre (chaveNfe/soapRetorno) — nfe_emissao (via `emissao`,
+        // já em memória para este ciclo, e `retorno`, já parseado desta tentativa) é a única fonte,
+        // nunca nfe_documento. serie/numeroNfe nunca mudam depois que o ciclo abre; cStat/xMotivo/
+        // nProt ficam null quando `retorno` é null (PENDENTE_CONFIRMACAO por falha de rede, sem
+        // resposta SEFAZ nenhuma).
+        return new NfeGeracaoResult(result.getChaveNfe(), result.getSoapRetorno(),
+                emissao.getSerie(), emissao.getNumeroNfe(), novoEstadoEmissao,
+                retorno != null ? retorno.getCStat() : null,
+                retorno != null ? retorno.getXMotivo() : null,
+                retorno != null ? retorno.getNProt() : null);
     }
 
     /**
@@ -308,7 +319,15 @@ public class PedidoEmissaoService {
 
         // reconciliar() só retorna sem lançar quando resolveu AUTORIZADO — qualquer outro
         // desfecho (pendente, NUMERO_OCUPADO, AGUARDANDO_CORRECAO) já lançou BusinessException.
-        return new NfeGeracaoResult(ultimaEmissao.getChaveNfe(), null);
+        // reconciliar() persiste o resultado direto em nfe_emissao (NfeEmissaoService
+        // .resolverCicloComEfeitos) sem devolver os valores resolvidos — `ultimaEmissao`, em
+        // memória desde antes da chamada, não reflete cStat/xMotivo/nProt/estado atualizados.
+        // Só neste caminho é preciso reler o ciclo persistido (nfe_emissao continua a única
+        // fonte, só não há como evitar o reread aqui).
+        NfeEmissao emissaoResolvida = nfeEmissaoService.buscarUltimaEmissaoDoPedido(pedidoId);
+        return new NfeGeracaoResult(emissaoResolvida.getChaveNfe(), null,
+                emissaoResolvida.getSerie(), emissaoResolvida.getNumeroNfe(), emissaoResolvida.getEstado(),
+                emissaoResolvida.getCstat(), emissaoResolvida.getXmotivo(), emissaoResolvida.getNprot());
     }
 
     // -------------------------------------------------------------------------

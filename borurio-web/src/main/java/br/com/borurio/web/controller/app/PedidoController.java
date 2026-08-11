@@ -183,23 +183,42 @@ public class PedidoController {
                           "**Concorrência:** chamadas simultâneas pro mesmo pedido (retry de rede, corrida) — só uma prossegue; " +
                           "as demais recebem HTTP 409 com `errorCode=EMISSAO_EM_ANDAMENTO` (`retryable=true`), nunca uma segunda NF-e."
     )
-    public Result<Map<String, String>> emitir(@PathVariable Long id) throws Exception {
+    public Result<Map<String, Object>> emitir(@PathVariable Long id) throws Exception {
         NfeGeracaoResult result = pedidoEmissaoService.emitir(id);
-        return ResultUtil.success(Map.of(
-                "chaveNfe",    result.getChaveNfe() != null ? result.getChaveNfe() : "",
-                "soapRetorno", result.getSoapRetorno()
-        ));
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("chaveNfe", result.getChaveNfe() != null ? result.getChaveNfe() : "");
+        resp.put("soapRetorno", result.getSoapRetorno());
+        // Gate de contrato OMS (11-08-2026) — aditivo, nunca substitui chaveNfe/soapRetorno.
+        resp.put("serie", result.getSerie());
+        resp.put("numeroNFe", result.getNumeroNfe());
+        resp.put("estadoFiscal", result.getEstadoFiscal());
+        resp.put("cStat", result.getCStat());
+        resp.put("xMotivo", result.getXMotivo());
+        resp.put("nProt", result.getNProt());
+        return ResultUtil.success(resp);
     }
 
     @GetMapping("/{id}/situacao")
     @Operation(
-            summary = "Consulta situação fiscal do pedido na SEFAZ (consSitNFe)",
-            description = "Executa consulta em tempo real à SEFAZ (`consSitNFe`). " +
-                          "O campo `consultaSefaz` (XML bruto) está **sempre presente**. " +
-                          "Os campos `cStat`, `xMotivo`, `nProt` e `dhRecbto` são condicionais — presentes apenas se o documento foi registrado internamente. " +
+            summary = "Consulta situação fiscal do pedido — leitura do estado persistido, nunca a SEFAZ ao vivo",
+            description = "Leitura pura do estado persistido em `nfe_emissao` (ciclo fiscal). " +
+                          "**Não chama a SEFAZ** — este endpoint existe para polling do OMS, e uma consulta SOAP a cada " +
+                          "GET contornaria o claim atômico e o backoff do Gate 3, com risco de consumo indevido/cStat 656. " +
+                          "Se o ciclo estiver `TRANSMITIDO`/`PENDENTE_CONFIRMACAO`, a reconciliação ativa acontece só " +
+                          "pelo mecanismo protegido: reemitir o mesmo pedido via `POST /emitir`. " +
+                          "Campos `serie`, `numeroNFe`, `estadoFiscal`, `cStat`, `xMotivo`, `nProt` vêm de `nfe_emissao` " +
+                          "sempre que existe um ciclo (`cStat` preserva o tipo String legado, ex.: `\"100\"`); " +
+                          "`chaveNfe` vem de `nfe_emissao` quando há ciclo (pode existir mesmo com `Pedido.chaveNfe` " +
+                          "ainda nulo, ex.: primeira tentativa que falhou por timeout de rede) e do `Pedido` apenas no " +
+                          "fallback legado. `dhRecbto` continua vindo de `nfe_documento` quando disponível. " +
+                          "Pedidos emitidos antes do Gate 1 (07-08-2026), sem nenhum ciclo em `nfe_emissao`, caem no " +
+                          "fallback legado via `nfe_documento` para `chaveNfe`/`cStat`/`xMotivo`/`nProt`. " +
+                          "**`consultaSefaz` está DEPRECATED** — mantido por retrocompatibilidade (contrato anterior o " +
+                          "documentava como sempre presente), sempre `null`: nunca mais executa consulta live à SEFAZ. " +
                           "Máquina de estados: `RASCUNHO` → `AGUARDANDO` → `AUTORIZADO` | `REJEITADO` | `ERRO` | `CANCELADO`. " +
                           "`REJEITADO` e `ERRO` podem chamar `/emitir` novamente (reemissão); `AUTORIZADO` e `CANCELADO` são terminais. " +
-                          "Precondição: pedido deve ter `chaveNfe` definida (ter passado por `/emitir`). Retorna HTTP 422 caso contrário."
+                          "Precondição: pedido ou seu ciclo fiscal (`nfe_emissao`) deve ter uma `chaveNfe` definida " +
+                          "(ter passado por `/emitir`). Retorna HTTP 422 caso contrário."
     )
     public Result<Object> situacao(@PathVariable Long id) throws Exception {
         return ResultUtil.success(pedidoOperacaoService.consultarSituacao(id));

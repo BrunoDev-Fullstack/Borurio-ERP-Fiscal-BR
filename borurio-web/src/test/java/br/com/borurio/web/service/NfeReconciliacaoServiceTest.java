@@ -166,6 +166,8 @@ class NfeReconciliacaoServiceTest {
     @DisplayName("Local-first: cStat=225 resolve AGUARDANDO_CORRECAO sem consultar a SEFAZ")
     void localFirst_cStat225_resolveAguardandoCorrecaoSemConsultarSefaz() {
         NfeEmissao emissao = emissaoPendente(NfeEmissao.Estados.PENDENTE_CONFIRMACAO);
+        emissao.setSerie("1");
+        emissao.setNumeroNfe(9);
         NfeDocumento doc = NfeDocumento.builder().chaveNfe(CHAVE).cStat("225").build();
         when(documentoService.buscarPorChave(CHAVE)).thenReturn(Optional.of(doc));
 
@@ -173,6 +175,11 @@ class NfeReconciliacaoServiceTest {
                 () -> service.reconciliar(pedido(), emissao, empresa(), true));
 
         assertEquals("SEFAZ_REJECTED", ex.getErrorCode());
+        // Gate de contrato OMS (11-08-2026): número continua ocupado por este pedido em
+        // AGUARDANDO_CORRECAO — a OMS precisa saber qual serie/numeroNfe está pendente de correção.
+        assertEquals("1", ex.getData().get("serie"));
+        assertEquals(9, ex.getData().get("numeroNFe"));
+        assertEquals("AGUARDANDO_CORRECAO", ex.getData().get("estadoFiscal"));
         verifyNoInteractions(consultaSituacaoService);
         verify(nfeEmissaoService).resolverCicloComEfeitos(EMISSAO_ID, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 225, null, null,
                 PEDIDO_ID, "REJEITADO", CHAVE, true, pedido().getItens(), EMPRESA_ID, "sistema-reconciliacao");
@@ -182,6 +189,8 @@ class NfeReconciliacaoServiceTest {
     @DisplayName("Local-first: cStat=205 resolve NUMERO_OCUPADO sem consultar a SEFAZ")
     void localFirst_cStat205_resolveNumeroOcupadoSemConsultarSefaz() {
         NfeEmissao emissao = emissaoPendente(NfeEmissao.Estados.PENDENTE_CONFIRMACAO);
+        emissao.setSerie("1");
+        emissao.setNumeroNfe(5);
         NfeDocumento doc = NfeDocumento.builder().chaveNfe(CHAVE).cStat("205").build();
         when(documentoService.buscarPorChave(CHAVE)).thenReturn(Optional.of(doc));
 
@@ -190,6 +199,11 @@ class NfeReconciliacaoServiceTest {
 
         assertEquals("NUMERO_FISCAL_OCUPADO", ex.getErrorCode());
         assertTrue(ex.isRetryable());
+        // Gate de contrato OMS (11-08-2026): número queimado — a OMS precisa saber qual
+        // serie/numeroNfe nunca poderá ser reaproveitado antes de reemitir.
+        assertEquals("1", ex.getData().get("serie"));
+        assertEquals(5, ex.getData().get("numeroNFe"));
+        assertEquals("NUMERO_OCUPADO", ex.getData().get("estadoFiscal"));
         verifyNoInteractions(consultaSituacaoService);
         verify(nfeEmissaoService).resolverCicloComEfeitos(EMISSAO_ID, NfeEmissao.Estados.NUMERO_OCUPADO, 205, null, null,
                 PEDIDO_ID, "ERRO", CHAVE, true, pedido().getItens(), EMPRESA_ID, "sistema-reconciliacao");

@@ -9,11 +9,11 @@ import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.entity.NfeDocumento;
+import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.service.CertificadoContexto;
 import br.com.borurio.fiscal.service.NfeCancelamentoService;
 import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
-import br.com.borurio.fiscal.service.NfeTransmitService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -24,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
@@ -44,19 +45,33 @@ class PedidoOperacaoServiceTest {
 
     @Mock PedidoService pedidoService;
     @Mock NfeDocumentoService documentoService;
-    @Mock NfeTransmitService transmitService;
     @Mock NfeCancelamentoService cancelamentoService;
     @Mock NfeCceService cceService;
     @Mock EstoqueService estoqueService;
     @Mock EmpresaMapper empresaMapper;
     @Mock FiscalContextoResolver contextoResolver;
+    @Mock NfeEmissaoService nfeEmissaoService;
 
     PedidoOperacaoService service;
 
     @BeforeEach
     void setUp() {
-        service = new PedidoOperacaoService(pedidoService, documentoService, transmitService,
-                cancelamentoService, cceService, estoqueService, empresaMapper, contextoResolver);
+        service = new PedidoOperacaoService(pedidoService, documentoService,
+                cancelamentoService, cceService, estoqueService, empresaMapper, contextoResolver,
+                nfeEmissaoService);
+    }
+
+    private NfeEmissao emissaoResolvida(String serie, int numeroNfe, String estado, Integer cStat,
+                                         String xMotivo, String nProt, String chaveNfe) {
+        NfeEmissao e = new NfeEmissao();
+        e.setSerie(serie);
+        e.setNumeroNfe(numeroNfe);
+        e.setEstado(estado);
+        e.setCstat(cStat);
+        e.setXmotivo(xMotivo);
+        e.setNprot(nProt);
+        e.setChaveNfe(chaveNfe);
+        return e;
     }
 
     /** Todo pedido real sempre tem cnpjEmitente (NOT NULL desde a criação da tabela). */
@@ -197,22 +212,166 @@ class PedidoOperacaoServiceTest {
         verify(cceService, never()).corrigir(any());
     }
 
-    @Test
-    @DisplayName("Consulta de situação da empresa B usa UF de B, não a global")
-    void consultarSituacao_empresaB_usaUfB() throws Exception {
-        Pedido pedido = pedidoAutorizado(CNPJ_B);
-        pedido.setNumero("PED-00000050");
-        Empresa empresaB = empresa(8L, CNPJ_B, "SP", true);
+    // -------------------------------------------------------------------------
+    // Gate de contrato OMS (11-08-2026) — nfe_emissao como fonte para pedidos com ciclo; leitura
+    // pura do estado persistido (nunca chama a SEFAZ — ver P0 de segurança no próprio serviço).
+    // -------------------------------------------------------------------------
 
+    @Test
+    @DisplayName("situacao: nunca consulta a SEFAZ ao vivo — sem interação nenhuma com transmissão/consulta SOAP")
+    void consultarSituacao_nuncaChamaSefazAoVivo() throws Exception {
+        Pedido pedido = pedidoAutorizado(CNPJ_B);
         when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(50L)).thenReturn(null);
         when(documentoService.buscarPorChave(pedido.getChaveNfe())).thenReturn(Optional.empty());
-        when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaB, certificado(8L)));
-        // tpAmb não é injetado pelo Spring fora de contexto real — fica no default do campo (0).
-        when(transmitService.consultarNfe(pedido.getChaveNfe(), "SP", 0)).thenReturn("<retorno/>");
 
         service.consultarSituacao(50L);
 
-        verify(transmitService).consultarNfe(pedido.getChaveNfe(), "SP", 0);
+        // P0 de segurança do Gate de contrato OMS: /situacao é polling do OMS e não pode contornar
+        // o claim/backoff do Gate 3 gerando uma consulta SOAP a cada GET.
+        verifyNoInteractions(contextoResolver);
+    }
+
+    @Test
+    @DisplayName("situacao: AUTORIZADO — serie/numeroNFe/estadoFiscal/xMotivo/nProt vêm de nfe_emissao; cStat preserva tipo String do contrato legado")
+    void consultarSituacao_autorizado_fonteNfeEmissao() throws Exception {
+        Pedido pedido = pedidoAutorizado(CNPJ_B);
+        NfeEmissao emissao = emissaoResolvida("1", 5, NfeEmissao.Estados.AUTORIZADO, 100,
+                "Autorizado o uso da NF-e", "135260000001234", pedido.getChaveNfe());
+
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(50L)).thenReturn(emissao);
+        when(documentoService.buscarPorChave(pedido.getChaveNfe())).thenReturn(Optional.empty());
+
+        Map<String, Object> resp = service.consultarSituacao(50L);
+
+        assertEquals(pedido.getChaveNfe(), resp.get("chaveNfe"));
+        assertEquals("1", resp.get("serie"));
+        assertEquals(5, resp.get("numeroNFe"));
+        assertEquals(NfeEmissao.Estados.AUTORIZADO, resp.get("estadoFiscal"));
+        // cStat histórico sempre veio de NfeDocumento como String ("100") — nunca pode virar
+        // Integer (100) só porque este pedido tem ciclo em nfe_emissao.
+        assertEquals("100", resp.get("cStat"));
+        assertInstanceOf(String.class, resp.get("cStat"));
+        assertEquals("Autorizado o uso da NF-e", resp.get("xMotivo"));
+        assertEquals("135260000001234", resp.get("nProt"));
+        // consultaSefaz é campo legado (deprecated): continua presente por retrocompatibilidade,
+        // mas sempre null — nunca mais dispara consulta live à SEFAZ.
+        assertTrue(resp.containsKey("consultaSefaz"));
+        assertNull(resp.get("consultaSefaz"));
+    }
+
+    @Test
+    @DisplayName("situacao: Pedido.chaveNfe null mas nfe_emissao.chaveNfe congelada (falha de rede na 1ª tentativa) — funciona via nfe_emissao, nunca bloqueia")
+    void consultarSituacao_pedidoChaveNulaComEmissaoCongelada_funcionaViaNfeEmissao() throws Exception {
+        // Reproduz o cenário real e comprovado em PedidoEmissaoService.emitir(): timeout de rede na
+        // PRIMEIRA tentativa cai no catch, que chama atualizarStatus(id, "ERRO",
+        // pedido.getChaveNfe()) com o valor ANTERIOR (null, pois é a primeira tentativa) e resolve
+        // o ciclo via resolverCiclo (nunca toca Pedido). Resultado: nfe_emissao com chaveNfe
+        // congelada + PENDENTE_CONFIRMACAO, Pedido com chaveNfe ainda null e status ERRO.
+        Pedido pedido = pedidoAutorizado(CNPJ_B);
+        pedido.setChaveNfe(null);
+        pedido.setStatus("ERRO");
+        NfeEmissao emissao = emissaoResolvida("1", 9, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, null,
+                null, null, chaveComCnpj(CNPJ_B));
+
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(50L)).thenReturn(emissao);
+        when(documentoService.buscarPorChave(chaveComCnpj(CNPJ_B))).thenReturn(Optional.empty());
+
+        Map<String, Object> resp = assertDoesNotThrow(() -> service.consultarSituacao(50L));
+
+        assertEquals(chaveComCnpj(CNPJ_B), resp.get("chaveNfe"));
+        assertEquals(NfeEmissao.Estados.PENDENTE_CONFIRMACAO, resp.get("estadoFiscal"));
+        assertEquals(9, resp.get("numeroNFe"));
+    }
+
+    @Test
+    @DisplayName("situacao: PENDENTE_CONFIRMACAO sem resposta SEFAZ — cStat/xMotivo/nProt null, estadoFiscal explícito")
+    void consultarSituacao_pendenteSemResposta_camposFiscaisNull() throws Exception {
+        Pedido pedido = pedidoAutorizado(CNPJ_B);
+        pedido.setStatus("AGUARDANDO");
+        NfeEmissao emissao = emissaoResolvida("1", 7, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, null,
+                null, null, pedido.getChaveNfe());
+
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(50L)).thenReturn(emissao);
+        when(documentoService.buscarPorChave(pedido.getChaveNfe())).thenReturn(Optional.empty());
+
+        Map<String, Object> resp = service.consultarSituacao(50L);
+
+        assertEquals("1", resp.get("serie"));
+        assertEquals(7, resp.get("numeroNFe"));
+        assertEquals(NfeEmissao.Estados.PENDENTE_CONFIRMACAO, resp.get("estadoFiscal"));
+        assertNull(resp.get("cStat"));
+        assertNull(resp.get("xMotivo"));
+        assertNull(resp.get("nProt"));
+    }
+
+    @Test
+    @DisplayName("situacao: chaveNfe divergente entre Pedido e nfe_emissao — usa a de nfe_emissao e registra a inconsistência (fail-safe, nunca mistura silenciosamente)")
+    void consultarSituacao_chaveDivergente_usaFonteNfeEmissao() throws Exception {
+        Pedido pedido = pedidoAutorizado(CNPJ_B);
+        // Mesmo CNPJ embutido (posições 6-19) que o pedido — só o restante da chave diverge — para
+        // isolar exatamente a decisão de fonte, sem disparar DOCUMENTO_CNPJ_DIVERGENTE por um
+        // motivo não relacionado ao que este teste prova.
+        String chaveComCnpjIgualMasDivergente =
+                chaveComCnpj(CNPJ_B).substring(0, 25) + "9" + chaveComCnpj(CNPJ_B).substring(26);
+        NfeEmissao emissao = emissaoResolvida("1", 5, NfeEmissao.Estados.AUTORIZADO, 100,
+                "Autorizado o uso da NF-e", "135260000001234", chaveComCnpjIgualMasDivergente);
+
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(50L)).thenReturn(emissao);
+        // A busca em nfe_documento também deve usar a MESMA chave (a de nfe_emissao, vencedora) —
+        // nunca a de Pedido, que é a que está divergindo/perdendo aqui.
+        when(documentoService.buscarPorChave(chaveComCnpjIgualMasDivergente)).thenReturn(Optional.empty());
+
+        Map<String, Object> resp = service.consultarSituacao(50L);
+
+        // nfe_emissao é a fonte do ciclo fiscal — vence em caso de divergência, nunca mistura.
+        assertEquals(emissao.getChaveNfe(), resp.get("chaveNfe"));
+        verify(documentoService).buscarPorChave(chaveComCnpjIgualMasDivergente);
+        verify(documentoService, never()).buscarPorChave(pedido.getChaveNfe());
+    }
+
+    @Test
+    @DisplayName("situacao: pedido pré-Gate 1 sem nfe_emissao — cai no fallback legado via nfe_documento")
+    void consultarSituacao_semCicloNfeEmissao_fallbackNfeDocumento() throws Exception {
+        Pedido pedido = pedidoAutorizado(CNPJ_B);
+        NfeDocumento doc = documentoComProtocolo();
+        doc.setCStat("100");
+        doc.setXMotivo("Autorizado o uso da NF-e");
+
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(50L)).thenReturn(null);
+        when(documentoService.buscarPorChave(pedido.getChaveNfe())).thenReturn(Optional.of(doc));
+
+        Map<String, Object> resp = service.consultarSituacao(50L);
+
+        assertEquals(pedido.getChaveNfe(), resp.get("chaveNfe"));
+        assertEquals("100", resp.get("cStat"));
+        assertEquals("Autorizado o uso da NF-e", resp.get("xMotivo"));
+        assertEquals("135260000001234", resp.get("nProt"));
+        assertNull(resp.get("serie"));
+        assertNull(resp.get("numeroNFe"));
+        assertNull(resp.get("estadoFiscal"));
+    }
+
+    @Test
+    @DisplayName("situacao: pedido sem nfe_emissao e sem nfe_documento — não quebra, só devolve os campos base")
+    void consultarSituacao_semCicloESemDocumento_naoQuebra() throws Exception {
+        Pedido pedido = pedidoAutorizado(CNPJ_B);
+
+        when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(50L)).thenReturn(null);
+        when(documentoService.buscarPorChave(pedido.getChaveNfe())).thenReturn(Optional.empty());
+
+        Map<String, Object> resp = service.consultarSituacao(50L);
+
+        assertEquals(50L, resp.get("pedidoId"));
+        assertEquals(pedido.getChaveNfe(), resp.get("chaveNfe"));
+        assertFalse(resp.containsKey("cStat"));
+        assertFalse(resp.containsKey("serie"));
     }
 
     @Test

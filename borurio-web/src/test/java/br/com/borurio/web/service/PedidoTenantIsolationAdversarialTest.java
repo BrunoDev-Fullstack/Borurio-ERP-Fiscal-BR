@@ -202,20 +202,21 @@ class PedidoTenantIsolationAdversarialTest {
 
         @Mock PedidoService pedidoService;
         @Mock br.com.borurio.fiscal.service.NfeDocumentoService documentoService;
-        @Mock br.com.borurio.fiscal.service.NfeTransmitService transmitService;
         @Mock br.com.borurio.fiscal.service.NfeCancelamentoService cancelamentoService;
         @Mock br.com.borurio.fiscal.service.NfeCceService cceService;
         @Mock EstoqueService estoqueService;
         @Mock EmpresaMapper empresaMapper;
         @Mock FiscalContextoResolver contextoResolver;
+        @Mock NfeEmissaoService nfeEmissaoService;
 
         PedidoOperacaoService service;
 
         @BeforeEach
         void setUp() {
             org.mockito.MockitoAnnotations.openMocks(this);
-            service = new PedidoOperacaoService(pedidoService, documentoService, transmitService,
-                    cancelamentoService, cceService, estoqueService, empresaMapper, contextoResolver);
+            service = new PedidoOperacaoService(pedidoService, documentoService,
+                    cancelamentoService, cceService, estoqueService, empresaMapper, contextoResolver,
+                    nfeEmissaoService);
         }
 
         @Test
@@ -227,7 +228,7 @@ class PedidoTenantIsolationAdversarialTest {
 
             assertThrows(NoSuchElementException.class, () -> service.consultarSituacao(777L));
 
-            verifyNoInteractions(contextoResolver, transmitService, documentoService);
+            verifyNoInteractions(contextoResolver, documentoService, nfeEmissaoService);
         }
 
         @Test
@@ -239,17 +240,13 @@ class PedidoTenantIsolationAdversarialTest {
             pedidoDaEmpresaA.setStatus("AUTORIZADO");
             when(pedidoService.buscarPorIdDoTenanteAtual(777L)).thenReturn(pedidoDaEmpresaA);
             when(documentoService.buscarPorChave(anyString())).thenReturn(java.util.Optional.empty());
-            Empresa empresaA = new Empresa();
-            empresaA.setId(EMPRESA_A_ID);
-            empresaA.setCnpj("22418179000134");
-            empresaA.setUf("SP");
-            when(contextoResolver.resolver(any())).thenReturn(
-                    new FiscalContexto(empresaA, mock(br.com.borurio.fiscal.service.CertificadoContexto.class)));
-            when(transmitService.consultarNfe(anyString(), anyString(), anyInt())).thenReturn("<xml/>");
 
             var resultado = assertDoesNotThrow(() -> service.consultarSituacao(777L));
 
             assertEquals("AUTORIZADO", resultado.get("status"));
+            // Gate de contrato OMS (11-08-2026) — P0 de segurança: /situacao nunca deve resolver
+            // contexto fiscal/certificado nem tocar a SEFAZ, mesmo no caminho permitido.
+            verifyNoInteractions(contextoResolver);
         }
     }
 }

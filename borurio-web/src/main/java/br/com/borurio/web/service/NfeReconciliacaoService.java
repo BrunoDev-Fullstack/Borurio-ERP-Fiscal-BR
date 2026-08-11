@@ -100,10 +100,12 @@ public class NfeReconciliacaoService {
                 controlaEstoque, pedido.getItens(), pedido.getEmpresaId(), "sistema-reconciliacao");
 
         if (NfeEmissao.Estados.NUMERO_OCUPADO.equals(decisao.estado())) {
-            throw BusinessException.numeroFiscalOcupado(pedidoId, decisao.cStat(), decisao.xMotivo());
+            throw BusinessException.numeroFiscalOcupado(pedidoId, decisao.cStat(), decisao.xMotivo(),
+                    emissao.getSerie(), emissao.getNumeroNfe());
         }
         if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(decisao.estado())) {
-            throw BusinessException.sefazRejected(decisao.cStat() != null ? decisao.cStat() : -1, decisao.xMotivo());
+            throw BusinessException.sefazRejected(decisao.cStat(), decisao.xMotivo(),
+                    emissao.getSerie(), emissao.getNumeroNfe());
         }
         // AUTORIZADO: retorna normalmente.
     }

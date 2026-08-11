@@ -9,20 +9,18 @@ import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.dto.NfeCancelamentoRequest;
 import br.com.borurio.fiscal.dto.NfeCceRequest;
 import br.com.borurio.fiscal.entity.NfeDocumento;
+import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.service.NfeCancelamentoService;
 import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
-import br.com.borurio.fiscal.service.NfeTransmitService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Operações fiscais vinculadas ao pedido: consulta situação, cancelamento, CC-e.
@@ -40,78 +38,122 @@ public class PedidoOperacaoService {
 
     private final PedidoService pedidoService;
     private final NfeDocumentoService documentoService;
-    private final NfeTransmitService transmitService;
     private final NfeCancelamentoService cancelamentoService;
     private final NfeCceService cceService;
     private final EstoqueService estoqueService;
     private final EmpresaMapper empresaMapper;
     private final FiscalContextoResolver contextoResolver;
-
-    @Value("${sefaz.tpAmb:2}")
-    private int tpAmb;
+    private final NfeEmissaoService nfeEmissaoService;
 
     public PedidoOperacaoService(PedidoService pedidoService,
                                   NfeDocumentoService documentoService,
-                                  NfeTransmitService transmitService,
                                   NfeCancelamentoService cancelamentoService,
                                   NfeCceService cceService,
                                   EstoqueService estoqueService,
                                   EmpresaMapper empresaMapper,
-                                  FiscalContextoResolver contextoResolver) {
+                                  FiscalContextoResolver contextoResolver,
+                                  NfeEmissaoService nfeEmissaoService) {
         this.pedidoService     = pedidoService;
         this.documentoService  = documentoService;
-        this.transmitService   = transmitService;
         this.cancelamentoService = cancelamentoService;
         this.cceService        = cceService;
         this.estoqueService    = estoqueService;
         this.empresaMapper     = empresaMapper;
         this.contextoResolver  = contextoResolver;
+        this.nfeEmissaoService = nfeEmissaoService;
     }
 
     // -------------------------------------------------------------------------
     // CONSULTA SITUAÇÃO
-    // Retorna o estado local (nfe_documento) + consulta live na SEFAZ.
+    // Leitura pura do estado persistido — NUNCA consulta a SEFAZ ao vivo (ver nota de segurança
+    // abaixo). nfe_emissao tem precedência absoluta sempre que existe; nfe_documento só é usado
+    // como exceção legada para pedidos emitidos antes do Gate 1 (07-08-2026).
     // -------------------------------------------------------------------------
 
     public Map<String, Object> consultarSituacao(Long pedidoId) throws Exception {
         // P0-2 (07-08-2026, hardening pós-banca) — mesma fronteira de isolamento de emitir().
         Pedido pedido = pedidoService.buscarPorIdDoTenanteAtual(pedidoId);
-        String chave  = validarChave(pedido);
-        validarCnpjDocumento(chave, pedido);
 
-        Optional<NfeDocumento> docOpt = documentoService.buscarPorChave(chave);
+        // Gate de contrato OMS (11-08-2026): busca nfe_emissao ANTES de decidir a chave — nunca
+        // valida/usa Pedido.chaveNfe isoladamente primeiro. nfe_emissao.chaveNfe é congelada em
+        // marcarTransmitido(), ANTES da chamada à SEFAZ; Pedido.chaveNfe só é gravada depois, em
+        // resolverCicloComEfeitos()/atualizarStatus(). Isso significa que numa falha de rede na
+        // PRIMEIRA tentativa de emissão (timeout/indisponibilidade), PedidoEmissaoService.emitir()
+        // cai no catch (linha ~236: `pedidoService.atualizarStatus(pedidoId, "ERRO",
+        // pedido.getChaveNfe())`, usando o valor ANTERIOR — null na primeira tentativa) e resolve o
+        // ciclo via `resolverCiclo` (não `resolverCicloComEfeitos`, que não toca em Pedido) — o
+        // resultado real e comprovado é: nfe_emissao com chaveNfe congelada e estado
+        // PENDENTE_CONFIRMACAO, mas Pedido.chaveNfe continua null. Validar só Pedido.chaveNfe
+        // bloquearia /situacao exatamente no cenário em que a OMS mais precisa fazer polling — ver
+        // teste consultarSituacao_pedidoChaveNulaComEmissaoCongelada_funcionaViaNfeEmissao.
+        NfeEmissao emissao = nfeEmissaoService.buscarUltimaEmissaoDoPedido(pedidoId);
 
-        Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("pedidoId",  pedidoId);
-        resp.put("numero",    pedido.getNumero());
-        resp.put("status",    pedido.getStatus());
-        resp.put("chaveNfe",  chave);
-
-        docOpt.ifPresent(doc -> {
-            resp.put("cStat",    doc.getCStat());
-            resp.put("xMotivo",  doc.getXMotivo());
-            resp.put("nProt",    doc.getNProt());
-            resp.put("dhRecbto", doc.getDhRecbto());
-        });
-
-        // UF resolvida pela empresa emitente real do pedido — contextoResolver.resolver()
-        // já lança exceção se a empresa não puder ser resolvida, então ctx.empresa() aqui
-        // nunca é nulo. O fallback "SP" cobre só o caso de dado incompleto (empresa resolvida
-        // mas sem UF cadastrada) — é uma consulta somente leitura à SEFAZ-SP (única UF
-        // operada hoje), não uma assinatura/transmissão, então esse fallback estreito não
-        // representa o mesmo risco de integridade que existiria em cancelamento/CC-e.
-        FiscalContexto ctx = contextoResolver.resolver(pedido);
-        String uf = ctx.empresa().getUf() != null ? ctx.empresa().getUf() : "SP";
-        try {
-            resp.put("consultaSefaz", transmitService.consultarNfe(chave, uf, tpAmb));
-        } catch (Exception e) {
-            log.warn("[PedidoOperacao] Consulta SEFAZ indisponível — dados locais retornados | pedidoId={} | erro={}",
-                    pedidoId, e.getMessage());
-            resp.put("consultaSefaz", null);
+        String chaveEmissao = emissao != null ? emissao.getChaveNfe() : null;
+        String chavePedido  = pedido.getChaveNfe();
+        if (chavePedido != null && chaveEmissao != null && !chavePedido.equals(chaveEmissao)) {
+            // Nas duas transações que gravam as duas colunas (marcarTransmitido / resolverCicloCom
+            // Efeitos), o mesmo valor é usado para as duas — nunca deveriam divergir quando ambas
+            // existem. Se divergirem, é inconsistência de dado real: nunca decide silenciosamente
+            // qual fonte "vence", só torna o problema visível (fail-safe).
+            log.error("[PedidoOperacao] Divergência chaveNfe entre Pedido e nfe_emissao — "
+                            + "pedidoId={} | pedido.chaveNfe={} | nfe_emissao.chaveNfe={}",
+                    pedidoId, chavePedido, chaveEmissao);
         }
 
-        log.info("[PedidoOperacao] Situação consultada | pedidoId={} | chave={} | cnpj={}",
-                pedidoId, chave, ctx.empresa().getCnpj());
+        // Chave fiscal efetiva: nfe_emissao tem precedência absoluta sempre que existe (é a fonte
+        // do ciclo fiscal); Pedido.chaveNfe só é usada no fallback legado (sem nenhum ciclo em
+        // nfe_emissao — pedido emitido antes do Gate 1, 07-08-2026). A MESMA variável `chave` é
+        // usada daqui em diante para resposta, validação de CNPJ e busca em nfe_documento — nunca
+        // uma fonte para uma coisa e outra fonte para outra dentro do mesmo ramo.
+        String chave = chaveEmissao != null ? chaveEmissao : chavePedido;
+        if (chave == null || chave.isBlank()) {
+            throw new IllegalStateException(
+                    "Pedido " + pedidoId + " não possui chave de NF-e. Execute /emitir primeiro.");
+        }
+        validarCnpjDocumento(chave, pedido);
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("pedidoId", pedidoId);
+        resp.put("numero",   pedido.getNumero());
+        resp.put("status",   pedido.getStatus());
+        resp.put("chaveNfe", chave);
+
+        // nfe_emissao é a fonte de serie/numeroNFe/estadoFiscal/cStat/xMotivo/nProt sempre que
+        // existe um ciclo — nfe_documento não cobre PENDENTE_CONFIRMACAO por falha de rede (nunca
+        // recebeu resposta da SEFAZ, então nunca ganha linha em nfe_documento). O ramo `else`
+        // abaixo é EXCEÇÃO LEGADA, exclusiva de pedidos sem nenhuma linha em nfe_emissao.
+        if (emissao != null) {
+            resp.put("serie",        emissao.getSerie());
+            resp.put("numeroNFe",    emissao.getNumeroNfe());
+            resp.put("estadoFiscal", emissao.getEstado());
+            // cStat preserva o tipo String do contrato legado (nfe_documento.cStat sempre foi
+            // String, ex.: "100") — o mesmo campo público nunca pode alternar entre "100" e 100
+            // dependendo de o pedido ter ou não um ciclo em nfe_emissao.
+            resp.put("cStat",   emissao.getCstat() != null ? String.valueOf(emissao.getCstat()) : null);
+            resp.put("xMotivo", emissao.getXmotivo());
+            resp.put("nProt",   emissao.getNprot());
+            documentoService.buscarPorChave(chave).ifPresent(doc -> resp.put("dhRecbto", doc.getDhRecbto()));
+        } else {
+            documentoService.buscarPorChave(chave).ifPresent(doc -> {
+                resp.put("cStat",    doc.getCStat());
+                resp.put("xMotivo",  doc.getXMotivo());
+                resp.put("nProt",    doc.getNProt());
+                resp.put("dhRecbto", doc.getDhRecbto());
+            });
+        }
+
+        // consultaSefaz — campo LEGADO, mantido por retrocompatibilidade (o contrato anterior o
+        // documentava como "sempre presente"; removê-lo quebraria quem já desserializa esse campo).
+        // @deprecated sempre null a partir do Gate de contrato OMS (11-08-2026): nunca mais executa
+        // consulta live à SEFAZ. /situacao é o endpoint que a OMS usa para polling — uma consulta
+        // SOAP crua a cada GET contornaria exatamente o claim atômico + backoff que o Gate 3
+        // construiu (NfeReconciliacaoService.tentarAdquirirJanelaConsulta), com risco real de
+        // consumo indevido/cStat 656. Reconciliação ativa (ciclo TRANSMITIDO/PENDENTE_CONFIRMACAO)
+        // só acontece pelo mecanismo protegido: reemitir o mesmo pedido via POST /emitir, que
+        // delega para NfeReconciliacaoService — nunca por aqui.
+        resp.put("consultaSefaz", null);
+
+        log.info("[PedidoOperacao] Situação consultada | pedidoId={} | chave={}", pedidoId, chave);
         return resp;
     }
 
