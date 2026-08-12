@@ -1,6 +1,7 @@
 package br.com.borurio.fiscal.service;
 
 import br.com.borurio.fiscal.dto.NfeCancelamentoRequest;
+import br.com.borurio.fiscal.dto.NfeEventoPreparado;
 
 /**
  * Serviço responsável pelo cancelamento de NF-e junto à SEFAZ.
@@ -36,4 +37,26 @@ public interface NfeCancelamentoService {
      */
     String cancelar(NfeCancelamentoRequest req, String cnpjEmitente, String uf,
                      CertificadoContexto certContexto) throws Exception;
+
+    // -------------------------------------------------------------------------
+    // Fases separadas (gate de cancelamento, 12-08-2026) -- usadas exclusivamente por
+    // NfeEventoService, nunca pelo endpoint cru legado (que continua usando os dois metodos
+    // acima, inalterados). Permitem persistir o claim (nfe_evento.dh_evento/payload_hash) ANTES
+    // de tocar a rede, e isolar a chamada de rede fora de qualquer transacao de banco.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Monta e assina o XML do evento -- nenhuma chamada de rede. nSeqEvento e responsabilidade
+     * do chamador (para cancelamento 110111 e sempre 1 -- ver NfeEventoService).
+     */
+    NfeEventoPreparado prepararEvento(NfeCancelamentoRequest req, String cnpjEmitente, String uf,
+                                       CertificadoContexto certContexto, int nSeqEvento) throws Exception;
+
+    /**
+     * Transmite um evento ja preparado. Qualquer excecao aqui e reclassificada como
+     * {@link br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException} -- mesmo
+     * principio ja usado em NfeTransmitServiceImpl.consultarNfe: a fronteira local/rede e
+     * comprovada pela FASE (esta chamada), nunca por tipo de excecao.
+     */
+    String transmitirEvento(NfeEventoPreparado preparado, CertificadoContexto certContexto) throws Exception;
 }

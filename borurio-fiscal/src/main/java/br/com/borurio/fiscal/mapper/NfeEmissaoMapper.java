@@ -118,4 +118,16 @@ public interface NfeEmissaoMapper {
                                       @Param("backoffInicialSegundos") int backoffInicialSegundos,
                                       @Param("backoffMultiplicador") double backoffMultiplicador,
                                       @Param("backoffMaximoSegundos") int backoffMaximoSegundos);
+
+    // Gate de cancelamento (12-08-2026): projecao do estado fiscal apos evento homologado --
+    // SO transiciona a partir de AUTORIZADO, e NUNCA toca cstat/xmotivo/nprot/resolvido_em (a
+    // evidencia da autorizacao original fica intocada; a evidencia do cancelamento em si vive em
+    // nfe_evento). Guard WHERE estado='AUTORIZADO' torna a chamada idempotente por natureza --
+    // uma segunda chamada sobre uma linha ja CANCELADO nao afeta nada (affectedRows=0).
+    @Update("""
+            UPDATE nfe_emissao SET
+                estado = 'CANCELADO'
+            WHERE id = #{id} AND estado = 'AUTORIZADO'
+            """)
+    int marcarCancelado(@Param("id") Long id);
 }

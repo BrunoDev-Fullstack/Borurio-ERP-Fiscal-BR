@@ -3,7 +3,9 @@ package br.com.borurio.fiscal.service.impl;
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.config.SefazProperties;
 import br.com.borurio.fiscal.dto.NfeCancelamentoRequest;
+import br.com.borurio.fiscal.dto.NfeEventoPreparado;
 import br.com.borurio.fiscal.entity.NfeLog;
+import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.service.AssinaturaXmlService;
 import br.com.borurio.fiscal.service.CertificadoContexto;
 import br.com.borurio.fiscal.service.CertificadoService;
@@ -22,8 +24,12 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.Map;
 
 @Slf4j
@@ -46,6 +52,12 @@ public class NfeCancelamentoServiceImpl implements NfeCancelamentoService {
             Map.entry("SE","28"), Map.entry("SP","35"), Map.entry("TO","17")
     );
 
+    // yyyy-MM-dd'T'HH:mm:ssXXX -- offset (XXX) sempre calculado pela ZoneId, nunca concatenado
+    // manualmente. Achado de banca (12-08-2026): "LocalDateTime.now() + \"-03:00\"" rotulava a
+    // hora local da JVM como se fosse Brasília mesmo quando a JVM roda em outro fuso (ex.:
+    // container em UTC) -- o offset ficava errado sem nenhum erro visível.
+    private static final DateTimeFormatter DH_EVENTO_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
+
     private final AssinaturaXmlService assinaturaXmlService;
     private final CertificadoService certificadoService;
     private final SefazProperties sefazProperties;
@@ -54,6 +66,13 @@ public class NfeCancelamentoServiceImpl implements NfeCancelamentoService {
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
+
+    // Fuso fiscal explicitamente configurável -- nunca depende do fuso padrão da JVM/container.
+    // Default America/Sao_Paulo (sem DST desde 2019, sempre -03:00) cobre as empresas hoje
+    // cadastradas (todas SP); UFs com offset diferente (ex. AC -05:00) exigiriam configuração
+    // por empresa, fora do escopo deste gate.
+    @Value("${sefaz.timezone-fiscal:America/Sao_Paulo}")
+    private String timezoneFiscal;
 
     public NfeCancelamentoServiceImpl(AssinaturaXmlService assinaturaXmlService,
                                       CertificadoService certificadoService,
@@ -75,37 +94,70 @@ public class NfeCancelamentoServiceImpl implements NfeCancelamentoService {
     @Override
     public String cancelar(NfeCancelamentoRequest req, String cnpjEmitente, String uf,
                             CertificadoContexto certContexto) throws Exception {
+        // Ponto único de log fiscal: registrarLog vive em transmitirEvento (chamado tanto por
+        // este facade legado quanto por NfeCancelamentoOrquestradorService) — nunca duplicar
+        // aqui (achado de banca, 12-08-2026: o caminho novo não gravava NfeLog nenhum porque
+        // transmitirEvento não gravava e cancelar() só logava no seu próprio corpo).
+        NfeEventoPreparado preparado = prepararEvento(req, cnpjEmitente, uf, certContexto, 1);
+        return transmitirEvento(preparado, certContexto);
+    }
+
+    @Override
+    public NfeEventoPreparado prepararEvento(NfeCancelamentoRequest req, String cnpjEmitente, String uf,
+                                              CertificadoContexto certContexto, int nSeqEvento) throws Exception {
         validar(req);
 
         String chave     = req.getChaveNfe().replaceAll("\\D", "");
         String cnpj      = (cnpjEmitente != null ? cnpjEmitente : emitente.getCnpj()).replaceAll("\\D", "");
         String cUF       = resolverCUF(uf);
-        String nSeq      = "01";
+        String nSeq      = String.format("%02d", nSeqEvento);
         String idEvento  = "ID110111" + chave + nSeq;
-        String dhEvento  = LocalDateTime.now()
-                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) + "-03:00";
+        String dhEvento  = ZonedDateTime.now(ZoneId.of(timezoneFiscal)).format(DH_EVENTO_FMT);
 
         String xmlEvento = montarEnvEvento(idEvento, cUF, cnpj, chave,
                 dhEvento, nSeq, req.getNProtocolo(), req.getJustificativa());
 
-        log.info("[Cancelamento] Assinando evento | chave={} | tpAmb={} | cnpj={}", chave, tpAmb, cnpj);
+        log.info("[Cancelamento] Assinando evento | chave={} | tpAmb={} | cnpj={} | nSeq={}", chave, tpAmb, cnpj, nSeq);
         String xmlAssinado = certContexto != null
                 ? assinaturaXmlService.assinarEvento(xmlEvento, certContexto)
                 : assinaturaXmlService.assinarEvento(xmlEvento);
 
-        String soapEnvelope = montarSoap(xmlAssinado);
+        return new NfeEventoPreparado(idEvento, dhEvento, xmlAssinado, calcularPayloadHash(xmlAssinado), chave, cnpj);
+    }
+
+    @Override
+    public String transmitirEvento(NfeEventoPreparado preparado, CertificadoContexto certContexto) throws Exception {
+        String soapEnvelope = montarSoap(preparado.xmlAssinado());
         String urlWs        = sefazProperties.getRecepcaoEvento();
-
-        log.info("[Cancelamento] Enviando para SEFAZ | url={}", urlWs);
-
+        log.info("[Cancelamento] Enviando para SEFAZ | url={} | chave={}", urlWs, preparado.chave());
+        // Ponto único de log fiscal (NfeLog) do transporte real -- chamado tanto pelo facade
+        // legado (cancelar()) quanto por NfeCancelamentoOrquestradorService (gate de
+        // cancelamento). Nunca duplicar em nenhum dos dois chamadores.
         try {
             String resposta = enviarSoap(urlWs, soapEnvelope, certContexto);
-            registrarLog(chave, cnpj, "SUCCESS", "Cancelamento transmitido", xmlAssinado, resposta);
-            log.info("[Cancelamento] Resposta SEFAZ recebida | chave={}", chave);
+            registrarLog(preparado.chave(), preparado.cnpj(), "SUCCESS", "Cancelamento transmitido",
+                    preparado.xmlAssinado(), resposta);
+            log.info("[Cancelamento] Resposta SEFAZ recebida | chave={}", preparado.chave());
             return resposta;
         } catch (Exception e) {
-            registrarLog(chave, cnpj, "ERROR", "Erro: " + e.getMessage(), xmlAssinado, null);
-            throw e;
+            registrarLog(preparado.chave(), preparado.cnpj(), "ERROR", "Erro: " + e.getMessage(),
+                    preparado.xmlAssinado(), null);
+            // Fronteira local/rede comprovada pela FASE (esta chamada), nunca por tipo de
+            // excecao -- mesmo principio de NfeTransmitServiceImpl.consultarNfe. Qualquer falha
+            // aqui significa que o POST pode ou nao ter sido processado pela SEFAZ; o chamador
+            // (NfeEventoService) nunca deve tratar isto como sucesso nem como rejeicao.
+            throw new SefazTransmissaoIncertaException(e);
+        }
+    }
+
+    private String calcularPayloadHash(String xmlAssinado) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(xmlAssinado.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (Exception e) {
+            log.warn("[Cancelamento] Falha ao calcular payloadHash: {}", e.getMessage());
+            return null;
         }
     }
 

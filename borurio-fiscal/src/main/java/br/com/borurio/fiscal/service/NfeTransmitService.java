@@ -60,4 +60,12 @@ public interface NfeTransmitService {
      * @return XML SOAP de resposta SEFAZ (retConsSitNFe) com cStat e xMotivo
      */
     String consultarNfe(String chaveNfe, String uf, int ambiente);
+
+    /**
+     * Mesma Consulta Situacao, usando SSLContext de empresa especifica (gate de cancelamento,
+     * 12-08-2026) -- necessaria para reconciliar eventos multi-CNPJ com o certificado correto,
+     * nunca o certificado global (mesmo principio ja aplicado a transmitirXml/Fase 8B). Fallback
+     * para o certificado global se sslContextEmpresa=null.
+     */
+    String consultarNfe(String chaveNfe, String uf, int ambiente, SSLContext sslContextEmpresa);
 }

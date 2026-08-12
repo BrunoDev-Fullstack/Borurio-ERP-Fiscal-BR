@@ -170,6 +170,15 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     // =========================
     @Override
     public String consultarNfe(String chaveNfe, String uf, int ambiente) {
+        return consultarNfeInterno(chaveNfe, uf, ambiente, null);
+    }
+
+    @Override
+    public String consultarNfe(String chaveNfe, String uf, int ambiente, SSLContext sslContextEmpresa) {
+        return consultarNfeInterno(chaveNfe, uf, ambiente, sslContextEmpresa);
+    }
+
+    private String consultarNfeInterno(String chaveNfe, String uf, int ambiente, SSLContext sslOverride) {
 
         if (chaveNfe == null || !chaveNfe.matches("\\d{44}")) {
             throw new IllegalArgumentException("Chave NF-e inválida: deve conter exatamente 44 dígitos numéricos.");
@@ -199,7 +208,8 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
                 "</soap12:Envelope>";
 
         try {
-            String resposta = enviarSoap(urlConsulta, envelope);
+            SSLContext sslUsado = sslOverride != null ? sslOverride : certificadoService.getSslContext();
+            String resposta = enviarSoap(urlConsulta, envelope, sslUsado);
 
             logFiscal.setStatus("SUCCESS");
             logFiscal.setDescricao("Consulta NF-e OK | UF=" + uf + " | Amb=" + ambiente);

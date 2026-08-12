@@ -6,11 +6,10 @@ import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
-import br.com.borurio.fiscal.dto.NfeCancelamentoRequest;
 import br.com.borurio.fiscal.dto.NfeCceRequest;
 import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
-import br.com.borurio.fiscal.service.NfeCancelamentoService;
+import br.com.borurio.fiscal.entity.NfeEvento;
 import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
 import org.slf4j.Logger;
@@ -38,7 +37,8 @@ public class PedidoOperacaoService {
 
     private final PedidoService pedidoService;
     private final NfeDocumentoService documentoService;
-    private final NfeCancelamentoService cancelamentoService;
+    private final NfeCancelamentoOrquestradorService cancelamentoOrquestradorService;
+    private final NfeEventoService nfeEventoService;
     private final NfeCceService cceService;
     private final EstoqueService estoqueService;
     private final EmpresaMapper empresaMapper;
@@ -47,7 +47,8 @@ public class PedidoOperacaoService {
 
     public PedidoOperacaoService(PedidoService pedidoService,
                                   NfeDocumentoService documentoService,
-                                  NfeCancelamentoService cancelamentoService,
+                                  NfeCancelamentoOrquestradorService cancelamentoOrquestradorService,
+                                  NfeEventoService nfeEventoService,
                                   NfeCceService cceService,
                                   EstoqueService estoqueService,
                                   EmpresaMapper empresaMapper,
@@ -55,7 +56,8 @@ public class PedidoOperacaoService {
                                   NfeEmissaoService nfeEmissaoService) {
         this.pedidoService     = pedidoService;
         this.documentoService  = documentoService;
-        this.cancelamentoService = cancelamentoService;
+        this.cancelamentoOrquestradorService = cancelamentoOrquestradorService;
+        this.nfeEventoService  = nfeEventoService;
         this.cceService        = cceService;
         this.estoqueService    = estoqueService;
         this.empresaMapper     = empresaMapper;
@@ -133,6 +135,21 @@ public class PedidoOperacaoService {
             resp.put("xMotivo", emissao.getXmotivo());
             resp.put("nProt",   emissao.getNprot());
             documentoService.buscarPorChave(chave).ifPresent(doc -> resp.put("dhRecbto", doc.getDhRecbto()));
+
+            // Projeção do cancelamento (gate de 12-08-2026): estadoFiscal já reflete CANCELADO
+            // via emissao.getEstado() acima (só NfeEmissaoMapper.marcarCancelado grava esse
+            // valor). cStat/xMotivo/nProt logo acima continuam sendo os da AUTORIZAÇÃO original
+            // — nunca sobrescritos; os campos abaixo, aditivos, trazem a evidência do EVENTO de
+            // cancelamento em si, vinda de nfe_evento, nunca inventada.
+            if (NfeEmissao.Estados.CANCELADO.equals(emissao.getEstado())) {
+                NfeEvento eventoCancelamento = nfeEventoService.buscarUltimaTentativa(chave);
+                if (eventoCancelamento != null) {
+                    resp.put("cStatEvento", eventoCancelamento.getCstat());
+                    resp.put("xMotivoEvento", eventoCancelamento.getXmotivo());
+                    resp.put("nProtEvento", eventoCancelamento.getNprot());
+                    resp.put("dataEventoCancelamento", eventoCancelamento.getResolvidoEm());
+                }
+            }
         } else {
             documentoService.buscarPorChave(chave).ifPresent(doc -> {
                 resp.put("cStat",    doc.getCStat());
@@ -170,6 +187,21 @@ public class PedidoOperacaoService {
 
         // P0-2 (07-08-2026, hardening pós-banca) — mesma fronteira de isolamento de emitir().
         Pedido pedido = pedidoService.buscarComItensDoTenanteAtual(pedidoId);
+
+        // Idempotência pós-confirmação (gate de cancelamento, 12-08-2026): repetir /cancelar
+        // depois que o pedido já está CANCELADO devolve o resultado já homologado, sem novo
+        // evento e sem novo estorno — nunca um erro genérico para uma chamada que só está
+        // confirmando o que já aconteceu. Se não houver evidência de nfe_evento REGISTRADO
+        // (ex.: cancelamento legado, anterior a este gate), cai no erro padrão abaixo — nunca
+        // fabrica um sucesso sem prova.
+        if ("CANCELADO".equals(pedido.getStatus()) && pedido.getChaveNfe() != null) {
+            NfeEvento eventoRegistrado = nfeEventoService.buscarUltimaTentativa(pedido.getChaveNfe());
+            if (eventoRegistrado != null && NfeEvento.Estados.REGISTRADO.equals(eventoRegistrado.getEstado())) {
+                log.info("[PedidoOperacao] Cancelamento já confirmado — retorno idempotente | pedidoId={}", pedidoId);
+                return "Cancelamento já confirmado anteriormente (nProt=" + eventoRegistrado.getNprot() + ")";
+            }
+        }
+
         if (!"AUTORIZADO".equals(pedido.getStatus())) {
             throw BusinessException.invalidOrderStatus(
                     "Cancelamento só é permitido para pedidos com status AUTORIZADO. " +
@@ -188,35 +220,28 @@ public class PedidoOperacaoService {
                     "Consulte a situação do pedido antes de cancelar.");
         }
 
-        NfeCancelamentoRequest req = new NfeCancelamentoRequest();
-        req.setChaveNfe(chave);
-        req.setNProtocolo(doc.getNProt());
-        req.setJustificativa(justificativa.trim());
-
         // Resolve empresa/certificado real do pedido — contextoResolver lança exceção em vez
         // de cair no emitente/certificado global se a resolução falhar.
         FiscalContexto ctx = contextoResolver.resolver(pedido);
         String cnpjEmitente = ctx.empresa().getCnpj();
         String ufEmitente    = ctx.empresa().getUf();
 
+        // Ciclo do nNF (Gate 1) do pedido, quando existir — liga o evento de cancelamento à
+        // projeção NfeEmissao.estado=CANCELADO. Pode ser null para pedidos legados emitidos
+        // antes do Gate 1 (07-08-2026); o cancelamento continua funcionando, só sem a projeção.
+        NfeEmissao emissao = nfeEmissaoService.buscarUltimaEmissaoDoPedido(pedidoId);
+        Long emissaoId = emissao != null ? emissao.getId() : null;
+
+        boolean controla = controlaEstoque(pedido.getEmpresaId());
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String criadoPor = auth != null ? auth.getName() : "sistema";
+
         log.info("[PedidoOperacao] Cancelando NF-e | pedidoId={} | chave={} | nProt={} | cnpj={}",
                 pedidoId, chave, doc.getNProt(), cnpjEmitente);
 
-        String retorno = cancelamentoService.cancelar(req, cnpjEmitente, ufEmitente, ctx.certificado());
-
-        pedidoService.atualizarStatus(pedidoId, "CANCELADO", chave);
-
-        if (pedido.getItens() != null && !pedido.getItens().isEmpty() && controlaEstoque(pedido.getEmpresaId())) {
-            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-            String criadoPor = auth != null ? auth.getName() : "sistema";
-            try {
-                estoqueService.estornarBaixaItens(
-                        pedido.getItens(), pedido.getEmpresaId(), pedidoId, criadoPor);
-            } catch (Exception e) {
-                log.error("[PedidoOperacao] Falha ao estornar estoque | pedidoId={} | erro={}",
-                        pedidoId, e.getMessage());
-            }
-        }
+        String retorno = cancelamentoOrquestradorService.cancelar(pedidoId, emissaoId, pedido.getEmpresaId(),
+                cnpjEmitente, ufEmitente, chave, doc.getNProt(), justificativa.trim(), ctx.certificado(),
+                controla, pedido.getItens(), criadoPor);
 
         log.info("[PedidoOperacao] Pedido cancelado | pedidoId={}", pedidoId);
         return retorno;

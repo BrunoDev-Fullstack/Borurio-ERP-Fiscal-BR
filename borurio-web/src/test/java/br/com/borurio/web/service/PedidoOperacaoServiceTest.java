@@ -10,8 +10,8 @@ import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
 import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
+import br.com.borurio.fiscal.entity.NfeEvento;
 import br.com.borurio.fiscal.service.CertificadoContexto;
-import br.com.borurio.fiscal.service.NfeCancelamentoService;
 import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
 import org.junit.jupiter.api.AfterEach;
@@ -30,12 +30,20 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
  * Cobre a resolução de contexto multi-CNPJ (empresa/certificado corretos em cancelamento,
  * CC-e e consulta, nunca configuração global) e o desenho de "controle de estoque opcional
  * por empresa" no cancelamento.
+ *
+ * Gate de cancelamento (12-08-2026): PedidoOperacaoService.cancelar() resolve contexto/CNPJ/
+ * estoque e delega a transmissão/classificação/efeitos para NfeCancelamentoOrquestradorService
+ * (bean separado, com sua própria bateria de testes em NfeEventoServiceTest/
+ * NfeCancelamentoOrquestradorServiceTest) — este arquivo verifica que PedidoOperacaoService
+ * chama o orquestrador com os argumentos certos, não mais os efeitos de estoque/SOAP em si
+ * (que migraram para dentro de NfeEventoService.finalizar()).
  */
 @ExtendWith(MockitoExtension.class)
 class PedidoOperacaoServiceTest {
@@ -45,7 +53,8 @@ class PedidoOperacaoServiceTest {
 
     @Mock PedidoService pedidoService;
     @Mock NfeDocumentoService documentoService;
-    @Mock NfeCancelamentoService cancelamentoService;
+    @Mock NfeCancelamentoOrquestradorService cancelamentoOrquestradorService;
+    @Mock NfeEventoService nfeEventoService;
     @Mock NfeCceService cceService;
     @Mock EstoqueService estoqueService;
     @Mock EmpresaMapper empresaMapper;
@@ -57,8 +66,8 @@ class PedidoOperacaoServiceTest {
     @BeforeEach
     void setUp() {
         service = new PedidoOperacaoService(pedidoService, documentoService,
-                cancelamentoService, cceService, estoqueService, empresaMapper, contextoResolver,
-                nfeEmissaoService);
+                cancelamentoOrquestradorService, nfeEventoService, cceService, estoqueService,
+                empresaMapper, contextoResolver, nfeEmissaoService);
     }
 
     private NfeEmissao emissaoResolvida(String serie, int numeroNfe, String estado, Integer cStat,
@@ -117,57 +126,61 @@ class PedidoOperacaoServiceTest {
     }
 
     // -------------------------------------------------------------------------
-    // Controle de estoque (comportamento anterior, preservado)
+    // Controle de estoque (comportamento anterior, preservado — agora verificado no argumento
+    // controlaEstoque passado ao orquestrador, não mais numa chamada direta a estoqueService).
     // -------------------------------------------------------------------------
 
     @Test
-    void cancelar_controlaEstoqueTrue_estornaBaixa() throws Exception {
+    void cancelar_controlaEstoqueTrue_passaControlaEstoqueTrueAoOrquestrador() throws Exception {
         Pedido pedido = pedidoAutorizado(CNPJ_A);
         Empresa empresaA = empresa(10L, CNPJ_A, "SP", true);
         when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaA, certificado(10L)));
-        when(cancelamentoService.cancelar(any(), any(), any(), any())).thenReturn("<retEvento/>");
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresaA);
 
         service.cancelar(50L, "Cliente desistiu da compra");
 
-        verify(estoqueService).estornarBaixaItens(pedido.getItens(), 10L, 50L, "sistema");
+        verify(cancelamentoOrquestradorService).cancelar(eq(50L), any(), eq(10L), eq(CNPJ_A), eq("SP"),
+                eq(pedido.getChaveNfe()), eq("135260000001234"), eq("Cliente desistiu da compra"),
+                any(), eq(true), eq(pedido.getItens()), any());
     }
 
     @Test
-    void cancelar_controlaEstoqueFalse_naoEstornaBaixa() throws Exception {
+    void cancelar_controlaEstoqueFalse_passaControlaEstoqueFalseAoOrquestrador() throws Exception {
         Pedido pedido = pedidoAutorizado(CNPJ_A);
         Empresa empresaA = empresa(10L, CNPJ_A, "SP", false);
         when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaA, certificado(10L)));
-        when(cancelamentoService.cancelar(any(), any(), any(), any())).thenReturn("<retEvento/>");
         when(empresaMapper.buscarPorId(10L)).thenReturn(empresaA);
 
         service.cancelar(50L, "Cliente desistiu da compra");
 
-        verify(estoqueService, never()).estornarBaixaItens(any(), any(), any(), any());
+        verify(cancelamentoOrquestradorService).cancelar(eq(50L), any(), eq(10L), eq(CNPJ_A), eq("SP"),
+                eq(pedido.getChaveNfe()), eq("135260000001234"), eq("Cliente desistiu da compra"),
+                any(), eq(false), eq(pedido.getItens()), any());
     }
 
     @Test
-    void cancelar_empresaEstoqueNaoEncontrada_defaultEstornaBaixa() throws Exception {
+    void cancelar_empresaEstoqueNaoEncontrada_defaultControlaEstoqueTrue() throws Exception {
         Pedido pedido = pedidoAutorizado(CNPJ_A);
         Empresa empresaA = empresa(10L, CNPJ_A, "SP", true);
         when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaA, certificado(10L)));
-        when(cancelamentoService.cancelar(any(), any(), any(), any())).thenReturn("<retEvento/>");
         // empresaMapper.buscarPorId aqui é o lookup interno de controlaEstoque() — null é um
         // cadastro diferente da resolução fiscal (contextoResolver), que já foi bem-sucedida acima.
         when(empresaMapper.buscarPorId(10L)).thenReturn(null);
 
         service.cancelar(50L, "Cliente desistiu da compra");
 
-        verify(estoqueService).estornarBaixaItens(pedido.getItens(), 10L, 50L, "sistema");
+        verify(cancelamentoOrquestradorService).cancelar(eq(50L), any(), eq(10L), eq(CNPJ_A), eq("SP"),
+                eq(pedido.getChaveNfe()), eq("135260000001234"), eq("Cliente desistiu da compra"),
+                any(), eq(true), eq(pedido.getItens()), any());
     }
 
     // -------------------------------------------------------------------------
@@ -185,14 +198,13 @@ class PedidoOperacaoServiceTest {
         when(documentoService.buscarPorChave(pedido.getChaveNfe()))
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaB, certB));
-        when(cancelamentoService.cancelar(any(), eq(CNPJ_B), eq("SP"), eq(certB)))
-                .thenReturn("<retEvento/>");
         when(empresaMapper.buscarPorId(any())).thenReturn(empresaB);
 
         service.cancelar(50L, "Cliente desistiu da compra");
 
-        verify(cancelamentoService).cancelar(any(), eq(CNPJ_B), eq("SP"), eq(certB));
-        verify(cancelamentoService, never()).cancelar(any());
+        verify(cancelamentoOrquestradorService).cancelar(any(), any(), any(), eq(CNPJ_B), eq("SP"),
+                any(), any(), any(), eq(certB), anyBoolean(), any(), any());
+        verifyNoInteractions(estoqueService);
     }
 
     @Test
@@ -259,31 +271,39 @@ class PedidoOperacaoServiceTest {
         // mas sempre null — nunca mais dispara consulta live à SEFAZ.
         assertTrue(resp.containsKey("consultaSefaz"));
         assertNull(resp.get("consultaSefaz"));
+        // Não é cancelamento: nenhum campo aditivo de evento deve aparecer.
+        assertFalse(resp.containsKey("cStatEvento"));
+        verifyNoInteractions(nfeEventoService);
     }
 
     @Test
-    @DisplayName("situacao: Pedido.chaveNfe null mas nfe_emissao.chaveNfe congelada (falha de rede na 1ª tentativa) — funciona via nfe_emissao, nunca bloqueia")
-    void consultarSituacao_pedidoChaveNulaComEmissaoCongelada_funcionaViaNfeEmissao() throws Exception {
-        // Reproduz o cenário real e comprovado em PedidoEmissaoService.emitir(): timeout de rede na
-        // PRIMEIRA tentativa cai no catch, que chama atualizarStatus(id, "ERRO",
-        // pedido.getChaveNfe()) com o valor ANTERIOR (null, pois é a primeira tentativa) e resolve
-        // o ciclo via resolverCiclo (nunca toca Pedido). Resultado: nfe_emissao com chaveNfe
-        // congelada + PENDENTE_CONFIRMACAO, Pedido com chaveNfe ainda null e status ERRO.
+    @DisplayName("situacao: CANCELADO — campos aditivos do evento vêm de nfe_evento, autorização original preservada")
+    void consultarSituacao_cancelado_camposAditivosDoEvento() throws Exception {
         Pedido pedido = pedidoAutorizado(CNPJ_B);
-        pedido.setChaveNfe(null);
-        pedido.setStatus("ERRO");
-        NfeEmissao emissao = emissaoResolvida("1", 9, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, null,
-                null, null, chaveComCnpj(CNPJ_B));
+        pedido.setStatus("CANCELADO");
+        NfeEmissao emissao = emissaoResolvida("1", 5, NfeEmissao.Estados.CANCELADO, 100,
+                "Autorizado o uso da NF-e", "135260000001234", pedido.getChaveNfe());
+        NfeEvento evento = new NfeEvento();
+        evento.setCstat(135);
+        evento.setXmotivo("Evento registrado e vinculado a NF-e");
+        evento.setNprot("135260000009999");
 
         when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
         when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(50L)).thenReturn(emissao);
-        when(documentoService.buscarPorChave(chaveComCnpj(CNPJ_B))).thenReturn(Optional.empty());
+        when(documentoService.buscarPorChave(pedido.getChaveNfe())).thenReturn(Optional.empty());
+        when(nfeEventoService.buscarUltimaTentativa(pedido.getChaveNfe())).thenReturn(evento);
 
-        Map<String, Object> resp = assertDoesNotThrow(() -> service.consultarSituacao(50L));
+        Map<String, Object> resp = service.consultarSituacao(50L);
 
-        assertEquals(chaveComCnpj(CNPJ_B), resp.get("chaveNfe"));
-        assertEquals(NfeEmissao.Estados.PENDENTE_CONFIRMACAO, resp.get("estadoFiscal"));
-        assertEquals(9, resp.get("numeroNFe"));
+        // Autorização original nunca sobrescrita.
+        assertEquals("100", resp.get("cStat"));
+        assertEquals("Autorizado o uso da NF-e", resp.get("xMotivo"));
+        assertEquals("135260000001234", resp.get("nProt"));
+        assertEquals(NfeEmissao.Estados.CANCELADO, resp.get("estadoFiscal"));
+        // Evidência do EVENTO, aditiva.
+        assertEquals(135, resp.get("cStatEvento"));
+        assertEquals("Evento registrado e vinculado a NF-e", resp.get("xMotivoEvento"));
+        assertEquals("135260000009999", resp.get("nProtEvento"));
     }
 
     @Test
@@ -395,14 +415,15 @@ class PedidoOperacaoServiceTest {
                 .thenReturn(Optional.of(documentoComProtocolo()));
         when(contextoResolver.resolver(pedidoA)).thenReturn(new FiscalContexto(empresaA, certA));
         when(contextoResolver.resolver(pedidoB)).thenReturn(new FiscalContexto(empresaB, certB));
-        when(cancelamentoService.cancelar(any(), any(), any(), any())).thenReturn("<retEvento/>");
         when(empresaMapper.buscarPorId(any())).thenReturn(empresaA);
 
         service.cancelar(51L, "Cliente A desistiu da compra");
         service.cancelar(52L, "Cliente B desistiu da compra");
 
-        verify(cancelamentoService).cancelar(any(), eq(CNPJ_A), eq("SP"), eq(certA));
-        verify(cancelamentoService).cancelar(any(), eq(CNPJ_B), eq("SP"), eq(certB));
+        verify(cancelamentoOrquestradorService).cancelar(eq(51L), any(), any(), eq(CNPJ_A), eq("SP"),
+                any(), any(), any(), eq(certA), anyBoolean(), any(), any());
+        verify(cancelamentoOrquestradorService).cancelar(eq(52L), any(), any(), eq(CNPJ_B), eq("SP"),
+                any(), any(), any(), eq(certB), anyBoolean(), any(), any());
     }
 
     @Test
@@ -419,7 +440,7 @@ class PedidoOperacaoServiceTest {
                 () -> service.cancelar(50L, "Cliente desistiu da compra"));
 
         assertEquals("DOCUMENTO_CNPJ_DIVERGENTE", ex.getErrorCode());
-        verifyNoInteractions(cancelamentoService);
+        verifyNoInteractions(cancelamentoOrquestradorService);
         verifyNoInteractions(estoqueService);
         verifyNoInteractions(contextoResolver);
     }
@@ -436,8 +457,46 @@ class PedidoOperacaoServiceTest {
 
         assertThrows(IllegalStateException.class, () -> service.cancelar(50L, "Cliente desistiu da compra"));
 
-        verifyNoInteractions(cancelamentoService);
+        verifyNoInteractions(cancelamentoOrquestradorService);
         verifyNoInteractions(estoqueService);
+    }
+
+    // -------------------------------------------------------------------------
+    // Idempotência pós-confirmação (gate de cancelamento, 12-08-2026)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("cancelar: pedido já CANCELADO com evento REGISTRADO — retorno idempotente, nunca chama o orquestrador de novo")
+    void cancelar_jaCanceladoComEventoRegistrado_retornoIdempotente() throws Exception {
+        Pedido pedido = pedidoAutorizado(CNPJ_A);
+        pedido.setStatus("CANCELADO");
+        NfeEvento evento = new NfeEvento();
+        evento.setEstado(NfeEvento.Estados.REGISTRADO);
+        evento.setNprot("135260000009999");
+
+        when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEventoService.buscarUltimaTentativa(pedido.getChaveNfe())).thenReturn(evento);
+
+        String retorno = service.cancelar(50L, "Cliente pediu de novo, já sabe que foi cancelado");
+
+        assertTrue(retorno.contains("135260000009999"));
+        verifyNoInteractions(cancelamentoOrquestradorService, contextoResolver, documentoService, estoqueService);
+    }
+
+    @Test
+    @DisplayName("cancelar: pedido CANCELADO sem evidência de nfe_evento (legado) — erro padrão, nunca fabrica sucesso")
+    void cancelar_canceladoSemEvidenciaLegado_erroPadrao() {
+        Pedido pedido = pedidoAutorizado(CNPJ_A);
+        pedido.setStatus("CANCELADO");
+
+        when(pedidoService.buscarComItensDoTenanteAtual(50L)).thenReturn(pedido);
+        when(nfeEventoService.buscarUltimaTentativa(pedido.getChaveNfe())).thenReturn(null);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.cancelar(50L, "Cliente pediu de novo, já sabe que foi cancelado"));
+
+        assertEquals("INVALID_ORDER_STATUS", ex.getErrorCode());
+        verifyNoInteractions(cancelamentoOrquestradorService);
     }
 
     // -------------------------------------------------------------------------
@@ -459,7 +518,7 @@ class PedidoOperacaoServiceTest {
 
         assertThrows(NoSuchElementException.class, () -> service.cancelar(50L, "Cliente desistiu da compra"));
 
-        verifyNoInteractions(cancelamentoService, contextoResolver, documentoService, estoqueService);
+        verifyNoInteractions(cancelamentoOrquestradorService, contextoResolver, documentoService, estoqueService);
     }
 
     @Test

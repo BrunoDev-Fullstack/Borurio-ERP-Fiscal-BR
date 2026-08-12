@@ -532,6 +532,59 @@ public class BusinessException extends RuntimeException {
                 false);
     }
 
+    // -------------------------------------------------------------------------
+    // Gate de cancelamento (nfe_evento, 12-08-2026)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Outra requisicao ja reivindicou o evento de cancelamento deste pedido (colisao na UNIQUE
+     * KEY chave_nfe+tipo_evento+n_seq_evento, ou linha ja em TRANSMITIDO/PENDENTE_CONFIRMACAO) --
+     * corrida real, nunca erro de dado. retryable=true: consultar a situacao ou tentar de novo
+     * depois resolve sem risco de dois eventos de cancelamento para a mesma NF-e.
+     */
+    public static BusinessException cancelamentoEmAndamento(Long pedidoId) {
+        return new BusinessException(
+                "CANCELAMENTO_EM_ANDAMENTO",
+                "Já existe um cancelamento em andamento para o pedido " + pedidoId
+                        + ". Aguarde a conclusão ou consulte a situação antes de tentar novamente.",
+                409,
+                true);
+    }
+
+    /**
+     * O evento de cancelamento tem resultado ainda incerto -- timeout de transporte, cStat=136
+     * (evento registrado mas nao vinculado, anomalo) ou cStat=573 (duplicidade de evento, nao
+     * prova sozinho o desfecho do evento original). Nunca retransmite as cegas; a reconciliacao
+     * via Consulta Situacao (procEventoNFe) e o unico caminho para sair deste estado.
+     */
+    public static BusinessException cancelamentoAguardandoReconciliacao(Long pedidoId) {
+        return new BusinessException(
+                "CANCELAMENTO_AGUARDANDO_RECONCILIACAO",
+                "O pedido " + pedidoId + " tem um evento de cancelamento com resultado ainda "
+                        + "incerto. É necessário reconciliar com a SEFAZ pela mesma identidade do "
+                        + "evento antes de qualquer nova tentativa.",
+                409,
+                true);
+    }
+
+    /**
+     * A SEFAZ rejeitou o evento de cancelamento (cStat fora da matriz de sucesso/incerto) -- sem
+     * efeito em Pedido/NfeEmissao/estoque. retryable=false: uma nova tentativa so faz sentido
+     * apos corrigir a causa (data/xJust/nProt); reabre a MESMA identidade fiscal (nSeqEvento=1),
+     * nunca cria um evento novo.
+     */
+    public static BusinessException cancelamentoRejeitado(Integer cStat, String xMotivo) {
+        java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("cStat", cStat);
+        data.put("xMotivo", xMotivo != null ? xMotivo : "");
+        return new BusinessException(
+                "CANCELAMENTO_REJEITADO",
+                "Cancelamento rejeitado pela SEFAZ: " + xMotivo,
+                422,
+                false,
+                data);
+    }
+
     public static BusinessException motivoDetalheObrigatorio() {
         return new BusinessException(
                 "MOTIVO_DETALHE_OBRIGATORIO",

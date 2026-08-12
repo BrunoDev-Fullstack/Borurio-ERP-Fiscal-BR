@@ -25,6 +25,15 @@ public class NfeConsultaSituacaoRetorno {
     private boolean falhaParse;
     private String detalheFalhaParse;
 
+    // procEventoNFe -- so preenchido quando parse(xml, tpEventoAlvo, nSeqEventoAlvo) e chamado
+    // com um alvo (reconciliacao de evento, ex. cancelamento). Nunca preenchido pelo parse(xml)
+    // de 1 argumento usado pela reconciliacao de emissao (Gate 3) -- aditivo, sem efeito nela.
+    private boolean eventoEncontrado;
+    private Integer cStatEvento;
+    private String xMotivoEvento;
+    private String nProtEvento;
+    private String dhRegEvento;
+
     public static NfeConsultaSituacaoRetorno falhaParse(String detalhe) {
         NfeConsultaSituacaoRetorno r = new NfeConsultaSituacaoRetorno();
         r.falhaParse = true;
@@ -61,6 +70,28 @@ public class NfeConsultaSituacaoRetorno {
     public boolean isAutorizadaComProtocolo() {
         return !falhaParse && protNFePresente && (cStat == 100 || cStat == 150)
                 && nProt != null && !nProt.isBlank();
+    }
+
+    public boolean isEventoEncontrado() { return eventoEncontrado; }
+    public void setEventoEncontrado(boolean eventoEncontrado) { this.eventoEncontrado = eventoEncontrado; }
+
+    public Integer getCStatEvento() { return cStatEvento; }
+    public void setCStatEvento(Integer cStatEvento) { this.cStatEvento = cStatEvento; }
+
+    public String getXMotivoEvento() { return xMotivoEvento; }
+    public void setXMotivoEvento(String xMotivoEvento) { this.xMotivoEvento = xMotivoEvento; }
+
+    public String getNProtEvento() { return nProtEvento; }
+    public void setNProtEvento(String nProtEvento) { this.nProtEvento = nProtEvento; }
+
+    public String getDhRegEvento() { return dhRegEvento; }
+    public void setDhRegEvento(String dhRegEvento) { this.dhRegEvento = dhRegEvento; }
+
+    /** cStat=101 (cancelada) sem o procEventoNFe detalhado correspondente -- ver NfeEventoService: pode
+     *  projetar CANCELADO, mas nunca inventa nProtEvento; a resolucao registra a origem como a propria
+     *  Consulta Situacao, nao um protocolo de evento que a SEFAZ nao devolveu em detalhe. */
+    public boolean isCanceladaSemEventoDetalhado() {
+        return !falhaParse && protNFePresente && cStat == 101 && !eventoEncontrado;
     }
 
     @Override

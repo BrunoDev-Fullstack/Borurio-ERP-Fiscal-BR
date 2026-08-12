@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import javax.net.ssl.SSLContext;
+
 /**
  * Orquestra a Consulta Situação NF-e (consSitNFe) para a reconciliação (Gate 3, 10-08-2026):
  * chama o transporte real ({@link NfeTransmitService#consultarNfe}) e interpreta o resultado com
@@ -41,6 +43,25 @@ public class NfeConsultaSituacaoService {
         NfeConsultaSituacaoRetorno retorno = parser.parse(resposta);
         log.info("[NfeConsultaSituacao] Consulta interpretada | chave={} | cStat={} | protNFePresente={} | falhaParse={}",
                 chaveNfe, retorno.getCStat(), retorno.isProtNFePresente(), retorno.isFalhaParse());
+        return retorno;
+    }
+
+    /**
+     * Sobrecarga para reconciliacao de eventos multi-CNPJ (gate de cancelamento, 12-08-2026):
+     * usa o certificado da empresa emitente (nunca o global) e procura o procEventoNFe
+     * correspondente a tpEventoAlvo+nSeqEventoAlvo -- nunca decide so pelo cStat=101 do
+     * documento. Nao afeta {@link #consultar(String, String, int)}, usado pela reconciliacao de
+     * emissao (Gate 3).
+     */
+    public NfeConsultaSituacaoRetorno consultarEvento(String chaveNfe, String uf, int ambiente,
+                                                        SSLContext sslContextEmpresa,
+                                                        String tpEventoAlvo, String nSeqEventoAlvo) {
+        String resposta = transmitService.consultarNfe(chaveNfe, uf, ambiente, sslContextEmpresa);
+        NfeConsultaSituacaoRetorno retorno = parser.parse(resposta, tpEventoAlvo, nSeqEventoAlvo);
+        log.info("[NfeConsultaSituacao] Consulta de evento interpretada | chave={} | cStat={} | "
+                        + "eventoEncontrado={} | cStatEvento={} | falhaParse={}",
+                chaveNfe, retorno.getCStat(), retorno.isEventoEncontrado(), retorno.getCStatEvento(),
+                retorno.isFalhaParse());
         return retorno;
     }
 }

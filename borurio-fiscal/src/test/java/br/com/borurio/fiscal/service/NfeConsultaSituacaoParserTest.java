@@ -122,4 +122,108 @@ class NfeConsultaSituacaoParserTest {
         assertEquals(205, r.getCStat());
         assertFalse(r.isAutorizadaComProtocolo());
     }
+
+    // -------------------------------------------------------------------------
+    // Gate de cancelamento (12-08-2026) — procEventoNFe (reconciliação via Consulta Situação)
+    // -------------------------------------------------------------------------
+
+    private String comProcEventoNFe(String tpEvento, String nSeqEvento, String cStatEvento, String nProt) {
+        return "<procEventoNFe versao=\"1.00\"><retEvento versao=\"1.00\"><infEvento>"
+                + "<tpAmb>2</tpAmb><cStat>" + cStatEvento + "</cStat><xMotivo>Evento processado</xMotivo>"
+                + "<chNFe>35260500000000000191550010000000011000000013</chNFe>"
+                + "<tpEvento>" + tpEvento + "</tpEvento><nSeqEvento>" + nSeqEvento + "</nSeqEvento>"
+                + (nProt != null ? "<nProt>" + nProt + "</nProt>" : "")
+                + "<dhRegEvento>2026-08-12T10:00:00-03:00</dhRegEvento>"
+                + "</infEvento></retEvento></procEventoNFe>";
+    }
+
+    @Test
+    @DisplayName("cStat=101 (cancelada) + procEventoNFe correspondente (110111/1) — extrai cStat/nProt do EVENTO, não inventa nada")
+    void canceladaComProcEventoNFeCorrespondente_extraiDadosDoEvento() {
+        String xml = envelope(
+                "<cStat>101</cStat><xMotivo>Cancelamento de NF-e homologado</xMotivo>"
+                        + "<protNFe versao=\"4.00\"><infProt>"
+                        + "<chNFe>35260500000000000191550010000000011000000013</chNFe>"
+                        + "<nProt>135260000000001</nProt><cStat>101</cStat>"
+                        + "<xMotivo>Cancelamento de NF-e homologado</xMotivo>"
+                        + "</infProt></protNFe>"
+                        + comProcEventoNFe("110111", "1", "135", "135260000009999"));
+
+        NfeConsultaSituacaoRetorno r = parser.parse(xml, "110111", "1");
+
+        assertTrue(r.isEventoEncontrado());
+        assertEquals(135, r.getCStatEvento());
+        assertEquals("135260000009999", r.getNProtEvento());
+        assertNotNull(r.getDhRegEvento());
+        assertFalse(r.isCanceladaSemEventoDetalhado(), "evento foi encontrado — não é o caso 'sem evento detalhado'");
+    }
+
+    @Test
+    @DisplayName("cStat=101 sem procEventoNFe correspondente — isCanceladaSemEventoDetalhado=true, nunca inventa nProtEvento")
+    void canceladaSemProcEventoNFe_naoInventaProtocolo() {
+        String xml = envelope(
+                "<cStat>101</cStat><xMotivo>Cancelamento de NF-e homologado</xMotivo>"
+                        + "<protNFe versao=\"4.00\"><infProt>"
+                        + "<chNFe>35260500000000000191550010000000011000000013</chNFe>"
+                        + "<nProt>135260000000001</nProt><cStat>101</cStat>"
+                        + "<xMotivo>Cancelamento de NF-e homologado</xMotivo>"
+                        + "</infProt></protNFe>");
+
+        NfeConsultaSituacaoRetorno r = parser.parse(xml, "110111", "1");
+
+        assertFalse(r.isEventoEncontrado());
+        assertNull(r.getNProtEvento(), "sem procEventoNFe detalhado, nProtEvento nunca pode ser inventado");
+        assertTrue(r.isCanceladaSemEventoDetalhado());
+    }
+
+    @Test
+    @DisplayName("procEventoNFe de tipo/sequência diferente (ex.: CC-e) — nunca confundido com o cancelamento buscado")
+    void procEventoNFeDeOutroTipo_naoConfundeComCancelamento() {
+        String xml = envelope(
+                "<cStat>100</cStat><xMotivo>Autorizado</xMotivo>"
+                        + comProcEventoNFe("110110", "1", "135", "135260000001111")); // CC-e, não cancelamento
+
+        NfeConsultaSituacaoRetorno r = parser.parse(xml, "110111", "1");
+
+        assertFalse(r.isEventoEncontrado(), "procEventoNFe de outro tpEvento nunca deve ser aceito como o evento buscado");
+    }
+
+    @Test
+    @DisplayName("nSeqEvento comparado numericamente — procEventoNFe com \"1\" corresponde a busca por \"01\" (achado de banca, 12-08-2026)")
+    void procEventoNFeNSeqSemZeroAEsquerda_correspondeABuscaComZeroAEsquerda() {
+        String xml = envelope(
+                "<cStat>101</cStat><xMotivo>Cancelamento de NF-e homologado</xMotivo>"
+                        + comProcEventoNFe("110111", "1", "135", "135260000009999")); // SEFAZ ecoa "1", sem padding
+
+        NfeConsultaSituacaoRetorno r = parser.parse(xml, "110111", "01"); // Borurio busca por "01"
+
+        assertTrue(r.isEventoEncontrado(), "\"1\" e \"01\" são a mesma sequência numérica — comparação nunca pode ser textual");
+        assertEquals(135, r.getCStatEvento());
+    }
+
+    @Test
+    @DisplayName("nSeqEvento numericamente diferente (\"2\" vs \"1\") — nunca corresponde")
+    void procEventoNFeNSeqNumericamenteDiferente_naoCorresponde() {
+        String xml = envelope(
+                "<cStat>100</cStat><xMotivo>Autorizado</xMotivo>"
+                        + comProcEventoNFe("110111", "2", "135", "135260000009999"));
+
+        NfeConsultaSituacaoRetorno r = parser.parse(xml, "110111", "01");
+
+        assertFalse(r.isEventoEncontrado());
+    }
+
+    @Test
+    @DisplayName("parse(xml) de 1 argumento (Gate 3, emissão) nunca preenche campos de evento — comportamento inalterado")
+    void parseUmArgumento_nuncaPreencheCamposDeEvento() {
+        String xml = envelope(
+                "<cStat>101</cStat><xMotivo>Cancelamento de NF-e homologado</xMotivo>"
+                        + comProcEventoNFe("110111", "1", "135", "135260000009999"));
+
+        NfeConsultaSituacaoRetorno r = parser.parse(xml);
+
+        assertFalse(r.isEventoEncontrado());
+        assertNull(r.getCStatEvento());
+        assertNull(r.getNProtEvento());
+    }
 }

@@ -29,6 +29,17 @@ public class NfeEmissao {
          */
         public static final String NUMERO_OCUPADO = "NUMERO_OCUPADO";
 
+        /**
+         * Gate de cancelamento (12-08-2026): projecao do estado fiscal ATUAL apos um evento de
+         * cancelamento homologado (nfe_evento.estado=REGISTRADO) -- nunca liberado por
+         * {@link #aplicarNovoEstado} do NfeEmissaoService (esse metodo so trata transicoes do
+         * ciclo do nNF/Gate 1-3, que ja terminou em AUTORIZADO muito antes do cancelamento
+         * existir). cstat/xmotivo/nprot da AUTORIZACAO original NUNCA sao sobrescritos por esta
+         * transicao -- a evidencia do cancelamento em si fica em nfe_evento, nao aqui. Ver
+         * NfeEmissaoMapper.marcarCancelado.
+         */
+        public static final String CANCELADO = "CANCELADO";
+
         /** Estados que liberam o gate da sequencia (nfe_sequencia.emissao_ativa_id) ao serem alcancados. */
         public static boolean isTerminal(String estado) {
             return AUTORIZADO.equals(estado) || DENEGADO.equals(estado) || NUMERO_OCUPADO.equals(estado);
