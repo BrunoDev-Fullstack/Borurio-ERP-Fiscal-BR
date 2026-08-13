@@ -204,7 +204,7 @@ class PedidoTenantIsolationAdversarialTest {
         @Mock br.com.borurio.fiscal.service.NfeDocumentoService documentoService;
         @Mock NfeCancelamentoOrquestradorService cancelamentoOrquestradorService;
         @Mock NfeEventoService nfeEventoService;
-        @Mock br.com.borurio.fiscal.service.NfeCceService cceService;
+        @Mock NfeCceOrquestradorService cceOrquestradorService;
         @Mock EstoqueService estoqueService;
         @Mock EmpresaMapper empresaMapper;
         @Mock FiscalContextoResolver contextoResolver;
@@ -216,7 +216,7 @@ class PedidoTenantIsolationAdversarialTest {
         void setUp() {
             org.mockito.MockitoAnnotations.openMocks(this);
             service = new PedidoOperacaoService(pedidoService, documentoService,
-                    cancelamentoOrquestradorService, nfeEventoService, cceService, estoqueService,
+                    cancelamentoOrquestradorService, nfeEventoService, cceOrquestradorService, estoqueService,
                     empresaMapper, contextoResolver, nfeEmissaoService);
         }
 

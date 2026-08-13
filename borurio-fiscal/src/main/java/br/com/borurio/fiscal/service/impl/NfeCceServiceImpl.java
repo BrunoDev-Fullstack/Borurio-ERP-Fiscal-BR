@@ -2,8 +2,10 @@ package br.com.borurio.fiscal.service.impl;
 
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.config.SefazProperties;
+import br.com.borurio.fiscal.dto.NfeCceEventoPreparado;
 import br.com.borurio.fiscal.dto.NfeCceRequest;
 import br.com.borurio.fiscal.entity.NfeLog;
+import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.service.AssinaturaXmlService;
 import br.com.borurio.fiscal.service.CertificadoContexto;
 import br.com.borurio.fiscal.service.CertificadoService;
@@ -22,8 +24,12 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.Map;
 
 @Slf4j
@@ -32,7 +38,6 @@ public class NfeCceServiceImpl implements NfeCceService {
 
     private static final String NFE_NS    = "http://www.portalfiscal.inf.br/nfe";
     private static final String WSDL_NS   = "http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4";
-    private static final int    MAX_CCE   = 20;
 
     // Texto fixo obrigatório pela SEFAZ (NT 2019.001)
     private static final String X_COND_USO =
@@ -56,6 +61,10 @@ public class NfeCceServiceImpl implements NfeCceService {
             Map.entry("SE","28"), Map.entry("SP","35"), Map.entry("TO","17")
     );
 
+    // yyyy-MM-dd'T'HH:mm:ssXXX -- offset sempre calculado pela ZoneId, nunca concatenado
+    // manualmente (mesma correção aplicada ao cancelamento, 12-08-2026).
+    private static final DateTimeFormatter DH_EVENTO_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
+
     private final AssinaturaXmlService assinaturaXmlService;
     private final CertificadoService   certificadoService;
     private final SefazProperties      sefazProperties;
@@ -64,6 +73,9 @@ public class NfeCceServiceImpl implements NfeCceService {
 
     @Value("${sefaz.tpAmb:2}")
     private int tpAmb;
+
+    @Value("${sefaz.timezone-fiscal:America/Sao_Paulo}")
+    private String timezoneFiscal;
 
     public NfeCceServiceImpl(AssinaturaXmlService assinaturaXmlService,
                              CertificadoService certificadoService,
@@ -78,74 +90,60 @@ public class NfeCceServiceImpl implements NfeCceService {
     }
 
     @Override
-    public String corrigir(NfeCceRequest req) throws Exception {
-        return corrigir(req, null, null, null);
-    }
-
-    @Override
-    public String corrigir(NfeCceRequest req, String cnpjEmitente, String uf,
-                            CertificadoContexto certContexto) throws Exception {
+    public NfeCceEventoPreparado prepararEvento(NfeCceRequest req, String cnpjEmitente, String uf,
+                                                 CertificadoContexto certContexto, int nSeqEvento) throws Exception {
         validar(req);
 
         String chave = req.getChaveNfe().replaceAll("\\D", "");
         String cnpj  = (cnpjEmitente != null ? cnpjEmitente : emitente.getCnpj()).replaceAll("\\D", "");
         String cUF   = resolverCUF(uf);
 
-        int nSeq = resolverSequencia(chave, req.getSequencia());
-
-        String dhEvento = LocalDateTime.now()
-                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) + "-03:00";
-        String nSeqPadded = String.format("%02d", nSeq);
-        String idEvento   = "ID110110" + chave + nSeqPadded;
+        String dhEvento    = ZonedDateTime.now(ZoneId.of(timezoneFiscal)).format(DH_EVENTO_FMT);
+        String nSeqPadded  = String.format("%02d", nSeqEvento);
+        String idEvento    = "ID110110" + chave + nSeqPadded;
 
         String xmlEvento = montarEnvEvento(idEvento, cUF, cnpj, chave,
                 dhEvento, nSeqPadded, req.getCorrecao().trim());
 
-        log.info("[CC-e] Assinando | chave={} | seq={} | tpAmb={} | cnpj={}", chave, nSeq, tpAmb, cnpj);
+        log.info("[CC-e] Assinando | chave={} | seq={} | tpAmb={} | cnpj={}", chave, nSeqEvento, tpAmb, cnpj);
         String xmlAssinado = certContexto != null
                 ? assinaturaXmlService.assinarEvento(xmlEvento, certContexto)
                 : assinaturaXmlService.assinarEvento(xmlEvento);
 
-        String soapEnvelope = montarSoap(xmlAssinado);
+        return new NfeCceEventoPreparado(idEvento, dhEvento, xmlAssinado, calcularPayloadHash(xmlAssinado),
+                chave, cnpj, nSeqEvento);
+    }
+
+    @Override
+    public String transmitirEvento(NfeCceEventoPreparado preparado, CertificadoContexto certContexto) throws Exception {
+        String soapEnvelope = montarSoap(preparado.xmlAssinado());
         String urlWs        = sefazProperties.getRecepcaoEvento();
-
-        log.info("[CC-e] Enviando para SEFAZ | url={}", urlWs);
-
+        log.info("[CC-e] Enviando para SEFAZ | url={} | chave={} | seq={}", urlWs, preparado.chave(), preparado.nSeqEvento());
+        // Ponto único de log fiscal (NfeLog) do transporte real -- nunca duplicado em nenhum
+        // chamador (achado de banca, 12-08-2026, mesmo padrão do cancelamento).
         try {
             String resposta = enviarSoap(urlWs, soapEnvelope, certContexto);
-            registrarLog(chave, cnpj, "SUCCESS",
-                    "CC-e transmitida | seq=" + nSeq, xmlAssinado, resposta);
-            log.info("[CC-e] Resposta SEFAZ OK | chave={} | seq={}", chave, nSeq);
+            registrarLog(preparado.chave(), preparado.cnpj(), "SUCCESS",
+                    "CC-e transmitida | seq=" + preparado.nSeqEvento(), preparado.xmlAssinado(), resposta);
+            log.info("[CC-e] Resposta SEFAZ OK | chave={} | seq={}", preparado.chave(), preparado.nSeqEvento());
             return resposta;
         } catch (Exception e) {
-            registrarLog(chave, cnpj, "ERROR",
-                    "Erro CC-e seq=" + nSeq + ": " + e.getMessage(), xmlAssinado, null);
-            throw e;
+            registrarLog(preparado.chave(), preparado.cnpj(), "ERROR",
+                    "Erro CC-e seq=" + preparado.nSeqEvento() + ": " + e.getMessage(), preparado.xmlAssinado(), null);
+            // Fronteira local/rede comprovada pela FASE (esta chamada), nunca por tipo de exceção.
+            throw new SefazTransmissaoIncertaException(e);
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Derivação de sequência — banco é a fonte de verdade
-    // -------------------------------------------------------------------------
-    private int resolverSequencia(String chave, Integer seqSolicitada) {
-        int contadorBanco = 0;
+    private String calcularPayloadHash(String xmlAssinado) {
         try {
-            contadorBanco = nfeLogService.contarEventos(chave, "CCE");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(xmlAssinado.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
         } catch (Exception e) {
-            log.warn("[CC-e] Não foi possível consultar histórico de CC-e | chave={} | erro={}",
-                    chave, e.getMessage());
+            log.warn("[CC-e] Falha ao calcular payloadHash: {}", e.getMessage());
+            return null;
         }
-
-        int nSeq = (seqSolicitada != null && seqSolicitada > 0)
-                ? seqSolicitada
-                : contadorBanco + 1;
-
-        if (nSeq > MAX_CCE) {
-            throw new IllegalArgumentException(
-                    "Limite de " + MAX_CCE + " CC-e por NF-e atingido. " +
-                    "Chave: " + chave + " já possui " + contadorBanco + " evento(s) registrado(s).");
-        }
-        return nSeq;
     }
 
     // -------------------------------------------------------------------------
@@ -249,9 +247,6 @@ public class NfeCceServiceImpl implements NfeCceService {
             throw new IllegalArgumentException("xCorrecao deve ter no mínimo 15 caracteres.");
         if (correcao.length() > 1000)
             throw new IllegalArgumentException("xCorrecao deve ter no máximo 1000 caracteres.");
-
-        if (req.getSequencia() != null && (req.getSequencia() < 1 || req.getSequencia() > MAX_CCE))
-            throw new IllegalArgumentException("Sequência deve estar entre 1 e " + MAX_CCE + ".");
     }
 
     private String resolverCUF(String ufOverride) {

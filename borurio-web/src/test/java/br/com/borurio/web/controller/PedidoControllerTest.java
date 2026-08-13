@@ -217,7 +217,7 @@ class PedidoControllerTest {
     @Test
     @WithMockUser
     void cce_valido_returns200() throws Exception {
-        when(pedidoOperacaoService.emitirCce(anyLong(), anyString())).thenReturn("<retEvento/>");
+        when(pedidoOperacaoService.emitirCce(anyLong(), anyString(), any())).thenReturn("<retEvento/>");
 
         mockMvc.perform(post("/api/app/pedidos/1/cce")
                         .with(csrf())
@@ -230,7 +230,7 @@ class PedidoControllerTest {
     @Test
     @WithMockUser
     void cce_correcaoCurta_returns400() throws Exception {
-        when(pedidoOperacaoService.emitirCce(anyLong(), anyString()))
+        when(pedidoOperacaoService.emitirCce(anyLong(), anyString(), any()))
                 .thenThrow(new IllegalArgumentException("Correção deve ter no mínimo 15 caracteres."));
 
         mockMvc.perform(post("/api/app/pedidos/1/cce")
@@ -807,7 +807,7 @@ class PedidoControllerTest {
     @Test
     @WithMockUser
     void cce_statusErrado_returns422() throws Exception {
-        when(pedidoOperacaoService.emitirCce(anyLong(), anyString()))
+        when(pedidoOperacaoService.emitirCce(anyLong(), anyString(), any()))
                 .thenThrow(new IllegalStateException("CC-e só é permitida para pedidos AUTORIZADOS."));
 
         mockMvc.perform(post("/api/app/pedidos/1/cce")

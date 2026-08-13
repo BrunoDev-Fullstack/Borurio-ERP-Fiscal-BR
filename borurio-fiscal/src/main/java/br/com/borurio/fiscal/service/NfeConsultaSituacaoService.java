@@ -1,5 +1,6 @@
 package br.com.borurio.fiscal.service;
 
+import br.com.borurio.fiscal.dto.ListaEventosRetorno;
 import br.com.borurio.fiscal.dto.NfeConsultaSituacaoRetorno;
 import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import org.slf4j.Logger;
@@ -62,6 +63,23 @@ public class NfeConsultaSituacaoService {
                         + "eventoEncontrado={} | cStatEvento={} | falhaParse={}",
                 chaveNfe, retorno.getCStat(), retorno.isEventoEncontrado(), retorno.getCStatEvento(),
                 retorno.isFalhaParse());
+        return retorno;
+    }
+
+    /**
+     * Lista todos os eventos de um tipo (ex.: CC-e 110110) já registrados pra uma chave --
+     * bootstrap de sequência histórica (gate de CC-e, 12-08-2026): nunca assume
+     * ultimo_nseq_registrado=0 pra uma chave nunca vista localmente sem checar se o código legado
+     * já transmitiu algo antes. Mesma fronteira das demais consultas: falha de transporte
+     * propaga como {@link SefazTransmissaoIncertaException}, nunca vira "sem histórico".
+     */
+    public ListaEventosRetorno listarEventosPorTipo(String chaveNfe, String uf, int ambiente,
+                                                      SSLContext sslContextEmpresa, String tipoEvento) {
+        String resposta = transmitService.consultarNfe(chaveNfe, uf, ambiente, sslContextEmpresa);
+        ListaEventosRetorno retorno = parser.listarEventosPorTipo(resposta, tipoEvento);
+        log.info("[NfeConsultaSituacao] Bootstrap de sequência | chave={} | tipoEvento={} | "
+                        + "eventosEncontrados={} | falhaParse={}",
+                chaveNfe, tipoEvento, retorno.falhaParse() ? "?" : retorno.eventos().size(), retorno.falhaParse());
         return retorno;
     }
 }

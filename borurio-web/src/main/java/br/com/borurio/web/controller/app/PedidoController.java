@@ -235,12 +235,15 @@ public class PedidoController {
     }
 
     /**
-     * Body: { "correcao": "Texto com no mínimo 15 caracteres" }
+     * Body: { "correcao": "Texto com no mínimo 15 caracteres" }. Idempotency-Key obrigatório
+     * (Gate CC-e, 12-08-2026): identifica a INTENÇÃO da OMS, distinta da identidade fiscal
+     * crescente (chave+110110+nSeq) — replay da mesma chave nunca reabre uma nova sequência.
      */
     @PostMapping("/{id}/cce")
     @Operation(summary = "Emite CC-e para a NF-e do pedido (Evento 110110)")
     public Result<String> cce(@PathVariable Long id,
+                              @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                               @RequestBody Map<String, String> body) throws Exception {
-        return ResultUtil.success(pedidoOperacaoService.emitirCce(id, body.get("correcao")));
+        return ResultUtil.success(pedidoOperacaoService.emitirCce(id, body.get("correcao"), idempotencyKey));
     }
 }

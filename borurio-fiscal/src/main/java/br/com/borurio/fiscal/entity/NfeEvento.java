@@ -27,6 +27,7 @@ public class NfeEvento {
 
     public static final class TiposEvento {
         public static final String CANCELAMENTO = "110111";
+        public static final String CCE = "110110";
 
         private TiposEvento() {}
     }
@@ -53,6 +54,7 @@ public class NfeEvento {
     private String nprot;
     private boolean foraDoPrazo;
     private String justificativa;
+    private String conteudoEvento;
     private String dhEvento;
     private String payloadHash;
     private String resolucaoOrigem;
@@ -107,6 +109,9 @@ public class NfeEvento {
 
     public String getJustificativa() { return justificativa; }
     public void setJustificativa(String justificativa) { this.justificativa = justificativa; }
+
+    public String getConteudoEvento() { return conteudoEvento; }
+    public void setConteudoEvento(String conteudoEvento) { this.conteudoEvento = conteudoEvento; }
 
     public String getDhEvento() { return dhEvento; }
     public void setDhEvento(String dhEvento) { this.dhEvento = dhEvento; }

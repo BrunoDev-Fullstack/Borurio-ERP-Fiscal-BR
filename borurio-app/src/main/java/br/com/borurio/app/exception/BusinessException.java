@@ -592,4 +592,114 @@ public class BusinessException extends RuntimeException {
                 422,
                 false);
     }
+
+    // -------------------------------------------------------------------------
+    // Gate CC-e (nfe_evento_sequencia / nfe_evento_idempotencia, 12-08-2026)
+    // -------------------------------------------------------------------------
+
+    /**
+     * O endpoint cru legado (/api/fiscal/nfe/cce) nunca teve contexto de pedido — não tem como
+     * participar do gate de sequência/idempotência que protege 110110 depois deste gate existir.
+     * Decisão explícita (12-08-2026): a rota continua existindo (nunca 404 silencioso, pra
+     * detectar consumidor interno antigo), mas nunca mais toca SEFAZ/nfe_evento/nfe_evento_sequencia.
+     * HTTP 410 (Gone): rota operacionalmente retirada, não é erro de dado nem de autenticação.
+     */
+    public static BusinessException cceEndpointLegadoDesabilitado() {
+        return new BusinessException(
+                "CCE_ENDPOINT_LEGADO_DESABILITADO",
+                "Este endpoint não transmite mais CC-e para a SEFAZ. Use POST "
+                        + "/api/app/pedidos/{id}/cce, que participa do gate de sequência/idempotência.",
+                410,
+                false);
+    }
+
+    /** Outra Idempotency-Key já reivindicou a próxima sequência de CC-e desta NF-e — nunca reserva duas ao mesmo tempo. */
+    public static BusinessException cceEmAndamento(Long pedidoId) {
+        return new BusinessException(
+                "CCE_EM_ANDAMENTO",
+                "Já existe uma CC-e em andamento para o pedido " + pedidoId
+                        + ". Aguarde a conclusão ou consulte a situação antes de tentar novamente.",
+                409,
+                true);
+    }
+
+    /** Resultado da CC-e ainda incerto (timeout, 136 ou 573) — nunca retransmite às cegas. */
+    public static BusinessException cceAguardandoReconciliacao(Long pedidoId) {
+        return new BusinessException(
+                "CCE_AGUARDANDO_RECONCILIACAO",
+                "O pedido " + pedidoId + " tem uma CC-e com resultado ainda incerto. É necessário "
+                        + "reconciliar com a SEFAZ pela mesma identidade do evento antes de qualquer nova tentativa.",
+                409,
+                true);
+    }
+
+    /** A SEFAZ rejeitou a CC-e — sem efeito em NfeEmissao/Pedido/estoque. */
+    public static BusinessException cceRejeitada(Integer cStat, String xMotivo) {
+        java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("cStat", cStat);
+        data.put("xMotivo", xMotivo != null ? xMotivo : "");
+        return new BusinessException(
+                "CCE_REJEITADA",
+                "CC-e rejeitada pela SEFAZ: " + xMotivo,
+                422,
+                false,
+                data);
+    }
+
+    /** nSeqEvento excederia o limite de 20 (MOC 7.0 / rejeição 594) — terminal, não corrigível por retry. */
+    public static BusinessException cceLimiteSequenciaAtingido(String chaveNfe, int ultimoNSeqRegistrado) {
+        return new BusinessException(
+                "CCE_LIMITE_SEQUENCIA_ATINGIDO",
+                "Limite de 20 CC-e por NF-e atingido para a chave " + chaveNfe
+                        + " (última sequência registrada: " + ultimoNSeqRegistrado + ").",
+                422,
+                false);
+    }
+
+    /**
+     * Reconciliação (573) encontrou a identidade fiscal (chave+110110+nSeq) já registrada, mas com
+     * xCorrecao diferente do que esta operação tentou transmitir — a sequência pertence a outro
+     * conteúdo (ex.: transmitido por outra via). Nunca finge sucesso para a operação atual;
+     * retryable=false porque esta IDENTIDADE está definitivamente ocupada — uma nova tentativa
+     * precisa de uma nova Idempotency-Key, que vai reservar a PRÓXIMA sequência.
+     */
+    public static BusinessException cceEventoDivergente(String chaveNfe, int nSeqEvento) {
+        return new BusinessException(
+                "CCE_EVENTO_DIVERGENTE",
+                "A sequência " + nSeqEvento + " da CC-e para a chave " + chaveNfe + " já está "
+                        + "registrada na SEFAZ com conteúdo diferente do enviado nesta operação. "
+                        + "Envie uma nova solicitação (nova Idempotency-Key) para a próxima sequência.",
+                409,
+                false);
+    }
+
+    /**
+     * A Idempotency-Key informada já foi usada, mas para um pedido/empresa/tipo de evento ou
+     * conteúdo diferente do solicitado agora. Nunca decide por analogia — mesma chave só pode
+     * representar UMA intenção de negócio.
+     */
+    public static BusinessException cceIdempotencyKeyConflict(String idempotencyKey) {
+        return new BusinessException(
+                "CCE_IDEMPOTENCY_KEY_CONFLICT",
+                "A Idempotency-Key " + idempotencyKey + " já foi usada para uma operação diferente "
+                        + "(pedido, empresa ou conteúdo divergente). Gere uma nova Idempotency-Key.",
+                409,
+                false);
+    }
+
+    /**
+     * Bootstrap de sequência histórica (12-08-2026): a chave nunca foi vista localmente por este
+     * gate, e não foi possível determinar com certeza se já existe CC-e registrada por um caminho
+     * anterior (falha de transporte ou resposta ilegível da Consulta Situação). Nunca assume
+     * ultimo_nseq_registrado=0 sem essa certeza — falha fechada, exige investigação/retry.
+     */
+    public static BusinessException cceBootstrapIndeterminado(String chaveNfe) {
+        return new BusinessException(
+                "CCE_BOOTSTRAP_INDETERMINADO",
+                "Não foi possível determinar com segurança o histórico de CC-e da chave " + chaveNfe
+                        + " antes da primeira reserva de sequência. Tente novamente; se persistir, "
+                        + "requer investigação manual antes de emitir CC-e para esta NF-e.",
+                503,
+                true);
+    }
 }

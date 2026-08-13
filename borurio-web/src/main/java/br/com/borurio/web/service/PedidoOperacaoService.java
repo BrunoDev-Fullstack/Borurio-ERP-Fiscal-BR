@@ -6,11 +6,9 @@ import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.app.service.PedidoService;
-import br.com.borurio.fiscal.dto.NfeCceRequest;
 import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeEvento;
-import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +37,7 @@ public class PedidoOperacaoService {
     private final NfeDocumentoService documentoService;
     private final NfeCancelamentoOrquestradorService cancelamentoOrquestradorService;
     private final NfeEventoService nfeEventoService;
-    private final NfeCceService cceService;
+    private final NfeCceOrquestradorService cceOrquestradorService;
     private final EstoqueService estoqueService;
     private final EmpresaMapper empresaMapper;
     private final FiscalContextoResolver contextoResolver;
@@ -49,7 +47,7 @@ public class PedidoOperacaoService {
                                   NfeDocumentoService documentoService,
                                   NfeCancelamentoOrquestradorService cancelamentoOrquestradorService,
                                   NfeEventoService nfeEventoService,
-                                  NfeCceService cceService,
+                                  NfeCceOrquestradorService cceOrquestradorService,
                                   EstoqueService estoqueService,
                                   EmpresaMapper empresaMapper,
                                   FiscalContextoResolver contextoResolver,
@@ -58,7 +56,7 @@ public class PedidoOperacaoService {
         this.documentoService  = documentoService;
         this.cancelamentoOrquestradorService = cancelamentoOrquestradorService;
         this.nfeEventoService  = nfeEventoService;
-        this.cceService        = cceService;
+        this.cceOrquestradorService = cceOrquestradorService;
         this.estoqueService    = estoqueService;
         this.empresaMapper     = empresaMapper;
         this.contextoResolver  = contextoResolver;
@@ -251,7 +249,7 @@ public class PedidoOperacaoService {
     // CARTA DE CORREÇÃO ELETRÔNICA (CC-e)
     // -------------------------------------------------------------------------
 
-    public String emitirCce(Long pedidoId, String correcao) throws Exception {
+    public String emitirCce(Long pedidoId, String correcao, String idempotencyKey) throws Exception {
         if (correcao == null || correcao.trim().length() < 15) {
             throw new IllegalArgumentException(
                     "Texto da correção deve ter no mínimo 15 caracteres.");
@@ -267,17 +265,14 @@ public class PedidoOperacaoService {
         String chave = validarChave(pedido);
         validarCnpjDocumento(chave, pedido);
 
-        NfeCceRequest req = new NfeCceRequest();
-        req.setChaveNfe(chave);
-        req.setCorrecao(correcao.trim());
-
         // Mesmo contexto real do pedido usado no cancelamento — nunca o emitente global.
         FiscalContexto ctx = contextoResolver.resolver(pedido);
         String cnpjEmitente = ctx.empresa().getCnpj();
         String ufEmitente    = ctx.empresa().getUf();
 
         log.info("[PedidoOperacao] CC-e | pedidoId={} | chave={} | cnpj={}", pedidoId, chave, cnpjEmitente);
-        return cceService.corrigir(req, cnpjEmitente, ufEmitente, ctx.certificado());
+        return cceOrquestradorService.corrigir(pedidoId, pedido.getEmpresaId(), cnpjEmitente, ufEmitente,
+                chave, correcao.trim(), idempotencyKey, ctx.certificado());
     }
 
     // -------------------------------------------------------------------------

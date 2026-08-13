@@ -33,6 +33,11 @@ public class NfeConsultaSituacaoRetorno {
     private String xMotivoEvento;
     private String nProtEvento;
     private String dhRegEvento;
+    // conteudo ORIGINAL submetido (ex.: xCorrecao da CC-e), extraido de evento/infEvento/detEvento
+    // -- distinto do resultado (retEvento/infEvento acima). Usado pelo gate de CC-e pra provar que
+    // a identidade fiscal encontrada (573/mesma sequencia) pertence ao MESMO conteudo desta
+    // operacao, nunca so a mesma identidade (achado de banca, 12-08-2026).
+    private String conteudoEventoEncontrado;
 
     public static NfeConsultaSituacaoRetorno falhaParse(String detalhe) {
         NfeConsultaSituacaoRetorno r = new NfeConsultaSituacaoRetorno();
@@ -86,6 +91,9 @@ public class NfeConsultaSituacaoRetorno {
 
     public String getDhRegEvento() { return dhRegEvento; }
     public void setDhRegEvento(String dhRegEvento) { this.dhRegEvento = dhRegEvento; }
+
+    public String getConteudoEventoEncontrado() { return conteudoEventoEncontrado; }
+    public void setConteudoEventoEncontrado(String conteudoEventoEncontrado) { this.conteudoEventoEncontrado = conteudoEventoEncontrado; }
 
     /** cStat=101 (cancelada) sem o procEventoNFe detalhado correspondente -- ver NfeEventoService: pode
      *  projetar CANCELADO, mas nunca inventa nProtEvento; a resolucao registra a origem como a propria

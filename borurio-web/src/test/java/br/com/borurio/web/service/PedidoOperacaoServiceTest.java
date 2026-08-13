@@ -12,7 +12,6 @@ import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeEvento;
 import br.com.borurio.fiscal.service.CertificadoContexto;
-import br.com.borurio.fiscal.service.NfeCceService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +54,7 @@ class PedidoOperacaoServiceTest {
     @Mock NfeDocumentoService documentoService;
     @Mock NfeCancelamentoOrquestradorService cancelamentoOrquestradorService;
     @Mock NfeEventoService nfeEventoService;
-    @Mock NfeCceService cceService;
+    @Mock NfeCceOrquestradorService cceOrquestradorService;
     @Mock EstoqueService estoqueService;
     @Mock EmpresaMapper empresaMapper;
     @Mock FiscalContextoResolver contextoResolver;
@@ -66,7 +65,7 @@ class PedidoOperacaoServiceTest {
     @BeforeEach
     void setUp() {
         service = new PedidoOperacaoService(pedidoService, documentoService,
-                cancelamentoOrquestradorService, nfeEventoService, cceService, estoqueService,
+                cancelamentoOrquestradorService, nfeEventoService, cceOrquestradorService, estoqueService,
                 empresaMapper, contextoResolver, nfeEmissaoService);
     }
 
@@ -216,12 +215,13 @@ class PedidoOperacaoServiceTest {
 
         when(pedidoService.buscarPorIdDoTenanteAtual(50L)).thenReturn(pedido);
         when(contextoResolver.resolver(pedido)).thenReturn(new FiscalContexto(empresaB, certB));
-        when(cceService.corrigir(any(), eq(CNPJ_B), eq("SP"), eq(certB))).thenReturn("<retEvento/>");
+        when(cceOrquestradorService.corrigir(any(), any(), eq(CNPJ_B), eq("SP"), any(), any(), any(), eq(certB)))
+                .thenReturn("<retEvento/>");
 
-        service.emitirCce(50L, "Correção do endereço do destinatário na NF-e");
+        service.emitirCce(50L, "Correção do endereço do destinatário na NF-e", "11111111-1111-1111-1111-111111111111");
 
-        verify(cceService).corrigir(any(), eq(CNPJ_B), eq("SP"), eq(certB));
-        verify(cceService, never()).corrigir(any());
+        verify(cceOrquestradorService).corrigir(eq(50L), any(), eq(CNPJ_B), eq("SP"), any(), any(),
+                eq("11111111-1111-1111-1111-111111111111"), eq(certB));
     }
 
     // -------------------------------------------------------------------------
@@ -528,8 +528,9 @@ class PedidoOperacaoServiceTest {
         when(pedidoService.buscarPorIdDoTenanteAtual(50L))
                 .thenThrow(new NoSuchElementException("Pedido não encontrado: id=50"));
 
-        assertThrows(NoSuchElementException.class, () -> service.emitirCce(50L, "Correção do endereço do destinatário"));
+        assertThrows(NoSuchElementException.class,
+                () -> service.emitirCce(50L, "Correção do endereço do destinatário", "22222222-2222-2222-2222-222222222222"));
 
-        verifyNoInteractions(cceService, contextoResolver);
+        verifyNoInteractions(cceOrquestradorService, contextoResolver);
     }
 }

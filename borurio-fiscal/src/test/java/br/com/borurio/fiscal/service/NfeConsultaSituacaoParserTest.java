@@ -1,5 +1,6 @@
 package br.com.borurio.fiscal.service;
 
+import br.com.borurio.fiscal.dto.ListaEventosRetorno;
 import br.com.borurio.fiscal.dto.NfeConsultaSituacaoRetorno;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -150,6 +151,32 @@ class NfeConsultaSituacaoParserTest {
                 + "</infEvento></retEvento></procEventoNFe>";
     }
 
+    // CC-e (Gate CC-e, 12-08-2026) -- mesma estrutura de comProcEventoNFe acima, mas com
+    // detEvento/xCorrecao (conteudo original da correcao), usado pela reconciliacao de conteudo
+    // (buscarEventoCorrespondente/conteudoEventoEncontrado). Duplicado deliberadamente em vez de
+    // parametrizar comProcEventoNFe -- mantem o fixture do bugfix de cancelamento (acima)
+    // independente do fixture do Gate CC-e, sem acoplar os dois na mesma alteracao.
+    private String comProcEventoNFeComConteudo(String tpEvento, String nSeqEvento, String cStatEvento,
+                                                 String nProt, String xCorrecao) {
+        return "<procEventoNFe versao=\"1.00\">"
+                + "<evento versao=\"1.00\"><infEvento Id=\"ID" + tpEvento + "35260500000000000191550010000000011000000013" + nSeqEvento + "\">"
+                + "<cOrgao>35</cOrgao><tpAmb>2</tpAmb><CNPJ>22418179000134</CNPJ>"
+                + "<chNFe>35260500000000000191550010000000011000000013</chNFe>"
+                + "<dhEvento>2026-08-12T09:55:00-03:00</dhEvento>"
+                + "<tpEvento>" + tpEvento + "</tpEvento><nSeqEvento>" + nSeqEvento + "</nSeqEvento>"
+                + "<verEvento>1.00</verEvento>"
+                + "<detEvento versao=\"1.00\"><descEvento>Carta de Correcao</descEvento>"
+                + "<xCorrecao>" + xCorrecao + "</xCorrecao></detEvento>"
+                + "</infEvento></evento>"
+                + "<retEvento versao=\"1.00\"><infEvento>"
+                + "<tpAmb>2</tpAmb><cStat>" + cStatEvento + "</cStat><xMotivo>Evento processado</xMotivo>"
+                + "<chNFe>35260500000000000191550010000000011000000013</chNFe>"
+                + "<tpEvento>" + tpEvento + "</tpEvento><nSeqEvento>" + nSeqEvento + "</nSeqEvento>"
+                + (nProt != null ? "<nProt>" + nProt + "</nProt>" : "")
+                + "<dhRegEvento>2026-08-12T10:00:00-03:00</dhRegEvento>"
+                + "</infEvento></retEvento></procEventoNFe>";
+    }
+
     @Test
     @DisplayName("CORREÇÃO: evento (pedido original, sem cStat) aparece ANTES de retEvento (resposta) — cStat/nProt vêm do retEvento, nunca ficam -1/null por engano")
     void procEventoNFe_eventoAntesDeRetEvento_naoConfundeInfEvento() {
@@ -163,6 +190,19 @@ class NfeConsultaSituacaoParserTest {
         assertEquals(135, r.getCStatEvento(), "cStat precisa vir do retEvento (resposta), nunca do evento (pedido, sem cStat)");
         assertEquals("135260000009999", r.getNProtEvento());
         assertNotNull(r.getDhRegEvento());
+    }
+
+    @Test
+    @DisplayName("xCorrecao extraído de evento/infEvento/detEvento — usado pela reconciliação de CC-e pra comparar conteúdo")
+    void procEventoNFe_extraiXCorrecaoDoEventoOriginal() {
+        String xml = envelope(
+                "<cStat>100</cStat><xMotivo>Autorizado</xMotivo>"
+                        + comProcEventoNFeComConteudo("110110", "2", "135", "135260000009999", "Correcao do CFOP do item 3"));
+
+        NfeConsultaSituacaoRetorno r = parser.parse(xml, "110110", "2");
+
+        assertTrue(r.isEventoEncontrado());
+        assertEquals("Correcao do CFOP do item 3", r.getConteudoEventoEncontrado());
     }
 
     @Test
@@ -253,5 +293,66 @@ class NfeConsultaSituacaoParserTest {
         assertFalse(r.isEventoEncontrado());
         assertNull(r.getCStatEvento());
         assertNull(r.getNProtEvento());
+    }
+
+    // -------------------------------------------------------------------------
+    // Gate CC-e (12-08-2026) — listarEventosPorTipo (bootstrap de sequência histórica)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("listarEventosPorTipo: duas CC-e históricas (seq=1 e seq=2) — lista as duas, deixa o chamador decidir o que conta como registrado")
+    void listarEventosPorTipo_duasCceHistoricas_listaAsDuas() {
+        String xml = envelope(
+                "<cStat>100</cStat><xMotivo>Autorizado</xMotivo>"
+                        + comProcEventoNFe("110110", "1", "135", "135260000000001")
+                        + comProcEventoNFe("110110", "2", "135", "135260000000002"));
+
+        ListaEventosRetorno r = parser.listarEventosPorTipo(xml, "110110");
+
+        assertFalse(r.falhaParse());
+        assertEquals(2, r.eventos().size());
+        assertTrue(r.eventos().stream().anyMatch(e -> e.nSeqEvento() == 1 && e.cStat() == 135));
+        assertTrue(r.eventos().stream().anyMatch(e -> e.nSeqEvento() == 2 && e.cStat() == 135));
+    }
+
+    @Test
+    @DisplayName("listarEventosPorTipo: ignora eventos de outro tipo (ex.: cancelamento) — só lista o tpEvento pedido")
+    void listarEventosPorTipo_ignoraOutroTipo() {
+        String xml = envelope(
+                "<cStat>101</cStat><xMotivo>Cancelamento de NF-e homologado</xMotivo>"
+                        + comProcEventoNFe("110111", "1", "135", "135260000000009")
+                        + comProcEventoNFe("110110", "1", "135", "135260000000001"));
+
+        ListaEventosRetorno r = parser.listarEventosPorTipo(xml, "110110");
+
+        assertFalse(r.falhaParse());
+        assertEquals(1, r.eventos().size());
+        assertEquals(1, r.eventos().get(0).nSeqEvento());
+    }
+
+    @Test
+    @DisplayName("listarEventosPorTipo: sem eventos daquele tipo — lista vazia, mas falhaParse=false (determinado com certeza: não há histórico)")
+    void listarEventosPorTipo_semEventos_listaVaziaSemFalha() {
+        String xml = envelope("<cStat>100</cStat><xMotivo>Autorizado</xMotivo>");
+
+        ListaEventosRetorno r = parser.listarEventosPorTipo(xml, "110110");
+
+        assertFalse(r.falhaParse());
+        assertTrue(r.eventos().isEmpty());
+    }
+
+    @Test
+    @DisplayName("listarEventosPorTipo: SOAP malformado — falhaParse=true, nunca lista vazia disfarçada de 'sem histórico'")
+    void listarEventosPorTipo_xmlMalformado_falhaParse() {
+        ListaEventosRetorno r = parser.listarEventosPorTipo("<retConsSitNFe><cStat>100</retConsSitNFe>", "110110");
+
+        assertTrue(r.falhaParse());
+    }
+
+    @Test
+    @DisplayName("listarEventosPorTipo: resposta vazia — falhaParse=true")
+    void listarEventosPorTipo_respostaVazia_falhaParse() {
+        assertTrue(parser.listarEventosPorTipo("", "110110").falhaParse());
+        assertTrue(parser.listarEventosPorTipo(null, "110110").falhaParse());
     }
 }

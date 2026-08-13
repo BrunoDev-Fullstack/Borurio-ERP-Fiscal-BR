@@ -12,6 +12,7 @@ public interface NfeEventoMapper {
             + "empresa_id AS empresaId, cnpj_emitente AS cnpjEmitente, chave_nfe AS chaveNfe, "
             + "tipo_evento AS tipoEvento, n_seq_evento AS nSeqEvento, id_evento AS idEvento, "
             + "estado, cstat, xmotivo, nprot, fora_do_prazo AS foraDoPrazo, justificativa, "
+            + "conteudo_evento AS conteudoEvento, "
             + "dh_evento AS dhEvento, payload_hash AS payloadHash, resolucao_origem AS resolucaoOrigem, "
             + "transmitido_em AS transmitidoEm, resolvido_em AS resolvidoEm, "
             + "ultima_consulta_em AS ultimaConsultaEm, tentativas_consulta AS tentativasConsulta, "
@@ -46,10 +47,10 @@ public interface NfeEventoMapper {
     @Insert("""
             INSERT INTO nfe_evento (
                 pedido_id, emissao_id, empresa_id, cnpj_emitente, chave_nfe, tipo_evento,
-                n_seq_evento, id_evento, estado, justificativa
+                n_seq_evento, id_evento, estado, justificativa, conteudo_evento
             ) VALUES (
                 #{pedidoId}, #{emissaoId, jdbcType=BIGINT}, #{empresaId}, #{cnpjEmitente}, #{chaveNfe}, #{tipoEvento},
-                #{nSeqEvento}, #{idEvento}, #{estado}, #{justificativa, jdbcType=VARCHAR}
+                #{nSeqEvento}, #{idEvento}, #{estado}, #{justificativa, jdbcType=VARCHAR}, #{conteudoEvento, jdbcType=VARCHAR}
             )
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
@@ -108,6 +109,29 @@ public interface NfeEventoMapper {
             WHERE id = #{id} AND estado = 'REJEITADO'
             """)
     int retomarAposRejeicao(@Param("id") Long id, @Param("justificativa") String justificativa);
+
+    // Mesmo papel de retomarAposRejeicao, mas pra tipos de evento que usam conteudo_evento em vez
+    // de justificativa (CC-e/110110: xCorrecao). Nunca mistura as duas colunas -- cada tipo de
+    // evento usa a que faz sentido semanticamente (achado de banca, 12-08-2026: nao reaproveitar
+    // "justificativa" pra CC-e).
+    @Update("""
+            UPDATE nfe_evento SET
+                estado               = 'PREPARADO',
+                conteudo_evento      = #{conteudoEvento},
+                cstat                = NULL,
+                xmotivo              = NULL,
+                nprot                = NULL,
+                fora_do_prazo        = 0,
+                resolucao_origem     = NULL,
+                resolvido_em         = NULL,
+                ultima_consulta_em   = NULL,
+                tentativas_consulta  = 0,
+                dh_evento            = NULL,
+                payload_hash         = NULL,
+                transmitido_em       = NULL
+            WHERE id = #{id} AND estado = 'REJEITADO'
+            """)
+    int retomarAposRejeicaoComConteudo(@Param("id") Long id, @Param("conteudoEvento") String conteudoEvento);
 
     // resolvidoEm preenchido pelo chamador (NOW()) apenas quando o estado e terminal
     // (REGISTRADO/REJEITADO); null para PENDENTE_CONFIRMACAO. Idempotente por si so nao e --
