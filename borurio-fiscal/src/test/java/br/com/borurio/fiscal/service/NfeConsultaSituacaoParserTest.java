@@ -127,14 +127,42 @@ class NfeConsultaSituacaoParserTest {
     // Gate de cancelamento (12-08-2026) — procEventoNFe (reconciliação via Consulta Situação)
     // -------------------------------------------------------------------------
 
+    // Estrutura real: procEventoNFe contem `evento` (pedido original ecoado, infEvento SEM
+    // cStat/nProt) ANTES de `retEvento` (resposta da SEFAZ, infEvento COM cStat/nProt) --
+    // deliberadamente nessa ordem pra provar que o parser nao confunde os dois infEvento
+    // irmaos (achado real, 12-08-2026 -- ver comentario em buscarEventoCorrespondente).
     private String comProcEventoNFe(String tpEvento, String nSeqEvento, String cStatEvento, String nProt) {
-        return "<procEventoNFe versao=\"1.00\"><retEvento versao=\"1.00\"><infEvento>"
+        return "<procEventoNFe versao=\"1.00\">"
+                + "<evento versao=\"1.00\"><infEvento Id=\"ID" + tpEvento + "35260500000000000191550010000000011000000013" + nSeqEvento + "\">"
+                + "<cOrgao>35</cOrgao><tpAmb>2</tpAmb><CNPJ>22418179000134</CNPJ>"
+                + "<chNFe>35260500000000000191550010000000011000000013</chNFe>"
+                + "<dhEvento>2026-08-12T09:55:00-03:00</dhEvento>"
+                + "<tpEvento>" + tpEvento + "</tpEvento><nSeqEvento>" + nSeqEvento + "</nSeqEvento>"
+                + "<verEvento>1.00</verEvento>"
+                + "<detEvento versao=\"1.00\"><descEvento>Cancelamento</descEvento></detEvento>"
+                + "</infEvento></evento>"
+                + "<retEvento versao=\"1.00\"><infEvento>"
                 + "<tpAmb>2</tpAmb><cStat>" + cStatEvento + "</cStat><xMotivo>Evento processado</xMotivo>"
                 + "<chNFe>35260500000000000191550010000000011000000013</chNFe>"
                 + "<tpEvento>" + tpEvento + "</tpEvento><nSeqEvento>" + nSeqEvento + "</nSeqEvento>"
                 + (nProt != null ? "<nProt>" + nProt + "</nProt>" : "")
                 + "<dhRegEvento>2026-08-12T10:00:00-03:00</dhRegEvento>"
                 + "</infEvento></retEvento></procEventoNFe>";
+    }
+
+    @Test
+    @DisplayName("CORREÇÃO: evento (pedido original, sem cStat) aparece ANTES de retEvento (resposta) — cStat/nProt vêm do retEvento, nunca ficam -1/null por engano")
+    void procEventoNFe_eventoAntesDeRetEvento_naoConfundeInfEvento() {
+        String xml = envelope(
+                "<cStat>101</cStat><xMotivo>Cancelamento de NF-e homologado</xMotivo>"
+                        + comProcEventoNFe("110111", "1", "135", "135260000009999"));
+
+        NfeConsultaSituacaoRetorno r = parser.parse(xml, "110111", "1");
+
+        assertTrue(r.isEventoEncontrado());
+        assertEquals(135, r.getCStatEvento(), "cStat precisa vir do retEvento (resposta), nunca do evento (pedido, sem cStat)");
+        assertEquals("135260000009999", r.getNProtEvento());
+        assertNotNull(r.getDhRegEvento());
     }
 
     @Test

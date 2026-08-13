@@ -104,24 +104,35 @@ public class NfeConsultaSituacaoParser {
     }
 
     /**
-     * procEventoNFe (0..N) envolve retEvento/infEvento com o MESMO vocabulario de tags do retorno
-     * direto de evento (cStat, xMotivo, chNFe, tpEvento, nSeqEvento, dhRegEvento, nProt) -- so a
-     * ocorrencia dentro da Consulta Situacao muda. Filtra explicitamente por tpEvento+nSeqEvento
-     * (nunca so o cStat=101 do documento) -- a NF-e pode ter outros eventos associados (CC-e,
-     * manifestacao) e aceitar o primeiro procEventoNFe sem checar o tipo/sequencia arriscaria
-     * atribuir o resultado errado ao cancelamento.
+     * procEventoNFe (0..N) contem DOIS blocos irmaos: {@code evento} (o pedido original ecoado --
+     * infEvento SEM cStat/nProt/dhRegEvento) e {@code retEvento} (a resposta da SEFAZ -- infEvento
+     * COM cStat/nProt/dhRegEvento). CORRECAO (12-08-2026, achado ao implementar o gate de CC-e):
+     * a versao anterior deste metodo fazia {@code procEvento.getElementsByTagNameNS(infEvento)}
+     * sem escopar por retEvento primeiro -- como getElementsByTagNameNS busca em TODA a subarvore,
+     * se `evento` aparece antes de `retEvento` no documento (ordem natural: pedido, depois
+     * resposta), o codigo pegava o infEvento ERRADO. tpEvento/nSeqEvento existem nos dois blocos e
+     * batiam do mesmo jeito, entao o match "funcionava", mas cStat/nProt/dhRegEvento nunca existem
+     * no infEvento do pedido -- resultava em cStatEvento=-1 (default), que NfeEventoClassificador
+     * trata como REJEITADO por omissao. Ou seja: uma reconciliacao de evento genuinamente
+     * bem-sucedido podia ser classificada como rejeitado, silenciosamente, sem excecao nenhuma.
+     * O defeito ja existia no codigo de cancelamento commitado em 59b92d5 (nunca havia sido
+     * corrigido ate agora) -- afeta 136/573 de cancelamento tambem. Corrigido escopando retEvento
+     * explicitamente antes de procurar infEvento.
      */
     private void buscarEventoCorrespondente(Document doc, String tpEventoAlvo, String nSeqEventoAlvo,
                                              NfeConsultaSituacaoRetorno result) {
         NodeList procEventoList = doc.getElementsByTagNameNS("*", "procEventoNFe");
         for (int i = 0; i < procEventoList.getLength(); i++) {
             Element procEvento = (Element) procEventoList.item(i);
-            NodeList infEventoList = procEvento.getElementsByTagNameNS("*", "infEvento");
-            if (infEventoList.getLength() == 0) continue;
-            Element infEvento = (Element) infEventoList.item(0);
 
-            String tpEvento = firstChildText(infEvento, "tpEvento");
-            String nSeqEvento = firstChildText(infEvento, "nSeqEvento");
+            Element retEvento = firstChildElement(procEvento, "retEvento");
+            if (retEvento == null) continue;
+            NodeList infEventoRetList = retEvento.getElementsByTagNameNS("*", "infEvento");
+            if (infEventoRetList.getLength() == 0) continue;
+            Element infEventoRet = (Element) infEventoRetList.item(0);
+
+            String tpEvento = firstChildText(infEventoRet, "tpEvento");
+            String nSeqEvento = firstChildText(infEventoRet, "nSeqEvento");
             boolean tipoBate = tpEventoAlvo.equals(tpEvento);
             // Comparacao NUMERICA, nunca textual (achado de banca, 12-08-2026): a SEFAZ pode
             // ecoar nSeqEvento sem zero a esquerda ("1") mesmo quando o Borurio envia com
@@ -132,12 +143,24 @@ public class NfeConsultaSituacaoParser {
             if (!tipoBate || !seqBate) continue;
 
             result.setEventoEncontrado(true);
-            result.setCStatEvento(parseIntElement(infEvento, "cStat", -1));
-            result.setXMotivoEvento(firstChildText(infEvento, "xMotivo"));
-            result.setNProtEvento(firstChildText(infEvento, "nProt"));
-            result.setDhRegEvento(firstChildText(infEvento, "dhRegEvento"));
+            result.setCStatEvento(parseIntElement(infEventoRet, "cStat", -1));
+            result.setXMotivoEvento(firstChildText(infEventoRet, "xMotivo"));
+            result.setNProtEvento(firstChildText(infEventoRet, "nProt"));
+            result.setDhRegEvento(firstChildText(infEventoRet, "dhRegEvento"));
             return; // primeiro match e suficiente -- identidade fiscal (chave+tipo+nSeq) e unica
         }
+    }
+
+    /** Primeiro filho DIRETO (nao subarvore inteira) com o localName informado -- escopo estrito. */
+    private Element firstChildElement(Element parent, String localName) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            org.w3c.dom.Node node = children.item(i);
+            if (node.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE && localName.equals(node.getLocalName())) {
+                return (Element) node;
+            }
+        }
+        return null;
     }
 
     /** Compara nSeqEvento numericamente ("1" e "01" sao a mesma sequencia) -- nunca textual. */
