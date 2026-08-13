@@ -2,31 +2,56 @@
 
 | Atributo          | Valor                               |
 |-------------------|-------------------------------------|
-| Versão            | 1.8                                 |
-| Data              | 2026-08-10                          |
-| Sprint            | Gate 1 da máquina de estados fiscal de numeração — fechado. Ciclo operacional do nNF (`nfe_emissao`), gate de série ativa, ordem canônica de lock, isolamento multiempresa tenant-null fail-closed e classificação de falha pré-transmissão por fase — todos com suíte de testes verde; **código ainda não commitado**. |
-| Ambiente validado | Código revisado e testado contra MySQL efêmero de teste; **não deployado em HOM** — release `4a39a88` continua sendo o último release ativo em HOM |
+| Versão            | 1.10                                |
+| Data              | 2026-08-13                          |
+| Sprint            | Gate 1 (numeração), Gate 2/3 (semântica cStat + reconciliação), Gate 5 (retorno fiscal ao OMS), Gate de Cancelamento (evento 110111) e Gate CC-e (evento 110110) — **todos commitados**. |
+| Ambiente validado | Código commitado (numeração, reconciliação, retorno OMS, cancelamento, CC-e) testado contra MySQL efêmero de teste antes de cada commit, incluindo concorrência real e rollback real da finalização do CC-e; **nenhum dos gates acima ainda foi deployado em HOM** — release `4a39a88` continua sendo o último release ativo em HOM |
 
-> Esta revisão registra o fechamento técnico do Gate 1 (10-08-2026), anterior a qualquer commit. A consolidação de 22-07-2026 (P0.1–P0.4, Gate 7H, modFrete) permanece válida e não foi alterada retroativamente — ver seção 8 para o estado de cada documento.
+> Esta revisão (13-08-2026) registra o fechamento em código do Gate CC-e: correção isolada do parser (`8b6b19b`) e implementação completa do gate (`4791572`), ambos commitados após banca técnica final (incluindo um IT dedicado de rollback real da finalização, contra MySQL 8.4). Fecha o ciclo que a v1.9 (12-08-2026) descrevia como "implementado, testes verdes, banca final pendente". A consolidação de 22-07-2026 (P0.1–P0.4, Gate 7H, modFrete) permanece válida e não foi alterada retroativamente — ver seção 8 para o estado de cada documento.
 
-## 0. Estado consolidado (10-08-2026)
+## 0. Estado consolidado (13-08-2026)
 
-**Gate 1 — fechado nesta revisão, código não commitado:**
+**Commits desta janela (10 a 13-08-2026), HEAD atual `4791572`:**
+- `5640276` — Gate 1: ciclo operacional do nNF, gate de série ativa, ordem canônica de lock, isolamento tenant-null, classificação de falha pré-transmissão
+- `620005e` — Gate 2/3: matriz semântica de `cStat` e reconciliação ativa de resultado incerto
+- `d8590fd` — Gate 5: retorno de `serie`/`numeroNFe`/estado fiscal ao contrato OMS
+- `a746fdf` — consolidação de relatório/checkpoint técnico de 11-08-2026 (documental)
+- `59b92d5` — Gate de Cancelamento (evento 110111): idempotência, reconciliação, concorrência, estorno exactly-once
+- `8b6b19b` — fix isolado: correção da extração de `infEvento` em `procEventoNFe` (escopo de `retEvento`) — defeito já existia no cancelamento commitado em `59b92d5`, corrigido em commit próprio antes do Gate CC-e para não misturar bugfix com feature
+- `4791572` — Gate CC-e (evento 110110): sequência fiscal própria, idempotência de operação, reconciliação com validação de conteúdo, bootstrap histórico fail-closed — ver detalhamento abaixo
+
+**Gate CC-e (evento 110110) — CONCLUÍDO E COMMITADO (`4791572`, fix de base em `8b6b19b`):**
+- Endpoint OMS `POST /api/app/pedidos/{id}/cce` com `Idempotency-Key` obrigatório — identifica a intenção da OMS, distinta da identidade fiscal crescente (chave+110110+nSeq)
+- Sequência fiscal própria 1–20 (`nfe_evento_sequencia`, reserva atômica `FOR UPDATE` + isolamento `SERIALIZABLE`) e idempotência de operação persistente (`nfe_evento_idempotencia`), separada da identidade fiscal — migration V037
+- Bootstrap de sequência histórica fail-closed via Consulta Situação — nunca assume `ultimo_nseq_registrado=0` sem confirmar
+- Matriz de `cStat` tratada explicitamente: 135 (registrado), 136 e 573 (pendente confirmação, nunca decide sozinho), 594 (rejeição estrutural, terminal)
+- Reconciliação do 573 valida **conteúdo** (`xCorrecao`) além da identidade fiscal — identidade batendo sozinha nunca basta (`CCE_EVENTO_DIVERGENTE`)
+- Endpoint fiscal legado `/api/fiscal/nfe/cce` desabilitado para transmissão real (HTTP 410) — nunca mais transmite 110110 fora do gate
+- Correção do parser `procEventoNFe` (escopo `retEvento`/`infEvento`) registrada separadamente no commit `8b6b19b` — o defeito já existia no cancelamento commitado em `59b92d5`
+- Concorrência real validada contra MySQL 8.4 efêmero — deadlock real encontrado sob disputa de `FOR UPDATE` em `nfe_evento_sequencia`, corrigido com isolamento `SERIALIZABLE`
+- Rollback real da transação de finalização (`aplicarFinalizacao`) validado com IT dedicado contra MySQL 8.4 efêmero — falha forçada após a 1ª escrita real confirma que `nfe_evento`, `nfe_evento_idempotencia` e `nfe_evento_sequencia` permanecem no estado anterior
+- Evidências completas de teste: ver seção 6 e `docs/report/Relatorio_Tecnico_Diario_2026-08-13.md`
+
+**Gate 1 — CONCLUÍDO E COMMITADO (`5640276`):**
 - Ciclo operacional do nNF (`nfe_emissao`, V033) — número fiscal "em voo" até destino definitivo, substitui o sequenciador simples anterior
 - Gate de série ativa (`nfe_sequencia.emissao_ativa_id`, V034) — nenhum número seguinte alocado enquanto o anterior da mesma série não tiver resultado terminal
 - Ordem canônica de lock (`nfe_sequencia` → `nfe_emissao`) — deadlock real reproduzido e corrigido contra MySQL
 - Isolamento multiempresa tenant-null fail-closed — `JwtFilter` nega (403 `TENANT_REQUIRED`) usuário sem empresa vinculada e sem `ROLE_ADMIN`; ADMIN sem tenant preservado; OMS inalterado
 - Classificação de falha pré-transmissão por fase de execução — novo `errorCode LOCAL_PROCESSING_FAILURE`; timeout/conexão continuam conservadores (`PENDENTE_CONFIRMACAO`)
 - Correção do contrato de exceção obsoleto em `EstoqueService` (`IllegalStateException` → `BusinessException`) e remoção do `skipTests` hardcoded em `borurio-app`, restaurando execução real da suíte do módulo
-- Suítes: `borurio-web` 306/306, `borurio-fiscal` 73/73 (1 skip intencional), `borurio-app` 20/20; P0-1/P0-2/P0-3 validados também contra MySQL real (containers efêmeros, descartados após o teste); `git diff --check` limpo
-- **Nenhum commit/push realizado** — commit manual pendente de revisão final do pacote (código + documentação)
+- Suítes verdes e P0-1/P0-2/P0-3 validados contra MySQL real antes do commit; `git diff --check` limpo
+- **Ainda não deployado em HOM** — release `4a39a88` continua ativo em HOM
 
-**Backlog funcional CC — 5 itens solicitados pelo integrador chinês, todos PENDENTES (nenhum concluído):**
-1. Numeração + retorno de `serie`/`numeroNFe` no `/emitir`/`/situacao` — fundação do Gate 1 pronta; falta Gate 2 (classificação de cStat), Gate 3 (reconciliação) e Gate 5 (retorno ao contrato)
-2. Correção do fluxo de cancelamento — interpretação de `cStat`/`xMotivo`, idempotência
-3. CC-e — interpretação completa do retorno SEFAZ antes da rodada de integração
-4. Configuração de estoque para o cenário do CC (`controleEstoqueAtivo=false` na empresa específica)
-5. Teste de contingência fiscal formal
+**Gate 2/3/5 — CONCLUÍDOS E COMMITADOS (`620005e`, `d8590fd`):** classificação semântica de `cStat`, reconciliação ativa de resultado incerto, e retorno de `serie`/`numeroNFe`/estado fiscal ao contrato OMS — fecham o item 1 do backlog abaixo.
+
+**Backlog funcional CC — 5 itens solicitados pelo integrador chinês:**
+1. Numeração + retorno de `serie`/`numeroNFe` no `/emitir`/`/situacao` — **CONCLUÍDO** (Gate 1 + Gate 2/3 + Gate 5, commitados)
+2. Correção do fluxo de cancelamento — interpretação de `cStat`/`xMotivo`, idempotência — **CONCLUÍDO, COMMITADO (`59b92d5`)**
+3. CC-e — interpretação completa do retorno SEFAZ antes da rodada de integração — **CONCLUÍDO, COMMITADO (`4791572`, fix de base em `8b6b19b`)**
+4. Configuração de estoque para o cenário do CC (`controleEstoqueAtivo=false` na empresa específica) — PENDENTE
+5. Teste de contingência fiscal formal — PENDENTE
+
+**Fila após o fechamento do CC-e:** ajuste de estoque por empresa para o cenário do CC → contingência fiscal → regressão final consolidada e documentação → preparação/disponibilização em HOM e smoke test → nova rodada integrada com o CC → push final (bloqueado até o fechamento completo do conjunto). Estoque e contingência **não estão concluídos** — seguem como próximas frentes.
 
 **Estado consolidado de 22-07-2026 (preservado, não alterado nesta revisão):**
 
@@ -88,25 +113,25 @@
 | Sequenciador atômico de nNF por CNPJ + série                                                                              | CONCLUÍDO |
 | Baseline seguro de numeração por CNPJ e série — inicialização idempotente; erro explícito em valor divergente (não avança nem regride silenciosamente) | CONCLUÍDO — validado em HOM/SP em 22-07-2026 (duas séries/CNPJ distintas avançadas corretamente em emissões reais sequenciais, sem colisão) |
 | Proteção contra emissão concorrente duplicada por pedido — claim atômico, resposta `HTTP 409 EMISSAO_EM_ANDAMENTO` controlada para a chamada que perde a corrida | CONCLUÍDO — validado por teste automatizado (2 e 10 threads reais); código exercitado com sucesso em emissões reais sequenciais em 22-07-2026 |
-| **Gate 1 (10-08-2026) — ciclo operacional do nNF (`nfe_emissao`) + gate de série ativa (`nfe_sequencia.emissao_ativa_id`)** — nenhum número seguinte é alocado enquanto o anterior da mesma série não tiver destino definitivo | CÓDIGO PRONTO, TESTADO CONTRA MYSQL REAL EFÊMERO — **não commitado, não deployado em HOM** |
-| **Ordem canônica de lock (`nfe_sequencia` → `nfe_emissao`)** — deadlock real reproduzido e corrigido contra MySQL (9 cenários) | CÓDIGO PRONTO, TESTADO CONTRA MYSQL REAL EFÊMERO — **não commitado, não deployado em HOM** |
-| **Classificação de falha pré-transmissão por fase de execução** — `errorCode LOCAL_PROCESSING_FAILURE` para falha comprovadamente local; timeout/conexão continuam `PENDENTE_CONFIRMACAO` | CÓDIGO PRONTO, TESTADO — **não commitado, não deployado em HOM** |
-| Isolamento multiempresa tenant-null fail-closed (`JwtFilter`, `errorCode TENANT_REQUIRED`) | CÓDIGO PRONTO, TESTADO CONTRA MYSQL REAL EFÊMERO — **não commitado, não deployado em HOM** |
-| Reconciliação ativa de resultado incerto (Gate 3) e classificação semântica definitiva de `cStat` (Gate 2) | NÃO IMPLEMENTADO — posterior ao commit do Gate 1 |
-| Retorno de `serie`/`numeroNFe` no `/emitir`/`/situacao` (Gate 5) | NÃO IMPLEMENTADO — posterior aos Gates 2/3 |
+| **Gate 1 — ciclo operacional do nNF (`nfe_emissao`) + gate de série ativa (`nfe_sequencia.emissao_ativa_id`)** — nenhum número seguinte é alocado enquanto o anterior da mesma série não tiver destino definitivo | CONCLUÍDO — commit `5640276` — **não deployado em HOM** |
+| **Ordem canônica de lock (`nfe_sequencia` → `nfe_emissao`)** — deadlock real reproduzido e corrigido contra MySQL (9 cenários) | CONCLUÍDO — commit `5640276` — **não deployado em HOM** |
+| **Classificação de falha pré-transmissão por fase de execução** — `errorCode LOCAL_PROCESSING_FAILURE` para falha comprovadamente local; timeout/conexão continuam `PENDENTE_CONFIRMACAO` | CONCLUÍDO — commit `5640276` — **não deployado em HOM** |
+| Isolamento multiempresa tenant-null fail-closed (`JwtFilter`, `errorCode TENANT_REQUIRED`) | CONCLUÍDO — commit `5640276` — **não deployado em HOM** |
+| Reconciliação ativa de resultado incerto (Gate 3) e classificação semântica definitiva de `cStat` (Gate 2) | CONCLUÍDO — commit `620005e` — **não deployado em HOM** |
+| Retorno de `serie`/`numeroNFe` no `/emitir`/`/situacao` (Gate 5) | CONCLUÍDO — commit `d8590fd` — **não deployado em HOM** |
 
 ### 1.3 Eventos pós-emissão
 
 | Item                                                                                                    | Estado                     |
 |-----------------------------------------------------------------------------------------------------------|-----------------------------|
-| Cancelamento NF-e (evento 110111)                                                                         | IMPLEMENTADO E TESTADO INTERNAMENTE — pendente revalidação SEFAZ multi-CNPJ |
-| Carta de Correção — CC-e (evento 110110)                                                                  | IMPLEMENTADO E TESTADO INTERNAMENTE — pendente revalidação SEFAZ multi-CNPJ |
+| Cancelamento NF-e (evento 110111) — gate completo: `nfe_evento`, idempotência, reconciliação, concorrência, estorno de estoque exactly-once, preservação da autorização original | **CONCLUÍDO — commit `59b92d5`** — testado internamente (unitário + concorrência real MySQL); pendente revalidação SEFAZ multi-CNPJ e deploy HOM |
+| Carta de Correção — CC-e (evento 110110) — gate completo: sequência 1–20 própria (`nfe_evento_sequencia`), idempotência de operação (`nfe_evento_idempotencia`), reconciliação com validação de conteúdo, bootstrap histórico fail-closed | **CONCLUÍDO — commit `4791572`** (V037; fix de base do parser em `8b6b19b`) — testado internamente (unitário + concorrência real MySQL + rollback real da finalização); pendente revalidação SEFAZ multi-CNPJ e deploy HOM |
 | Inutilização de numeração (`NfeInutilizacaoController`)                                                    | IMPLEMENTADO E TESTADO INTERNAMENTE — pendente revalidação SEFAZ multi-CNPJ |
 | Consulta de situação (`consSitNFe`)                                                                       | IMPLEMENTADO E TESTADO INTERNAMENTE — pendente revalidação SEFAZ multi-CNPJ |
 | Manifestação do Destinatário (eventos 210200/210210/210220/210240 — NT 2012.004)                         | CONCLUÍDO — entregue 26-05-2026 |
 | Contexto fiscal correto por empresa/CNPJ nos eventos acima — empresa, certificado e UF resolvidos pelo CNPJ real da operação, sem fallback silencioso para configuração global; CNPJ da chave de acesso validado contra o contexto resolvido | IMPLEMENTADO E TESTADO INTERNAMENTE — pendente revalidação SEFAZ multi-CNPJ |
 
-**Cancelamento, CC-e, inutilização e consulta de situação já estão implementados e cobertos por testes automatizados** (`PedidoOperacaoServiceTest`, `NfeInutilizacaoControllerTest`, execução incluída no reactor atual — ver seção 6). Permanece pendente a revalidação desses fluxos contra a SEFAZ real especificamente em contexto multi-CNPJ: confirmação de que a seleção de empresa/certificado nesses eventos funciona ponta a ponta com uma NF-e emitida por uma empresa diferente da empresa-âncora do token — o mesmo padrão já comprovado na emissão (ver seção 1.5, autorização `cStat=100` via `cnpjEmitente` de uma empresa vinculada ao token com cadastro fiscal aceito pela SEFAZ), mas ainda não exercitado especificamente para cancelamento/CC-e/inutilização/consulta.
+**Cancelamento e CC-e (ambos commitados) foram reescritos como gates dedicados** (`nfe_evento` + tabelas próprias de sequência/idempotência), cobertos por testes automatizados incluindo concorrência real e, no caso do CC-e, rollback real da transação de finalização — tudo contra MySQL real, ver seção 6. Inutilização e consulta de situação seguem na implementação anterior, ainda pendente de revalidação SEFAZ multi-CNPJ: confirmação de que a seleção de empresa/certificado nesses eventos funciona ponta a ponta com uma NF-e emitida por uma empresa diferente da empresa-âncora do token — o mesmo padrão já comprovado na emissão (ver seção 1.5).
 
 ### 1.4 indFinal / indIntermed
 
@@ -246,7 +271,9 @@
 | Item                                                                                                                        | Estado                    |
 |-------------------------------------------------------------------------------------------------------------------------------|----------------------------|
 | Última execução local registrada em 22/07/2026 (`mvn test`, reactor completo) — resultado: 299 testes aprovados, 1 teste ignorado preexistente (não relacionado) | Registrado — não substitui migration em MySQL real, smoke test em HOM, uso de certificado real de homologação nem validação contra SEFAZ (essa validação contra SEFAZ real ocorreu separadamente em HOM, `cStat=100`, ver seção 1.5) |
-| Última execução registrada em 10/08/2026 (Gate 1) — `borurio-web` 306/306, `borurio-fiscal` 73/73 (1 skip intencional preexistente, não relacionado), `borurio-app` 20/20; P0-1/P0-2/P0-3 validados também contra MySQL real (container efêmero de teste, descartado após a banca) | Registrado — código ainda **não commitado**; não substitui deploy/smoke test em HOM |
+| Última execução registrada em 10/08/2026 (Gate 1) — `borurio-web` 306/306, `borurio-fiscal` 73/73 (1 skip intencional preexistente, não relacionado), `borurio-app` 20/20; P0-1/P0-2/P0-3 validados também contra MySQL real (container efêmero de teste, descartado após a banca) | Registrado — commitado em `5640276`; não substitui deploy/smoke test em HOM |
+| Última execução registrada em 12/08/2026 (Gate de Cancelamento + Gate CC-e, implementação) — regressão completa do reator (`borurio-app`+`borurio-fiscal`+`borurio-web`): **428/428**. Inclui 33 testes novos do orquestrador CC-e, 6 do classificador CC-e, 21 do parser (bootstrap/xCorrecao), e 2 testes de concorrência real contra MySQL 8.4 efêmero (deadlock real encontrado sob 10 chamadas concorrentes disputando `FOR UPDATE` de `nfe_evento_sequencia`, corrigido com isolamento `SERIALIZABLE`) | Registrado — cancelamento commitado em `59b92d5`; CC-e testado nesta data, commitado no dia seguinte (ver linha abaixo); container MySQL efêmero removido após a prova; não substitui deploy/smoke test em HOM |
+| Banca final e fechamento em 13/08/2026 (Gate CC-e) — testes focados: parser 21/21, classificador CC-e 6/6, cancelamento 16/16 + 15/15, CC-e 33/33 + 2/2 + 19/19; **IT dedicado de rollback real da finalização do CC-e: 1/1** (MySQL 8.4 efêmero, falha forçada após 1ª escrita, `nfe_evento`/`nfe_evento_idempotencia`/`nfe_evento_sequencia` confirmados no estado anterior); concorrência real CC-e revalidada: 2/2; regressão completa do reator sem falhas/erros (mantido apenas o skip preexistente não relacionado); `git diff --check` limpo | Registrado — commits `8b6b19b` (fix) e `4791572` (Gate CC-e); container MySQL efêmero removido ao final; nenhum deploy ou serviço externo de DEV/HOM/SEFAZ acionado nesta banca, validações locais; não substitui deploy/smoke test em HOM — ver `docs/report/Relatorio_Tecnico_Diario_2026-08-13.md` |
 | Cenários de autorização OMS cobertos em `OmsFiscalAuthorizationServiceTest`                                                   | CONCLUÍDO — entregue 22-06-2026 |
 | Validação `cnpjEmitente` OMS em `PedidoControllerTest`                                                                        | CONCLUÍDO — entregue 22-06-2026 |
 | Endpoints deprecated cobertos em `NfeEnvioControllerTest`                                                                     | CONCLUÍDO — entregue 22-06-2026 |
