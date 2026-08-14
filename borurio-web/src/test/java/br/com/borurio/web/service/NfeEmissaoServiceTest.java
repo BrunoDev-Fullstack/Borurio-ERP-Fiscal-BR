@@ -490,6 +490,23 @@ class NfeEmissaoServiceTest {
     }
 
     @Test
+    @DisplayName("Banca do Gate Estoque (13-08-2026): PENDENTE_CONFIRMACAO com controlaEstoque=false — nenhuma reserva, baixa, desfazimento ou estorno")
+    void resolverCicloComEfeitos_pendenteConfirmacao_controlaEstoqueFalse_naoTocaEstoque() {
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 103, null, null,
+                PEDIDO_ID, "AGUARDANDO", "chave123", false, itensPadrao(), 10L, "sistema");
+
+        verify(pedidoMapper).atualizarStatus(PEDIDO_ID, "AGUARDANDO", "chave123");
+        // Não é inferência: PENDENTE_CONFIRMACAO já não tocaria estoque nem com controlaEstoque=
+        // true (não é terminal — ver resolverCicloComEfeitos_pendenteConfirmacao_naoTocaEstoque),
+        // mas o pedido explícito da banca é uma assertion dedicada para a combinação com false,
+        // sem depender dessa dedução.
+        verifyNoInteractions(estoqueService);
+    }
+
+    @Test
     @DisplayName("Exactly-once: ciclo já terminal -- resolverCicloComEfeitos não toca Pedido nem Estoque de novo")
     void resolverCicloComEfeitos_cicloJaTerminal_naoReaplicaEfeitoOperacional() {
         // Simula uma segunda chamada (retry, reconciliação concorrente) sobre um ciclo que outra

@@ -97,9 +97,14 @@ class PedidoEmissaoServiceTest {
     }
 
     private Pedido pedidoRascunho() {
+        return pedidoRascunho(99L, 10L);
+    }
+
+    /** Variante multiempresa — mesmo fixture, pedidoId/empresaId escolhidos pelo chamador. */
+    private Pedido pedidoRascunho(Long pedidoId, Long empresaId) {
         Pedido p = new Pedido();
-        p.setId(99L);
-        p.setEmpresaId(10L);
+        p.setId(pedidoId);
+        p.setEmpresaId(empresaId);
         p.setStatus("RASCUNHO");
         p.setDestCnpjCpf("12345678000199");
 
@@ -196,6 +201,84 @@ class PedidoEmissaoServiceTest {
         verify(estoqueService, never()).reservarItens(any(), any(), any(), any());
         verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 225, null, null,
                 99L, "REJEITADO", null, false, pedido.getItens(), 10L, "sistema");
+    }
+
+    /**
+     * Banca do Gate Estoque (13-08-2026, item 1) — isolamento multiempresa: prova, na mesma
+     * execução, que a empresa A (controlaEstoque=false) e a empresa B (controlaEstoque=true) não
+     * se influenciam. controlaEstoque(empresaId) é resolvido do zero a cada chamada (sem cache),
+     * então o nível de teste correto é uma sequência de chamadas reais ao mesmo serviço — não há
+     * necessidade de nenhuma abstração de produção nova só para isolar o teste.
+     */
+    @Test
+    @DisplayName("Isolamento multiempresa: empresa A (controlaEstoque=false) e empresa B (controlaEstoque=true) na mesma execução não se influenciam")
+    void emitir_duasEmpresasNaMesmaExecucao_naoInfluenciamEstoqueUmaDaOutra() throws Exception {
+        Pedido pedidoA = pedidoRascunho(99L, 10L);
+        Pedido pedidoB = pedidoRascunho(88L, 20L);
+
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedidoA);
+        when(pedidoService.buscarComItensDoTenanteAtual(88L)).thenReturn(pedidoB);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, false));
+        when(empresaMapper.buscarPorId(20L)).thenReturn(empresa(20L, true));
+        when(nfeEmissaoService.abrirCiclo(eq(88L), anyString()))
+                .thenReturn(new AberturaCicloResultado(emissaoReservada(602L, "1", 201), TipoAberturaCiclo.NOVA_ABERTURA));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        service.emitir(99L); // empresa A — controlaEstoque=false
+        service.emitir(88L); // empresa B — controlaEstoque=true, na MESMA execução/JVM
+
+        // Empresa A nunca reserva — nem antes nem depois da chamada de B.
+        verify(estoqueService, never()).reservarItens(eq(pedidoA.getItens()), eq(10L), eq(99L), any());
+        // Empresa B reserva normalmente — comportamento de sempre, intocado pela presença de A.
+        verify(estoqueService).reservarItens(pedidoB.getItens(), 20L, 88L, "sistema");
+        // Exatamente 1 reserva no total (só B) — se A tivesse vazado para B ou vice-versa, esse
+        // total divergiria de 1.
+        verify(estoqueService, times(1)).reservarItens(any(), any(), any(), any());
+
+        verify(nfeEmissaoService).resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, null,
+                99L, "AUTORIZADO", "chave123", false, pedidoA.getItens(), 10L, "sistema");
+        verify(nfeEmissaoService).resolverCicloComEfeitos(602L, NfeEmissao.Estados.AUTORIZADO, 100, null, null,
+                88L, "AUTORIZADO", "chave123", true, pedidoB.getItens(), 20L, "sistema");
+    }
+
+    /**
+     * Banca do Gate Estoque (13-08-2026, item 2) — reemissão: duas chamadas reais de emitir() pro
+     * MESMO pedido (1ª rejeitada, 2ª retry autorizado, mesmo padrão de
+     * emitir_retomadaAguardandoCorrecao_reservaEstoqueDeNovo mas com controlaEstoque=false) —
+     * nenhuma das duas pode tocar EstoqueService, nem a de reserva nem qualquer outra.
+     */
+    @Test
+    @DisplayName("Reemissão do mesmo pedido com controlaEstoque=false: nenhuma das duas chamadas cria movimentação de estoque")
+    void emitir_reemissaoMesmoPedido_controlaEstoqueFalse_nuncaMovimentaEstoque() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, false));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult(null, "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(rejeitada());
+
+        // 1ª tentativa — rejeitada (AGUARDANDO_CORRECAO), controlaEstoque=false.
+        assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        // 2ª tentativa — reemissão do MESMO pedido (agora REJEITADO), retomando o mesmo ciclo
+        // (RETOMADA_AGUARDANDO_CORRECAO — o mesmo tipo que, com controlaEstoque=true, reserva de
+        // novo em emitir_retomadaAguardandoCorrecao_reservaEstoqueDeNovo), desta vez autorizada.
+        Pedido pedidoRetry = pedidoComStatus("REJEITADO");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedidoRetry);
+        NfeEmissao emissaoExistente = emissaoReservada(501L, "1", 101);
+        when(nfeEmissaoService.abrirCiclo(eq(99L), anyString()))
+                .thenReturn(new AberturaCicloResultado(emissaoExistente, TipoAberturaCiclo.RETOMADA_AGUARDANDO_CORRECAO));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chaveNova", "<soap/>"));
+
+        service.emitir(99L);
+
+        // Nenhuma interação com EstoqueService em nenhuma das duas chamadas — nem reserva (a
+        // única que PedidoEmissaoService chama diretamente), nem qualquer outro método do mock.
+        verifyNoInteractions(estoqueService);
     }
 
     @Test
