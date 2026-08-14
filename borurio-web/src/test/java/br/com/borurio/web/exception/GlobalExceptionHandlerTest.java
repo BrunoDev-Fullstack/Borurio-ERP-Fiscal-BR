@@ -1,7 +1,9 @@
 package br.com.borurio.web.exception;
 
 import br.com.borurio.app.exception.BusinessException;
+import br.com.borurio.fiscal.exception.SefazRotaNaoConfiguradaException;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
@@ -96,6 +98,22 @@ class GlobalExceptionHandlerTest {
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, resp.getStatusCode());
         assertEquals("Erro interno do servidor", resp.getBody().get("message"));
         assertEquals(false, resp.getBody().get("retryable"));
+    }
+
+    @Test
+    @DisplayName("Achado de code review 14-08-2026 (2ª revisão): SefazRotaNaoConfiguradaException "
+            + "vira 500 genérico, não 422 com a mensagem interna de remediação (nome de propriedade/UF) "
+            + "vazada ao chamador OMS")
+    void rotaNaoConfigurada_http500_semVazarMensagemInterna() {
+        ResponseEntity<Map<String, Object>> resp = handler.handleRotaNaoConfigurada(
+                new SefazRotaNaoConfiguradaException(
+                        "Nenhuma rota SEFAZ configurada para UF=MG — configure sefaz.rotas.MG.*"));
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, resp.getStatusCode());
+        assertEquals(false, resp.getBody().get("retryable"));
+        String message = (String) resp.getBody().get("message");
+        assertFalse(message.contains("sefaz.rotas"), "mensagem ao cliente não pode ecoar detalhe de configuração interna");
+        assertFalse(message.contains("MG"), "mensagem ao cliente não pode ecoar a UF específica");
     }
 
     @Test

@@ -132,7 +132,7 @@ class GateBHttpIT {
         tokenOms = jwtUtil.generateOmsToken("GATEB-HTTP-CLIENTE", empresaId, jti, LocalDateTime.now().plusYears(1));
 
         // Canned "autorizado" — nenhuma chamada real à SEFAZ ocorre.
-        when(nfeOrquestradorService.processar(anyString(), anyString(), any()))
+        when(nfeOrquestradorService.processar(anyString(), anyString(), anyString(), any()))
                 .thenReturn("""
                         <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
                           <soap:Body>

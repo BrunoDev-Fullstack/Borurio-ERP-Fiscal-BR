@@ -126,8 +126,30 @@ public class NfeGeracaoService {
         validarRequest(req);
         validarEnderecoEmitente(empresa);
 
-        String ufEmitente   = empresa != null && empresa.getUf() != null
-                ? empresa.getUf() : emitente.getUf();
+        // Achado de code review 14-08-2026: checagem era só != null, não isBlank — Empresa.uf=""
+        // caía silenciosamente no mesmo ramo do "válido". Defesa em profundidade: o caso real já
+        // é barrado antes disso por validarEnderecoEmitente (linha acima), mas a expressão em si
+        // precisa ser correta por conta própria.
+        //
+        // Banca 14-08-2026 (3ª rodada): os dois ramos são estruturalmente diferentes, não uma
+        // única expressão condicional — misturar os dois no mesmo `? :` foi o que permitiu, antes
+        // desta correção, que uma Empresa real com UF em branco caísse no MESMO ramo de fallback
+        // "SP" do caminho administrativo legado. Empresa presente NUNCA cai em SP por omissão —
+        // se chegou aqui com UF em branco (não deveria, validarEnderecoEmitente já bloqueou acima),
+        // o valor canonicalizado continua nulo/em branco e falha adiante em resolverCUF, nunca
+        // silenciosamente em SP. SP como último recurso só existe no caminho legado (empresa nula,
+        // NfeEnvioController sem Empresa resolvida) — mesmo fallback que o outro endpoint legado
+        // (NfeOrquestradorService.processar(xmlNfe, cnpjEmitente), 2 args) já tem.
+        //
+        // Canonicalização única (Locale.ROOT, trim+upper) aplicada AQUI, uma vez só — o mesmo
+        // valor de ufEmitente alimenta cUF/chave (resolverCUF), ide (idDest), o endereço do
+        // emitente no XML (montarEmit) e o transporte (NfeOrquestradorService.processar). Antes
+        // desta correção, montarEmit lia empresa.getUf()/emitente.getUf() cru de novo, por conta
+        // própria — risco real de UF diferente chegar ao XML e ao transporte para o mesmo pedido.
+        String ufEmitente = empresa != null
+                ? br.com.borurio.fiscal.config.SefazRotaResolver.canonicalizarUf(empresa.getUf())
+                : br.com.borurio.fiscal.config.SefazRotaResolver.canonicalizarUf(
+                        !isBlank(emitente.getUf()) ? emitente.getUf() : "SP");
         String cnpjEmitente = empresa != null && empresa.getCnpj() != null
                 ? empresa.getCnpj().replaceAll("\\D", "") : apenasDigitos(emitente.getCnpj());
 
@@ -169,7 +191,7 @@ public class NfeGeracaoService {
         InfNFe inf = new InfNFe();
         inf.setId("NFe" + chave);
         inf.setIde(montarIde(req, cUF, cNF, nNFXml, serieXml, cDV, ufEmitente, empresa));
-        inf.setEmit(montarEmit(empresa));
+        inf.setEmit(montarEmit(empresa, ufEmitente));
         inf.setDest(montarDest(req));
         inf.setDet(montarDet(req));
         inf.setTotal(montarTotal(req));
@@ -189,7 +211,7 @@ public class NfeGeracaoService {
         Long empresaId = empresa != null ? empresa.getId() : null;
 
         try {
-            String resposta = nfeOrquestradorService.processar(xml, cnpj, certCtx);
+            String resposta = nfeOrquestradorService.processar(xml, cnpj, ufEmitente, certCtx);
             registrarLog(chave, cnpj, empresaId, "TRANSMISSAO_SEFAZ", "SUCCESS",
                     "NF-e gerada e transmitida via /api/fiscal/nfe/gerar", xml, resposta);
 
@@ -281,7 +303,14 @@ public class NfeGeracaoService {
         return valor;
     }
 
-    private Emit montarEmit(Empresa empresa) {
+    /**
+     * @param ufEmitente UF já canonicalizada (ver {@code gerar}) — nunca relida crua de
+     *                   {@code empresa.getUf()}/{@code emitente.getUf()} aqui. Banca 14-08-2026
+     *                   (3ª rodada): antes desta correção, o endereço do emitente no XML e o
+     *                   cUF/chave/transporte liam a UF por caminhos independentes — o mesmo
+     *                   pedido podia, em tese, ter valores de UF diferentes em cada lugar.
+     */
+    private Emit montarEmit(Empresa empresa, String ufEmitente) {
         Emit emit = new Emit();
 
         if (empresa != null) {
@@ -297,7 +326,7 @@ public class NfeGeracaoService {
             ender.setXBairro(empresa.getBairro());
             ender.setCMun(empresa.getCodigoMunicipio());
             ender.setXMun(empresa.getMunicipio());
-            ender.setUF(empresa.getUf());
+            ender.setUF(ufEmitente);
             ender.setCEP(apenasDigitos(empresa.getCep()));
             ender.setCPais("1058");
             ender.setXPais("Brasil");
@@ -315,7 +344,7 @@ public class NfeGeracaoService {
             ender.setXBairro(emitente.getBairro());
             ender.setCMun(emitente.getCodigoMunicipio());
             ender.setXMun(emitente.getMunicipio());
-            ender.setUF(emitente.getUf());
+            ender.setUF(ufEmitente);
             ender.setCEP(apenasDigitos(emitente.getCep()));
             ender.setCPais("1058");
             ender.setXPais("Brasil");
@@ -492,7 +521,12 @@ public class NfeGeracaoService {
                 || isBlank(empresa.getBairro())
                 || isBlank(empresa.getCodigoMunicipio())
                 || isBlank(empresa.getMunicipio())
-                || isBlank(empresa.getCep());
+                || isBlank(empresa.getCep())
+                // Achado de code review 14-08-2026: UF em branco (string vazia, não nula) só
+                // era pega tarde, dentro do check obrigatório de NfeOrquestradorService, depois
+                // de já ter congelado nNF/chave — UF é parte do endereço do emitente, mesma
+                // checagem antecipada dos demais campos.
+                || isBlank(empresa.getUf());
         if (incompleto) {
             throw br.com.borurio.app.exception.BusinessException.emitterAddressIncomplete();
         }

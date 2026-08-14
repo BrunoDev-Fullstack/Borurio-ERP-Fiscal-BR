@@ -1,6 +1,7 @@
 package br.com.borurio.web.exception;
 
 import br.com.borurio.app.exception.BusinessException;
+import br.com.borurio.fiscal.exception.SefazRotaNaoConfiguradaException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,6 +66,20 @@ public class GlobalExceptionHandler {
         log.warn("[API] Bad request: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(errorBody(400, e.getMessage(), null));
+    }
+
+    /**
+     * Achado de code review 14-08-2026 (2ª revisão): gap de CONFIGURAÇÃO do servidor (UF sem rota
+     * SEFAZ cadastrada), não erro de requisição do cliente — precisa de handler dedicado ANTES do
+     * genérico de IllegalStateException, que mapeava para 422 e ecoava a mensagem interna de
+     * remediação (nomes de propriedade, UF) para o chamador OMS. 500 é o status correto: sinaliza
+     * indisponibilidade do lado do servidor, não algo que o OMS deva corrigir e reenviar.
+     */
+    @ExceptionHandler(SefazRotaNaoConfiguradaException.class)
+    public ResponseEntity<Map<String, Object>> handleRotaNaoConfigurada(SefazRotaNaoConfiguradaException e) {
+        log.error("[API] Rota SEFAZ não configurada: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(errorBody(500, "Erro de configuração no servidor — contate o suporte", null));
     }
 
     /** Violação de estado — operação não permitida no estado atual. */

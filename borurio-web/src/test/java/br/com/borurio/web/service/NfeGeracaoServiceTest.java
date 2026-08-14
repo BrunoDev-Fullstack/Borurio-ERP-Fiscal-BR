@@ -18,6 +18,7 @@ import br.com.borurio.fiscal.service.NfeSequenciaService;
 import br.com.borurio.fiscal.utils.XsdValidator;
 import org.w3c.dom.Document;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -120,6 +121,137 @@ class NfeGeracaoServiceTest {
         assertFalse(ex.isRetryable());
         verifyNoInteractions(nfeOrquestradorService);
         verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    @DisplayName("Achado de code review 14-08-2026: Empresa.uf em branco (string vazia, não nula) "
+            + "falha cedo via validação de endereço, antes de tocar nNF/chave/SEFAZ")
+    void gerar_empresaComUfEmBranco_lancaBusinessExceptionSemTocarCicloFiscal() {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+
+        Empresa empresa = empresaValida(41L, "1");
+        empresa.setUf(""); // em branco, não nula — o bug era só checar != null
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS));
+
+        assertEquals("EMITTER_ADDRESS_INCOMPLETE", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+        verifyNoInteractions(sequenciaService);
+        verifyNoInteractions(nfeEmissaoService);
+    }
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada): Empresa.uf=null (nunca setada) falha cedo via "
+            + "validação de endereço, mesmo tratamento do caso vazio")
+    void gerar_empresaComUfNula_lancaBusinessExceptionSemTocarCicloFiscal() {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+
+        Empresa empresa = empresaValida(42L, "1");
+        empresa.setUf(null);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS));
+
+        assertEquals("EMITTER_ADDRESS_INCOMPLETE", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada): Empresa.uf=\"   \" (só espaços) falha cedo, mesmo "
+            + "tratamento do caso vazio — isBlank cobre espaço em branco, não só string vazia")
+    void gerar_empresaComUfSoEspacos_lancaBusinessExceptionSemTocarCicloFiscal() {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+
+        Empresa empresa = empresaValida(43L, "1");
+        empresa.setUf("   ");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS));
+
+        assertEquals("EMITTER_ADDRESS_INCOMPLETE", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada): Empresa.uf=\" sp \" (espaços + minúscula) canonicaliza "
+            + "para SP de ponta a ponta — mesmo valor no endereço do emitente do XML e no transporte, "
+            + "nunca dois caminhos de normalização divergentes")
+    void gerar_empresaComUfComEspacosEMinuscula_canonicalizaSpDePontaAPonta() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+
+        Empresa empresa = empresaValida(44L, "1");
+        empresa.setUf(" sp ");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
+        assertEquals("SP", captor.getValue().getInfNFe().getEmit().getEnderEmit().getUF(),
+                "endereço do emitente no XML precisa receber a mesma UF canonicalizada");
+        verify(nfeOrquestradorService).processar(any(), any(), eq("SP"), any());
+    }
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada): EmitenteProperties.uf válida NÃO mascara UF ausente "
+            + "de uma Empresa real — o fallback de configuração global só existe no caminho "
+            + "administrativo legado (empresa==null), nunca quando há Empresa resolvida")
+    void gerar_emitentePropertiesComUfValida_naoMascaraUfInvalidaDeEmpresaReal() {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        lenient().when(emitente.getUf()).thenReturn("RJ"); // configuração global válida, deliberadamente
+
+        Empresa empresa = empresaValida(45L, "1");
+        empresa.setUf(""); // Empresa real, mas com cadastro de UF incompleto
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS));
+
+        assertEquals("EMITTER_ADDRESS_INCOMPLETE", ex.getErrorCode());
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    // -------------------------------------------------------------------------
+    // Fase 0 do Gate SVC (14-08-2026) — UF real da Empresa chega ao transporte, nunca mais
+    // recalculada por EmitenteProperties (achado da auditoria: NfeOrquestradorService perdia a
+    // UF resolvida por NfeGeracaoService e a recalculava de configuração global).
+    // -------------------------------------------------------------------------
+
+    @Test
+    void gerar_empresaComUfDiferenteDeEmitenteProperties_transmiteComUfDaEmpresa() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        lenient().when(emitente.getUf()).thenReturn("RJ"); // config global deliberadamente divergente
+
+        Empresa empresa = empresaValida(40L, "1");
+        empresa.setUf("SP"); // UF real da empresa emitente desta emissão
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS);
+
+        verify(nfeOrquestradorService).processar(any(), any(), eq("SP"), any());
+        verify(nfeOrquestradorService, never()).processar(any(), any(), eq("RJ"), any());
+    }
+
+    @Test
+    @DisplayName("Achado de code review 14-08-2026 (2ª revisão): caminho legado (empresa=null) com "
+            + "EmitenteProperties.uf em branco cai em SP, mesmo fallback do outro endpoint legado "
+            + "(NfeOrquestradorService.processar 2 args) — não deve virar IllegalArgumentException")
+    void gerar_empresaNulaEEmitentePropertiesUfEmBranco_caiEmSpComoOutroCaminhoLegado() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        lenient().when(emitente.getUf()).thenReturn("");
+        lenient().when(emitente.getCnpj()).thenReturn("12345678000195");
+
+        service.gerar(requestValido(), null, ModalidadeFrete.SEM_OCORRENCIA_TRANSPORTE);
+
+        verify(nfeOrquestradorService).processar(any(), any(), eq("SP"), any());
     }
 
     // -------------------------------------------------------------------------
@@ -351,7 +483,7 @@ class NfeGeracaoServiceTest {
 
         ArgumentCaptor<String> xmlCaptor = ArgumentCaptor.forClass(String.class);
         servicoLocal.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS);
-        verify(orquestradorLocal).processar(xmlCaptor.capture(), anyString(), any());
+        verify(orquestradorLocal).processar(xmlCaptor.capture(), anyString(), anyString(), any());
 
         return xmlCaptor.getValue();
     }
@@ -404,7 +536,7 @@ class NfeGeracaoServiceTest {
         // sem isso, uma reconciliação futura (Gate 3) não saberia qual chave consultar em
         // caso de timeout.
         ordem.verify(nfeEmissaoService).marcarTransmitido(eq(501L), chaveCaptor.capture());
-        ordem.verify(nfeOrquestradorService).processar(any(), any(), any());
+        ordem.verify(nfeOrquestradorService).processar(any(), any(), any(), any());
         assertEquals(44, chaveCaptor.getValue().length(), "chave de acesso NF-e tem 44 dígitos");
     }
 

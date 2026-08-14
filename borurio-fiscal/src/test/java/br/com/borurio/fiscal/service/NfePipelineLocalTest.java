@@ -1,6 +1,8 @@
 package br.com.borurio.fiscal.service;
 
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.exception.SefazRotaNaoConfiguradaException;
+import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.service.impl.CertificadoServiceImpl;
 import br.com.borurio.fiscal.utils.XsdValidator;
 import org.junit.jupiter.api.DisplayName;
@@ -222,6 +224,102 @@ public class NfePipelineLocalTest {
                        Mockito.anyString(),
                        Mockito.anyString(),
                        Mockito.anyInt());
+    }
+
+    @Test
+    @DisplayName("Fase 0 (14-08-2026): UF explícita chega ao transporte tal como recebida, "
+            + "nunca recalculada por EmitenteProperties")
+    void deveTransmitirComUfExplicitaSemRecalcularDeEmitenteProperties() throws Exception {
+
+        XsdValidator xsdValidator = new XsdValidator();
+        AssinaturaXmlService mockAssina = Mockito.mock(AssinaturaXmlService.class);
+        NfeTransmitService mockTransmit = Mockito.mock(NfeTransmitService.class);
+        EmitenteProperties emitente = new EmitenteProperties();
+        emitente.setUf("SP"); // deliberadamente diferente da UF explícita abaixo
+
+        NfeOrquestradorService orquestrador = new NfeOrquestradorService(
+                xsdValidator, mockAssina, mockTransmit, emitente);
+
+        orquestrador.processar(XML_NFE_NAO_ASSINADO, "12345678000195", "MG", null);
+
+        Mockito.verify(mockTransmit).transmitirXml(
+                Mockito.any(), Mockito.eq("12345678000195"), Mockito.eq("MG"), Mockito.anyInt());
+    }
+
+    @Test
+    @DisplayName("Fase 0 (14-08-2026): ufEmitente ausente falha ANTES de XSD/assinatura/transmissão — "
+            + "nenhuma interação com o transportador")
+    void deveFalharAntesDeQualquerCoisaSeUfEmitenteAusente() {
+
+        XsdValidator xsdValidator = new XsdValidator();
+        AssinaturaXmlService mockAssina = Mockito.mock(AssinaturaXmlService.class);
+        NfeTransmitService mockTransmit = Mockito.mock(NfeTransmitService.class);
+        EmitenteProperties emitente = new EmitenteProperties();
+
+        NfeOrquestradorService orquestrador = new NfeOrquestradorService(
+                xsdValidator, mockAssina, mockTransmit, emitente);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> orquestrador.processar(XML_NFE_NAO_ASSINADO, "12345678000195", null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> orquestrador.processar(XML_NFE_NAO_ASSINADO, "12345678000195", "  ", null));
+
+        Mockito.verifyNoInteractions(mockAssina);
+        Mockito.verifyNoInteractions(mockTransmit);
+    }
+
+    @Test
+    @DisplayName("Fase 0 (14-08-2026): caminho legado (2 argumentos) continua resolvendo a UF via "
+            + "EmitenteProperties, isolado do caminho real")
+    void caminhoLegadoContinuaUsandoEmitentePropertiesExplicitamente() throws Exception {
+
+        XsdValidator xsdValidator = new XsdValidator();
+        AssinaturaXmlService mockAssina = Mockito.mock(AssinaturaXmlService.class);
+        NfeTransmitService mockTransmit = Mockito.mock(NfeTransmitService.class);
+        EmitenteProperties emitente = new EmitenteProperties();
+        emitente.setUf("MG");
+
+        NfeOrquestradorService orquestrador = new NfeOrquestradorService(
+                xsdValidator, mockAssina, mockTransmit, emitente);
+
+        orquestrador.processar(XML_NFE_NAO_ASSINADO, "12345678000195");
+
+        Mockito.verify(mockTransmit).transmitirXml(
+                Mockito.any(), Mockito.eq("12345678000195"), Mockito.eq("MG"), Mockito.anyInt());
+    }
+
+    @Test
+    @DisplayName("Achado de code review 14-08-2026: SefazRotaNaoConfiguradaException (erro de "
+            + "configuração determinístico) NUNCA é reclassificada como SefazTransmissaoIncertaException")
+    void ufSemRota_nuncaViraTransmissaoIncerta() throws Exception {
+
+        XsdValidator xsdValidator = new XsdValidator();
+        AssinaturaXmlService mockAssina = Mockito.mock(AssinaturaXmlService.class);
+        Mockito.when(mockAssina.assinar(Mockito.anyString())).thenReturn(XML_NFE_NAO_ASSINADO);
+
+        NfeTransmitService mockTransmit = Mockito.mock(NfeTransmitService.class);
+        Mockito.when(mockTransmit.transmitirXml(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyInt()))
+                .thenThrow(new SefazRotaNaoConfiguradaException(
+                        "Nenhuma rota SEFAZ configurada para UF=RJ — transmissão bloqueada antes de qualquer rede."));
+
+        EmitenteProperties emitente = new EmitenteProperties();
+        NfeOrquestradorService orquestrador = new NfeOrquestradorService(
+                xsdValidator, mockAssina, mockTransmit, emitente);
+
+        // assertThrows já prova o tipo exato — SefazRotaNaoConfiguradaException e
+        // SefazTransmissaoIncertaException são hierarquias de classe disjuntas (o compilador
+        // recusaria um "instanceof" entre as duas exatamente por isso), então basta confirmar
+        // que nenhuma delas aparece embrulhada na cadeia de causas da outra.
+        SefazRotaNaoConfiguradaException ex = assertThrows(SefazRotaNaoConfiguradaException.class,
+                () -> orquestrador.processar(XML_NFE_NAO_ASSINADO, "12345678000195", "RJ", null));
+
+        Throwable causa = ex;
+        while (causa != null) {
+            assertFalse(causa instanceof SefazTransmissaoIncertaException,
+                    "SefazRotaNaoConfiguradaException nunca pode estar dentro da cadeia de causas "
+                            + "de uma SefazTransmissaoIncertaException");
+            causa = causa.getCause();
+        }
     }
 
     @Test

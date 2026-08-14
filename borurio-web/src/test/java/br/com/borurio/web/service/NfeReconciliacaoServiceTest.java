@@ -8,6 +8,7 @@ import br.com.borurio.fiscal.config.SefazReconciliacaoProperties;
 import br.com.borurio.fiscal.dto.NfeConsultaSituacaoRetorno;
 import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
+import br.com.borurio.fiscal.exception.SefazRotaNaoConfiguradaException;
 import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.service.NfeConsultaSituacaoService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
@@ -441,6 +442,98 @@ class NfeReconciliacaoServiceTest {
         assertEquals("EMISSAO_AGUARDANDO_RECONCILIACAO", ex.getErrorCode());
         verify(nfeEmissaoService, never()).resolverCicloComEfeitos(
                 anyLong(), anyString(), any(), any(), any(), anyLong(), anyString(), any(), anyBoolean(), any(), any(), anyString());
+    }
+
+    // -------------------------------------------------------------------------
+    // Banca 14-08-2026 (3ª rodada) — Empresa real nunca cai em SP por omissão; erro de config do
+    // servidor (rota ausente) é operacionalmente distinto de erro de rede transitório.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada, BLOQUEADOR): Empresa real com uf=\"\" NÃO consulta SP "
+            + "— erro de cadastro, nunca some para outra UF por omissão")
+    void empresaRealComUfVazia_naoConsultaSp() {
+        NfeEmissao emissao = emissaoPendente(NfeEmissao.Estados.TRANSMITIDO);
+        Empresa empresaSemUf = empresa();
+        empresaSemUf.setUf("");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.reconciliar(pedido(), emissao, empresaSemUf, true));
+
+        assertEquals("EMITTER_ADDRESS_INCOMPLETE", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
+        verifyNoInteractions(consultaSituacaoService);
+    }
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada, BLOQUEADOR): Empresa real com uf=\"   \" (só espaços) "
+            + "NÃO consulta SP — mesmo erro de cadastro do caso vazio")
+    void empresaRealComUfSoEspacos_naoConsultaSp() {
+        NfeEmissao emissao = emissaoPendente(NfeEmissao.Estados.TRANSMITIDO);
+        Empresa empresaComUfEmBranco = empresa();
+        empresaComUfEmBranco.setUf("   ");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.reconciliar(pedido(), emissao, empresaComUfEmBranco, true));
+
+        assertEquals("EMITTER_ADDRESS_INCOMPLETE", ex.getErrorCode());
+        assertFalse(ex.isRetryable());
+        verifyNoInteractions(consultaSituacaoService);
+    }
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada): Empresa real com uf=\" sp \" consulta SP canonicalizado "
+            + "(trim+upper), mesma canonicalização única do SefazRotaResolver")
+    void empresaRealComUfMinusculaEEspacos_consultaSpCanonicalizado() {
+        NfeEmissao emissao = emissaoPendente(NfeEmissao.Estados.TRANSMITIDO);
+        Empresa empresaUfNaoCanonica = empresa();
+        empresaUfNaoCanonica.setUf(" sp ");
+        when(consultaSituacaoService.consultar(eq(CHAVE), eq("SP"), anyInt()))
+                .thenReturn(retorno(100, CHAVE, "prot-100", true));
+
+        assertDoesNotThrow(() -> service.reconciliar(pedido(), emissao, empresaUfNaoCanonica, true));
+
+        verify(consultaSituacaoService).consultar(eq(CHAVE), eq("SP"), anyInt());
+    }
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada, BLOQUEADOR): rota SEFAZ ausente -- emissão continua "
+            + "fiscalmente pendente (nfe_emissao intocada), mas o erro operacional NÃO é retryable "
+            + "automaticamente — contradiz a própria mensagem de log dizer \"retry nunca resolve\" e "
+            + "devolver 409/retryable=true ao mesmo tempo")
+    void rotaSefazAusente_continuaPendenteMasNaoRetryable() {
+        NfeEmissao emissao = emissaoPendente(NfeEmissao.Estados.PENDENTE_CONFIRMACAO);
+        when(consultaSituacaoService.consultar(eq(CHAVE), eq("MG"), anyInt()))
+                .thenThrow(new SefazRotaNaoConfiguradaException(
+                        "Nenhuma rota SEFAZ configurada para UF=MG — configure sefaz.rotas.MG.*"));
+        Empresa empresaMg = empresa();
+        empresaMg.setUf("MG");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.reconciliar(pedido(), emissao, empresaMg, true));
+
+        assertEquals("RECONCILIACAO_ERRO_CONFIGURACAO", ex.getErrorCode());
+        assertFalse(ex.isRetryable(), "erro de configuração não pode ser sinalizado como retryable=true");
+        verify(nfeEmissaoService, never()).resolverCicloComEfeitos(
+                anyLong(), anyString(), any(), any(), any(), anyLong(), anyString(), any(), anyBoolean(), any(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("Banca 14-08-2026 (3ª rodada): rota ausente para uma UF nunca tenta outro endpoint "
+            + "por conta própria — exatamente uma chamada, com a UF real da empresa, nunca SP nem "
+            + "qualquer outra")
+    void rotaAusente_nenhumaChamadaParaEndpointDeOutraUf() {
+        NfeEmissao emissao = emissaoPendente(NfeEmissao.Estados.PENDENTE_CONFIRMACAO);
+        when(consultaSituacaoService.consultar(eq(CHAVE), eq("MG"), anyInt()))
+                .thenThrow(new SefazRotaNaoConfiguradaException(
+                        "Nenhuma rota SEFAZ configurada para UF=MG — configure sefaz.rotas.MG.*"));
+        Empresa empresaMg = empresa();
+        empresaMg.setUf("MG");
+
+        assertThrows(BusinessException.class, () -> service.reconciliar(pedido(), emissao, empresaMg, true));
+
+        verify(consultaSituacaoService, times(1)).consultar(anyString(), anyString(), anyInt());
+        verify(consultaSituacaoService, never()).consultar(anyString(), eq("SP"), anyInt());
     }
 
     @Test

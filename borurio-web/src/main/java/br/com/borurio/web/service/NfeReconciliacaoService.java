@@ -4,9 +4,11 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.fiscal.config.SefazReconciliacaoProperties;
+import br.com.borurio.fiscal.config.SefazRotaResolver;
 import br.com.borurio.fiscal.dto.NfeConsultaSituacaoRetorno;
 import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
+import br.com.borurio.fiscal.exception.SefazRotaNaoConfiguradaException;
 import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.service.NfeConsultaSituacaoService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
@@ -68,10 +70,13 @@ public class NfeReconciliacaoService {
      * Nunca retorna "sucesso silencioso" — todo desfecho vira uma BusinessException, para nunca
      * ser confundido com uma emissão nova real:
      *   pendente (claim perdido/backoff/217/635/falha de transporte/falha de parse) -> EMISSAO_AGUARDANDO_RECONCILIACAO (409, retryable)
+     *   pendente por erro de configuração (rota SEFAZ ausente para a UF)            -> RECONCILIACAO_ERRO_CONFIGURACAO (500, NÃO retryable)
+     *   Empresa ausente ou sem UF válida (erro de cadastro, não de rede)            -> EMITTER_ADDRESS_INCOMPLETE (422, NÃO retryable)
      *   AGUARDANDO_CORRECAO (achado local ou via consulta)                          -> SEFAZ_REJECTED (422)
      *   NUMERO_OCUPADO                                                              -> NUMERO_FISCAL_OCUPADO (409, retryable — próxima tentativa abre ciclo novo)
      * Só retorna normalmente quando reconcilia como AUTORIZADO — chamador monta a resposta de
-     * sucesso a partir da chave já congelada.
+     * sucesso a partir da chave já congelada. Em nenhum dos dois primeiros casos o estado da
+     * nfe_emissao é alterado — a diferença entre eles é só se a OMS pode/deve retentar sozinha.
      */
     public void reconciliar(Pedido pedido, NfeEmissao emissao, Empresa empresa, boolean controlaEstoque) {
         Long pedidoId = pedido.getId();
@@ -90,6 +95,15 @@ public class NfeReconciliacaoService {
         }
 
         if (decisao.pendente()) {
+            // Banca 14-08-2026 (3ª rodada): "estado fiscal continua pendente" e "OMS deve
+            // retentar automaticamente" são duas perguntas diferentes — misturá-las fazia um erro
+            // permanente de configuração (rota SEFAZ ausente) virar 409/retryable=true, o mesmo
+            // contrato de um timeout de rede real. O estado da nfe_emissao já não foi tocado em
+            // nenhum dos dois casos (nenhuma chamada a resolverCicloComEfeitos) — só a resposta ao
+            // chamador muda.
+            if (decisao.erroConfiguracao()) {
+                throw BusinessException.reconciliacaoErroConfiguracao(pedidoId);
+            }
             throw BusinessException.emissaoAguardandoReconciliacao(pedidoId);
         }
 
@@ -171,7 +185,18 @@ public class NfeReconciliacaoService {
             // existirem) — fail-safe conservador: sem chave não há o que consultar.
             return Decisao.aindaPendente();
         }
-        String uf = empresa != null && empresa.getUf() != null ? empresa.getUf() : "SP";
+        // Banca 14-08-2026 (3ª rodada), BLOQUEADOR: a correção anterior (isBlank em vez de
+        // != null) ainda mantinha "SP" como destino de qualquer UF ausente/inválida — exatamente
+        // o fallback silencioso que a Fase 0 existe para eliminar. Empresa presente com UF
+        // ausente/inválida é erro de CADASTRO (nunca se resolve tentando outra UF), não motivo
+        // para adivinhar SP. "SP" como último recurso só existe no caminho administrativo legado
+        // (NfeGeracaoService com empresa==null) — a reconciliação de um pedido real com Empresa
+        // resolvida nunca deveria precisar dele.
+        if (empresa == null || isBlank(empresa.getUf())) {
+            throw BusinessException.emitterAddressIncomplete();
+        }
+        String uf = SefazRotaResolver.canonicalizarUf(empresa.getUf());
+
         NfeConsultaSituacaoRetorno retorno;
         try {
             retorno = consultaSituacaoService.consultar(emissao.getChaveNfe(), uf, tpAmb);
@@ -179,6 +204,16 @@ public class NfeReconciliacaoService {
             log.warn("[NfeReconciliacao] Falha de transporte na Consulta Situação | chave={} | erro={}",
                     emissao.getChaveNfe(), e.getMessage());
             return Decisao.aindaPendente();
+        } catch (SefazRotaNaoConfiguradaException e) {
+            // Banca 14-08-2026 (3ª rodada): logar ERROR e devolver aindaPendente() (retryable=true)
+            // era contraditório — a própria mensagem de log dizia "retry sozinho nunca resolve",
+            // mas a resposta ao chamador continuava dizendo o contrário. Decisao dedicada separa
+            // "estado fiscal continua pendente" (nfe_emissao intocada, igual a qualquer outro
+            // pendente) de "isto não é seguro para a OMS retentar sozinha" — ver reconciliar().
+            log.error("[NfeReconciliacao] Rota SEFAZ não configurada para UF={} — reconciliação "
+                    + "não pode prosseguir sem correção de configuração | chave={} | erro={}",
+                    uf, emissao.getChaveNfe(), e.getMessage());
+            return Decisao.pendenteComErroConfiguracao();
         }
         if (retorno.isFalhaParse()) {
             log.warn("[NfeReconciliacao] Falha ao interpretar resposta da Consulta Situação | chave={} | detalhe={}",
@@ -247,22 +282,36 @@ public class NfeReconciliacaoService {
         }
     }
 
-    private record Decisao(boolean pendente, String estado, Integer cStat, String xMotivo,
-                            String nProt, String chaveConfirmada) {
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    private record Decisao(boolean pendente, boolean erroConfiguracao, String estado, Integer cStat,
+                            String xMotivo, String nProt, String chaveConfirmada) {
         static Decisao aindaPendente() {
-            return new Decisao(true, null, null, null, null, null);
+            return new Decisao(true, false, null, null, null, null, null);
+        }
+
+        /**
+         * Banca 14-08-2026 (3ª rodada): pendente por erro de CONFIGURAÇÃO do servidor (rota SEFAZ
+         * ausente), não por resultado fiscal inconclusivo — ver o catch de
+         * {@code SefazRotaNaoConfiguradaException} em {@code consultarSefazEClassificar} e o uso
+         * deste campo em {@code reconciliar()}.
+         */
+        static Decisao pendenteComErroConfiguracao() {
+            return new Decisao(true, true, null, null, null, null, null);
         }
 
         static Decisao autorizado(int cStat, String xMotivo, String nProt, String chave) {
-            return new Decisao(false, NfeEmissao.Estados.AUTORIZADO, cStat, xMotivo, nProt, chave);
+            return new Decisao(false, false, NfeEmissao.Estados.AUTORIZADO, cStat, xMotivo, nProt, chave);
         }
 
         static Decisao aguardandoCorrecao(int cStat, String xMotivo) {
-            return new Decisao(false, NfeEmissao.Estados.AGUARDANDO_CORRECAO, cStat, xMotivo, null, null);
+            return new Decisao(false, false, NfeEmissao.Estados.AGUARDANDO_CORRECAO, cStat, xMotivo, null, null);
         }
 
         static Decisao numeroOcupado(int cStat, String xMotivo) {
-            return new Decisao(false, NfeEmissao.Estados.NUMERO_OCUPADO, cStat, xMotivo, null, null);
+            return new Decisao(false, false, NfeEmissao.Estados.NUMERO_OCUPADO, cStat, xMotivo, null, null);
         }
     }
 }

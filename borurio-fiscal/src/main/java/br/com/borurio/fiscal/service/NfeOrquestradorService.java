@@ -1,6 +1,7 @@
 package br.com.borurio.fiscal.service;
 
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.exception.SefazRotaNaoConfiguradaException;
 import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.utils.XsdValidator;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,16 +43,32 @@ public class NfeOrquestradorService {
         this.emitente = emitente;
     }
 
+    /**
+     * Caminho legado (endpoint administrativo deprecated, {@code NfeEnvioController.enviarNfe}) —
+     * sem Empresa resolvida, então sem UF real disponível. Único lugar que ainda usa
+     * {@link EmitenteProperties} para UF, explicitamente, e só aqui — nunca no caminho real
+     * (ver {@link #processar(String, String, String, CertificadoContexto)}).
+     */
     public String processar(String xmlNfe, String cnpjEmitente) throws Exception {
-        return processar(xmlNfe, cnpjEmitente, null);
+        String ufLegado = (emitente.getUf() != null && !emitente.getUf().isBlank()) ? emitente.getUf() : "SP";
+        return processar(xmlNfe, cnpjEmitente, ufLegado, null);
     }
 
     /**
-     * Processa NF-e usando o certificado de uma empresa específica.
-     * Se ctx for null, usa o certificado global (CertificadoService).
+     * Processa NF-e usando o certificado de uma empresa específica e a UF real dessa empresa —
+     * Fase 0 do Gate SVC (14-08-2026): a UF nunca mais é recalculada aqui a partir de
+     * configuração global. Quem chama (hoje só {@code NfeGeracaoService.gerar}) já resolveu a UF
+     * certa a partir da {@code Empresa} da emissão e precisa propagá-la explicitamente.
+     *
+     * @param ufEmitente UF real da empresa emitente — obrigatória, nunca inferida aqui.
+     * @param ctx certificado da empresa; se {@code null}, usa o certificado global (CertificadoService).
      */
-    public String processar(String xmlNfe, String cnpjEmitente,
+    public String processar(String xmlNfe, String cnpjEmitente, String ufEmitente,
                             CertificadoContexto ctx) throws Exception {
+        if (ufEmitente == null || ufEmitente.isBlank()) {
+            throw new IllegalArgumentException(
+                    "ufEmitente é obrigatória para processar a NF-e — nunca inferida de configuração global.");
+        }
 
         // 1. Converter XML para Document
         Document document = converterParaDocument(xmlNfe);
@@ -79,13 +96,18 @@ public class NfeOrquestradorService {
         // exceção que já lança hoje. Envolver só esta chamada torna a fronteira local/transmissão
         // comprovável pela fase de execução, não por uma lista de tipos de exceção reconhecidos
         // (que sempre ficaria incompleta) — ver SefazTransmissaoIncertaException.
-        String uf = (emitente.getUf() != null && !emitente.getUf().isBlank())
-                ? emitente.getUf() : "SP";
-
+        // UF vem do parâmetro (Fase 0, 14-08-2026) — nunca mais recalculada aqui a partir de
+        // configuração global; NfeTransmitServiceImpl é quem falha fechado se a UF não tiver rota
+        // (ou tiver rota incompleta).
         try {
             return ctx != null
-                    ? nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, uf, tpAmb, ctx.sslContext())
-                    : nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, uf, tpAmb);
+                    ? nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, ufEmitente, tpAmb, ctx.sslContext())
+                    : nfeTransmitService.transmitirXml(xmlAssinado, cnpjEmitente, ufEmitente, tpAmb);
+        } catch (SefazRotaNaoConfiguradaException e) {
+            // Achado de code review 14-08-2026: erro de CONFIGURAÇÃO determinístico (nunca se
+            // resolve sozinho numa nova tentativa) — precisa propagar como tal, nunca ser
+            // reclassificado como transmissão incerta/retryable pelo catch genérico abaixo.
+            throw e;
         } catch (Exception e) {
             throw new SefazTransmissaoIncertaException(e);
         }

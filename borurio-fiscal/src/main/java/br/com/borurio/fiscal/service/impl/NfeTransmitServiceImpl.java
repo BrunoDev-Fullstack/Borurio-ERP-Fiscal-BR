@@ -1,5 +1,7 @@
 package br.com.borurio.fiscal.service.impl;
 
+import br.com.borurio.fiscal.config.SefazRotaResolver;
+import br.com.borurio.fiscal.config.SefazRotasProperties;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.exception.SefazTransmissaoIncertaException;
 import br.com.borurio.fiscal.mapper.NfeLogMapper;
@@ -7,7 +9,6 @@ import br.com.borurio.fiscal.service.CertificadoService;
 import br.com.borurio.fiscal.service.NfeTransmitService;
 import io.github.resilience4j.retry.Retry;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -47,26 +48,17 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     private final NfeLogMapper nfeLogMapper;
     private final CertificadoService certificadoService;
     private final Retry sefazRetry;
-
-    @Value("${sefaz.urls.autorizacao}")
-    private String urlAutorizacao;
-
-    @Value("${sefaz.urls.status}")
-    private String urlStatus;
-
-    @Value("${sefaz.urls.retorno}")
-    private String urlRetorno;
-
-    @Value("${sefaz.urls.consulta}")
-    private String urlConsulta;
+    private final SefazRotaResolver rotaResolver;
 
     public NfeTransmitServiceImpl(
             NfeLogMapper nfeLogMapper,
             CertificadoService certificadoService,
-            Retry sefazRetry) {
+            Retry sefazRetry,
+            SefazRotaResolver rotaResolver) {
         this.nfeLogMapper = nfeLogMapper;
         this.certificadoService = certificadoService;
         this.sefazRetry = sefazRetry;
+        this.rotaResolver = rotaResolver;
     }
 
     // =========================
@@ -93,6 +85,10 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
                                         int ambiente,
                                         SSLContext sslOverride) {
 
+        // Fail-closed: resolve a rota ANTES de montar/enviar qualquer coisa — UF sem rota
+        // configurada nunca chega perto de uma conexão de rede.
+        SefazRotasProperties.Rota rota = rotaResolver.resolver(uf);
+
         String chaveNfe = extrairChaveNFe(xmlAssinado);
 
         NfeLog logFiscal = NfeLog.builder()
@@ -111,7 +107,7 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
             String envelope = criarEnvelopeEnviNFe(xmlAssinado, idLote, ambiente);
 
             SSLContext sslUsado = sslOverride != null ? sslOverride : certificadoService.getSslContext();
-            String resposta = enviarSoap(urlAutorizacao, envelope, sslUsado);
+            String resposta = enviarSoap(rota.getAutorizacao(), envelope, sslUsado);
 
             logFiscal.setStatus("SUCCESS");
             logFiscal.setDescricao("NF-e transmitida — lote=" + idLote);
@@ -141,6 +137,7 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     @Override
     public String consultarStatus(String uf, int ambiente) {
 
+        SefazRotasProperties.Rota rota = rotaResolver.resolver(uf);
         String cUF = UF_PARA_CUF.getOrDefault(uf.toUpperCase(), "35");
 
         // Não usar text block: SEFAZ exige XML compacto sem espaços extras
@@ -159,7 +156,7 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
                 "</soap12:Envelope>";
 
         try {
-            return enviarSoap(urlStatus, envelope);
+            return enviarSoap(rota.getStatus(), envelope);
         } catch (Exception e) {
             throw new RuntimeException("Falha ao consultar status SEFAZ", e);
         }
@@ -183,6 +180,8 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
         if (chaveNfe == null || !chaveNfe.matches("\\d{44}")) {
             throw new IllegalArgumentException("Chave NF-e inválida: deve conter exatamente 44 dígitos numéricos.");
         }
+        // Fail-closed antes de qualquer coisa, mesmo padrão de transmitirXmlInterno.
+        SefazRotasProperties.Rota rota = rotaResolver.resolver(uf);
 
         NfeLog logFiscal = NfeLog.builder()
                 .chaveNfe(chaveNfe)
@@ -209,7 +208,7 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
 
         try {
             SSLContext sslUsado = sslOverride != null ? sslOverride : certificadoService.getSslContext();
-            String resposta = enviarSoap(urlConsulta, envelope, sslUsado);
+            String resposta = enviarSoap(rota.getConsulta(), envelope, sslUsado);
 
             logFiscal.setStatus("SUCCESS");
             logFiscal.setDescricao("Consulta NF-e OK | UF=" + uf + " | Amb=" + ambiente);
@@ -240,6 +239,8 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
     @Override
     public String consultarRecibo(String nRec, String uf, int ambiente) {
 
+        SefazRotasProperties.Rota rota = rotaResolver.resolver(uf);
+
         // Usado quando a NF-e foi enviada em modo assíncrono (indSinc=0)
         String envelope =
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
@@ -255,7 +256,7 @@ public class NfeTransmitServiceImpl implements NfeTransmitService {
                 "</soap12:Envelope>";
 
         try {
-            String resposta = enviarSoap(urlRetorno, envelope);
+            String resposta = enviarSoap(rota.getRetorno(), envelope);
             log.info("[NF-e] Consulta recibo OK | nRec={} | UF={}", nRec, uf);
             return resposta;
         } catch (Exception e) {

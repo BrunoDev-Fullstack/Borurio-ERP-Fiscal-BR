@@ -340,6 +340,27 @@ public class BusinessException extends RuntimeException {
     }
 
     /**
+     * Reconciliação (Gate 3) não conseguiu consultar a SEFAZ por falta de rota configurada para a
+     * UF da empresa emitente — {@code SefazRotaNaoConfiguradaException}, erro de configuração/
+     * deployment do servidor, nunca falha transitória de rede. Banca 14-08-2026 (3ª rodada):
+     * antes desta exceção existir, esse caso caía no mesmo {@code EMISSAO_AGUARDANDO_RECONCILIACAO}
+     * (409, retryable=true) de qualquer timeout — a própria justificativa escrita no código dizia
+     * "retry sozinho nunca resolve" mas a resposta ao chamador continuava dizendo o contrário.
+     * O estado fiscal da emissão permanece intocado (nenhum {@code resolverCicloComEfeitos} é
+     * chamado) — não sabemos o resultado real da NF-e, só que não dá pra descobrir agora.
+     * retryable=false: a OMS não deve reenviar automaticamente até a configuração ser corrigida.
+     */
+    public static BusinessException reconciliacaoErroConfiguracao(Long pedidoId) {
+        return new BusinessException(
+                "RECONCILIACAO_ERRO_CONFIGURACAO",
+                "Não foi possível reconciliar a situação fiscal do pedido " + pedidoId + " por erro de "
+                        + "configuração no servidor. O estado fiscal permanece pendente — não repita "
+                        + "automaticamente antes da configuração ser corrigida.",
+                500,
+                false);
+    }
+
+    /**
      * Reconciliação (Gate 3, 10-08-2026) provou que o número fiscal está definitivamente ocupado
      * por identidade fiscal alheia (NF-e cancelada/denegada/inutilizada na base da SEFAZ, ou
      * chave de acesso divergente confirmada) — a NF-e DESTE pedido nunca foi autorizada. O ciclo

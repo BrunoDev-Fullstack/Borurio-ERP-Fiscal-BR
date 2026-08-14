@@ -98,6 +98,16 @@ sefaz:
     # Manifestação do Destinatário usa AN (cOrgao=91). O endpoint AN HOM retorna 403 do nosso IP local
     # (acesso bloqueado pela SEFAZ federal para IPs residenciais/dev). Funcional em ambiente corporativo/PRD.
     manifestacao-evento: https://hom.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx
+  # Rotas do autorizador NORMAL por UF (Fase 0 do Gate SVC, 14-08-2026) — só SP nesta fase; UF sem
+  # entrada aqui falha fechado em SefazRotaResolver, nunca cai para SP por omissão. Mesmos valores
+  # de sefaz.urls.* acima (duplicado deliberadamente: sefaz.urls.* segue servindo inutilização/
+  # recepção de evento/manifestação via SefazProperties, fora do escopo desta fase).
+  rotas:
+    SP:
+      autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx
+      retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx
+      consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx
+      status: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx
 
 ###################################################################################################
 # CERTIFICADO DIGITAL A1
