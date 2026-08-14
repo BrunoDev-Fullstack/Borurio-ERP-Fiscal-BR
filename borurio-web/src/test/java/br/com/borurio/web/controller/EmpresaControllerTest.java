@@ -6,6 +6,7 @@ import br.com.borurio.web.auth.JwtUtil;
 import br.com.borurio.web.auth.OmsTokenAuthorizationValidator;
 import br.com.borurio.web.controller.app.EmpresaController;
 import br.com.borurio.web.service.CertSenhaEncryptor;
+import br.com.borurio.web.service.EmpresaAtualizacaoService;
 import br.com.borurio.web.service.EmpresaCertificadoService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +34,7 @@ class EmpresaControllerTest {
     @MockBean EmpresaService empresaService;
     @MockBean CertSenhaEncryptor encryptor;
     @MockBean EmpresaCertificadoService empresaCertificadoService;
+    @MockBean EmpresaAtualizacaoService empresaAtualizacaoService;
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsService userDetailsService;
     @MockBean OmsTokenAuthorizationValidator omsTokenAuthorizationValidator;

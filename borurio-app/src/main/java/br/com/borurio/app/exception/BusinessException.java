@@ -702,4 +702,48 @@ public class BusinessException extends RuntimeException {
                 503,
                 true);
     }
+
+    // -------------------------------------------------------------------------
+    // PUT /api/app/empresas/{id} — atualização parcial (Rota B, 13-08-2026)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Campo obrigatório do estado persistido enviado como {@code null} explícito no JSON — omitir
+     * o campo preserva o valor atual; enviá-lo como null pede pra removê-lo, o que nunca é seguro
+     * pra um campo NOT NULL. Distinto de "campo ausente" (nunca chega aqui) e de "valor vazio"
+     * (ver {@link #campoObrigatorioInvalido}).
+     */
+    public static BusinessException campoObrigatorioNaoPodeSerRemovido(String campo) {
+        return new BusinessException(
+                "EMPRESA_CAMPO_OBRIGATORIO_NULO",
+                campo + " não pode ser removido (enviado como null) — omita o campo no JSON "
+                        + "para preservar o valor atual, ou envie um valor válido para atualizá-lo.",
+                422,
+                false);
+    }
+
+    /** Campo obrigatório presente no JSON, mas com valor vazio/inválido — mesma semântica de validação já usada em POST/criação. */
+    public static BusinessException campoObrigatorioInvalido(String campo, String motivo) {
+        return new BusinessException(
+                "EMPRESA_CAMPO_OBRIGATORIO_INVALIDO",
+                campo + " " + motivo,
+                422,
+                false);
+    }
+
+    /**
+     * CNPJ é a identidade fiscal usada por {@code nfe_sequencia}/{@code nfe_emissao}
+     * (chaveadas por {@code cnpj_emitente} em texto, não por {@code empresa_id}) — trocar o CNPJ
+     * de uma empresa existente por este endpoint deixaria ciclos/numeração órfãos. O valor pode
+     * ser reenviado igual (idempotente) ou omitido (preserva), nunca alterado.
+     */
+    public static BusinessException cnpjImutavelNaAtualizacao(String cnpjAtual, String cnpjSolicitado) {
+        return new BusinessException(
+                "EMPRESA_CNPJ_IMUTAVEL",
+                "CNPJ não pode ser alterado por este endpoint (atual=" + cnpjAtual
+                        + ", solicitado=" + cnpjSolicitado + "). A numeração e os ciclos fiscais são "
+                        + "vinculados ao CNPJ da empresa; omita o campo para preservar o valor atual.",
+                422,
+                false);
+    }
 }

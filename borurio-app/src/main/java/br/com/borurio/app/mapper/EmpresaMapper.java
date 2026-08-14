@@ -48,6 +48,13 @@ public interface EmpresaMapper {
     @Select(SELECT_COLUMNS + "WHERE cnpj = #{cnpj} FOR UPDATE")
     Empresa buscarPorCnpjParaAtualizar(@Param("cnpj") String cnpj);
 
+    // Mesmo padrão de buscarPorCnpjParaAtualizar, por id — usado por EmpresaAtualizacaoService
+    // (PUT /empresas/{id}) para fechar a janela de lost update entre leitura+merge+UPDATE.
+    // Transação só adquire ESTE lock (nenhum lock fiscal adicional na mesma transação), então não
+    // participa da ordem canônica Empresa -> nfe_sequencia -> nfe_emissao.
+    @Select(SELECT_COLUMNS + "WHERE id = #{id} FOR UPDATE")
+    Empresa buscarPorIdParaAtualizar(@Param("id") Long id);
+
     @Update("UPDATE empresa SET serie_nfe_padrao = #{serieNfePadrao}, atualizado_em = NOW() WHERE id = #{id}")
     int atualizarSerieNfePadrao(@Param("id") Long id, @Param("serieNfePadrao") String serieNfePadrao);
 
