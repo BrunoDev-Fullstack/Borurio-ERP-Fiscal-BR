@@ -2,16 +2,16 @@
 
 | Atributo          | Valor                               |
 |-------------------|-------------------------------------|
-| Versão            | 1.10                                |
-| Data              | 2026-08-13                          |
-| Sprint            | Gate 1 (numeração), Gate 2/3 (semântica cStat + reconciliação), Gate 5 (retorno fiscal ao OMS), Gate de Cancelamento (evento 110111) e Gate CC-e (evento 110110) — **todos commitados**. |
-| Ambiente validado | Código commitado (numeração, reconciliação, retorno OMS, cancelamento, CC-e) testado contra MySQL efêmero de teste antes de cada commit, incluindo concorrência real e rollback real da finalização do CC-e; **nenhum dos gates acima ainda foi deployado em HOM** — release `4a39a88` continua sendo o último release ativo em HOM |
+| Versão            | 1.11                                |
+| Data              | 2026-08-14                          |
+| Sprint            | Gate 1 (numeração), Gate 2/3 (semântica cStat + reconciliação), Gate 5 (retorno fiscal ao OMS), Gate de Cancelamento (evento 110111), Gate CC-e (evento 110110), Gate Estoque (ajuste por empresa) e hardening de `PUT /api/app/empresas/{id}` — **todos commitados**. |
+| Ambiente validado | Código commitado (numeração, reconciliação, retorno OMS, cancelamento, CC-e, estoque por empresa, PUT empresa) testado contra MySQL efêmero de teste antes de cada commit, incluindo concorrência real, rollback real da finalização do CC-e e correção comprovada de lost update no PUT empresa; **nenhum dos gates acima ainda foi deployado em HOM** — release `4a39a88` continua sendo o último release ativo em HOM |
 
-> Esta revisão (13-08-2026) registra o fechamento em código do Gate CC-e: correção isolada do parser (`8b6b19b`) e implementação completa do gate (`4791572`), ambos commitados após banca técnica final (incluindo um IT dedicado de rollback real da finalização, contra MySQL 8.4). Fecha o ciclo que a v1.9 (12-08-2026) descrevia como "implementado, testes verdes, banca final pendente". A consolidação de 22-07-2026 (P0.1–P0.4, Gate 7H, modFrete) permanece válida e não foi alterada retroativamente — ver seção 8 para o estado de cada documento.
+> Esta revisão (14-08-2026) registra o fechamento em código de duas frentes independentes, ambas nascidas de pedidos do CC: o ajuste de estoque por empresa (`9e845ba`) e o hardening de `PUT /api/app/empresas/{id}` (`849da14`, achado de banca arquitetural — defeito de contrato e lost update comprovados e corrigidos antes do commit). A revisão anterior (13-08-2026) registrava o fechamento em código do Gate CC-e: correção isolada do parser (`8b6b19b`) e implementação completa do gate (`4791572`), ambos commitados após banca técnica final (incluindo um IT dedicado de rollback real da finalização, contra MySQL 8.4). A consolidação de 22-07-2026 (P0.1–P0.4, Gate 7H, modFrete) permanece válida e não foi alterada retroativamente — ver seção 8 para o estado de cada documento.
 
-## 0. Estado consolidado (13-08-2026)
+## 0. Estado consolidado (14-08-2026)
 
-**Commits desta janela (10 a 13-08-2026), HEAD atual `4791572`:**
+**Commits desta janela (10 a 14-08-2026), HEAD atual `849da14`:**
 - `5640276` — Gate 1: ciclo operacional do nNF, gate de série ativa, ordem canônica de lock, isolamento tenant-null, classificação de falha pré-transmissão
 - `620005e` — Gate 2/3: matriz semântica de `cStat` e reconciliação ativa de resultado incerto
 - `d8590fd` — Gate 5: retorno de `serie`/`numeroNFe`/estado fiscal ao contrato OMS
@@ -19,6 +19,26 @@
 - `59b92d5` — Gate de Cancelamento (evento 110111): idempotência, reconciliação, concorrência, estorno exactly-once
 - `8b6b19b` — fix isolado: correção da extração de `infEvento` em `procEventoNFe` (escopo de `retEvento`) — defeito já existia no cancelamento commitado em `59b92d5`, corrigido em commit próprio antes do Gate CC-e para não misturar bugfix com feature
 - `4791572` — Gate CC-e (evento 110110): sequência fiscal própria, idempotência de operação, reconciliação com validação de conteúdo, bootstrap histórico fail-closed — ver detalhamento abaixo
+- `9e845ba` — Gate Estoque: prova formal de que `controleEstoqueAtivo=false` já era suportado pela lógica de produção sem nenhuma mudança de código (`PedidoEmissaoService`/`NfeEmissaoService`/`NfeEventoService` intocados) — ver detalhamento abaixo
+- `849da14` — hardening independente de `PUT /api/app/empresas/{id}` (Rota B): DTO parcial dedicado, merge controlado campo a campo, correção do lost update comprovado com lock pessimista — ver detalhamento abaixo
+
+**Gate Estoque (ajuste por empresa) — CONCLUÍDO E COMMITADO (`9e845ba`):**
+- Pedido do CC (item 4 do backlog abaixo): suporte a `controleEstoqueAtivo=false` para a empresa do cenário de testes
+- Auditoria fria confirmou que a lógica de produção já resolvia integralmente o pedido — `controleEstoqueAtivo=false` já bloqueava reserva/baixa/estorno de estoque sem nenhuma alteração em `PedidoEmissaoService`, `NfeEmissaoService` ou `NfeEventoService`
+- **Não houve remoção global da validação de estoque**: empresas com controle ativo (`controleEstoqueAtivo=true`, comportamento padrão) continuam bloqueando `/emitir` por saldo insuficiente exatamente como antes
+- Empresas com controle desativado não reservam, não baixam, não desfazem e não estornam estoque em nenhum ponto do ciclo fiscal
+- Três lacunas de **prova** (não de comportamento) fechadas com testes novos: isolamento multiempresa, reemissão no mesmo pedido com estoque desativado, `PENDENTE_CONFIRMACAO` sem efeito de estoque, e um IT dedicado (`NfeEmissaoEstoqueDesativadoRealMySqlIT`) contra MySQL 8.4 real com `EstoqueServiceImpl` real (não mock), saldo zero, concorrência
+- Commit de evidência: `9e845ba`
+
+**PUT /api/app/empresas/{id} (Rota B) — hardening independente CONCLUÍDO E COMMITADO (`849da14`):**
+- Achado de banca arquitetural: o único payload documentado do endpoint (certificado) já falhava por Bean Validation antes de chegar ao service; corrigido com um DTO de atualização PARCIAL dedicado (`EmpresaAtualizacaoRequest`), nunca reaproveitando a entidade `Empresa` como corpo HTTP
+- Distinção real entre campo **omitido** (preserva o valor persistido) e campo **presente com `null` explícito** (limpa campos opcionais, rejeitado com 422 para obrigatórios) — rastreamento de presença via comportamento padrão do Jackson, provado ponta a ponta via MockMvc
+- CNPJ imutável por este endpoint — só aceita o mesmo valor já persistido (normalizado) ou omissão
+- `certSenha` protegida: nunca reencripta um valor já preservado, nunca aparece em response/log/`toString()`
+- Merge controlado campo a campo (sem reflection/BeanUtils) reaproveitando `EmpresaMapper.atualizar` inalterado
+- **Lost update comprovado e corrigido**: banca identificou que a leitura sem lock seguida de UPDATE de linha inteira permitia que duas requisições concorrentes em campos diferentes da mesma empresa perdessem uma alteração — comprovado primeiro contra MySQL 8.4 real (IT dedicado, defeito confirmado), depois corrigido com lock pessimista (`EmpresaMapper.buscarPorIdParaAtualizar`, `SELECT ... FOR UPDATE`) dentro de uma única fronteira transacional (`TransactionTemplate`, mesmo padrão de `OmsAuthorizationAdminService`/`NfeCceOrquestradorService` — nunca `@Transactional` por self-invocation)
+- Concorrência (campos diferentes, mesmo campo, empresas diferentes) e rollback (exceção real após o lock, antes do UPDATE) revalidados contra MySQL 8.4 real depois da correção — todos os cenários verdes
+- Commit de evidência: `849da14`
 
 **Gate CC-e (evento 110110) — CONCLUÍDO E COMMITADO (`4791572`, fix de base em `8b6b19b`):**
 - Endpoint OMS `POST /api/app/pedidos/{id}/cce` com `Idempotency-Key` obrigatório — identifica a intenção da OMS, distinta da identidade fiscal crescente (chave+110110+nSeq)
@@ -48,10 +68,10 @@
 1. Numeração + retorno de `serie`/`numeroNFe` no `/emitir`/`/situacao` — **CONCLUÍDO** (Gate 1 + Gate 2/3 + Gate 5, commitados)
 2. Correção do fluxo de cancelamento — interpretação de `cStat`/`xMotivo`, idempotência — **CONCLUÍDO, COMMITADO (`59b92d5`)**
 3. CC-e — interpretação completa do retorno SEFAZ antes da rodada de integração — **CONCLUÍDO, COMMITADO (`4791572`, fix de base em `8b6b19b`)**
-4. Configuração de estoque para o cenário do CC (`controleEstoqueAtivo=false` na empresa específica) — PENDENTE
+4. Configuração de estoque para o cenário do CC (`controleEstoqueAtivo=false` na empresa específica) — **CONCLUÍDO, COMMITADO (`9e845ba`)**
 5. Teste de contingência fiscal formal — PENDENTE
 
-**Fila após o fechamento do CC-e:** ajuste de estoque por empresa para o cenário do CC → contingência fiscal → regressão final consolidada e documentação → preparação/disponibilização em HOM e smoke test → nova rodada integrada com o CC → push final (bloqueado até o fechamento completo do conjunto). Estoque e contingência **não estão concluídos** — seguem como próximas frentes.
+**Fila atual:** contingência fiscal formal (próximo gate funcional) → regressão/documentação final → preparação HOM + smoke test → nova rodada integrada com o CC → push (continua bloqueado até o fechamento completo do conjunto). Estoque e PUT Empresa **estão concluídos e commitados** nesta janela; contingência segue como a próxima frente.
 
 **Estado consolidado de 22-07-2026 (preservado, não alterado nesta revisão):**
 
@@ -173,7 +193,9 @@
 | Consulta de saldo em tempo real via `GET /api/app/produtos/{id}/estoque`                  | CONCLUÍDO |
 | Tabela `estoque_movimento` — auditoria completa de todos os movimentos                    | CONCLUÍDO |
 | Isolamento multiempresa — `empresa_id` em todos os UPDATEs atômicos                       | CONCLUÍDO |
-| Controle de estoque opcional por empresa (`controleEstoqueAtivo`)                         | CONCLUÍDO — entregue 10-07-2026 |
+| Controle de estoque opcional por empresa (`controleEstoqueAtivo`)                         | CONCLUÍDO — entregue 10-07-2026, prova formal ampliada em 14-08-2026 (commit `9e845ba`) |
+
+**Prova formal de 14-08-2026 (commit `9e845ba`):** banca confirmou que `controleEstoqueAtivo=false` já era suportado integralmente pela lógica de produção vigente, sem nenhuma alteração em `PedidoEmissaoService`, `NfeEmissaoService` ou `NfeEventoService`. Não houve remoção global da validação de estoque — empresas com controle ativo continuam bloqueando `/emitir` por saldo insuficiente normalmente; empresas com controle desativado simplesmente não reservam, não baixam, não desfazem e não estornam estoque. Isolamento multiempresa, reemissão no mesmo pedido com estoque desativado, ausência de efeito de estoque em `PENDENTE_CONFIRMACAO` e concorrência real (MySQL 8.4 efêmero, `EstoqueServiceImpl` real) foram provados nesta rodada.
 
 ---
 
@@ -197,6 +219,8 @@
 | DANFE (PDF)                    | `/api/fiscal/nfe/{chave}/danfe`                | CONCLUÍDO — entregue 18-05-2026 |
 | Manifestação Destinatário      | `POST /api/fiscal/nfe/manifestar`              | CONCLUÍDO — entregue 26-05-2026 |
 | NF-e legado (deprecated)       | `/api/fiscal/nfe`                              | Mantido por compatibilidade — não usar em integrações novas |
+
+**Hardening de `PUT /api/app/empresas/{id}` — CONCLUÍDO em 14-08-2026 (commit `849da14`):** DTO de atualização parcial dedicado (`EmpresaAtualizacaoRequest`), distinção real entre campo omitido (preserva) e `null` explícito (limpa/rejeita conforme obrigatoriedade), CNPJ imutável por este endpoint, `certSenha` nunca exposta em response/log, merge controlado campo a campo. Inclui a correção de um lost update comprovado pela banca: leitura passou a usar `SELECT ... FOR UPDATE` (`EmpresaMapper.buscarPorIdParaAtualizar`) dentro de uma única transação (`TransactionTemplate`), fechando a janela em que duas requisições concorrentes em campos diferentes da mesma empresa podiam perder uma alteração. Concorrência e rollback revalidados contra MySQL 8.4 real depois da correção — ver seção 6.
 
 ### 2.2 O que o time chinês precisa consumir / integrar
 
@@ -274,6 +298,7 @@
 | Última execução registrada em 10/08/2026 (Gate 1) — `borurio-web` 306/306, `borurio-fiscal` 73/73 (1 skip intencional preexistente, não relacionado), `borurio-app` 20/20; P0-1/P0-2/P0-3 validados também contra MySQL real (container efêmero de teste, descartado após a banca) | Registrado — commitado em `5640276`; não substitui deploy/smoke test em HOM |
 | Última execução registrada em 12/08/2026 (Gate de Cancelamento + Gate CC-e, implementação) — regressão completa do reator (`borurio-app`+`borurio-fiscal`+`borurio-web`): **428/428**. Inclui 33 testes novos do orquestrador CC-e, 6 do classificador CC-e, 21 do parser (bootstrap/xCorrecao), e 2 testes de concorrência real contra MySQL 8.4 efêmero (deadlock real encontrado sob 10 chamadas concorrentes disputando `FOR UPDATE` de `nfe_evento_sequencia`, corrigido com isolamento `SERIALIZABLE`) | Registrado — cancelamento commitado em `59b92d5`; CC-e testado nesta data, commitado no dia seguinte (ver linha abaixo); container MySQL efêmero removido após a prova; não substitui deploy/smoke test em HOM |
 | Banca final e fechamento em 13/08/2026 (Gate CC-e) — testes focados: parser 21/21, classificador CC-e 6/6, cancelamento 16/16 + 15/15, CC-e 33/33 + 2/2 + 19/19; **IT dedicado de rollback real da finalização do CC-e: 1/1** (MySQL 8.4 efêmero, falha forçada após 1ª escrita, `nfe_evento`/`nfe_evento_idempotencia`/`nfe_evento_sequencia` confirmados no estado anterior); concorrência real CC-e revalidada: 2/2; regressão completa do reator sem falhas/erros (mantido apenas o skip preexistente não relacionado); `git diff --check` limpo | Registrado — commits `8b6b19b` (fix) e `4791572` (Gate CC-e); container MySQL efêmero removido ao final; nenhum deploy ou serviço externo de DEV/HOM/SEFAZ acionado nesta banca, validações locais; não substitui deploy/smoke test em HOM — ver `docs/report/Relatorio_Tecnico_Diario_2026-08-13.md` |
+| Banca de 14/08/2026 (Gate Estoque + PUT Empresa) — Gate Estoque: 3 testes de prova novos + `NfeEmissaoEstoqueDesativadoRealMySqlIT` 1/1 (MySQL 8.4 real, `EstoqueServiceImpl` real, saldo zero, concorrência); PUT Empresa: lost update primeiro **comprovado** (IT dedicado contra MySQL 8.4 real), depois **corrigido** com lock pessimista (`SELECT ... FOR UPDATE` + `TransactionTemplate`) e revalidado — IT final de concorrência **4/4** (campos diferentes, mesmo campo, empresas diferentes, rollback), IT de atualização parcial **9/9**, `EmpresaAtualizacaoServiceTest` **17/17**, controllers **5/5 + 5/5**; regressão final da banca: `borurio-app` **20/20**, `borurio-fiscal` **123/123** (1 skip preexistente, não relacionado), `borurio-web` **488/488** — **total 631/631, 0 falhas/erros**; `git diff --check` limpo | Registrado — commits `9e845ba` (Gate Estoque) e `849da14` (PUT Empresa); container MySQL 8.4 efêmero removido ao final; nenhum deploy ou serviço externo de DEV/HOM/SEFAZ acionado nesta banca, validações locais; não substitui deploy/smoke test em HOM |
 | Cenários de autorização OMS cobertos em `OmsFiscalAuthorizationServiceTest`                                                   | CONCLUÍDO — entregue 22-06-2026 |
 | Validação `cnpjEmitente` OMS em `PedidoControllerTest`                                                                        | CONCLUÍDO — entregue 22-06-2026 |
 | Endpoints deprecated cobertos em `NfeEnvioControllerTest`                                                                     | CONCLUÍDO — entregue 22-06-2026 |
