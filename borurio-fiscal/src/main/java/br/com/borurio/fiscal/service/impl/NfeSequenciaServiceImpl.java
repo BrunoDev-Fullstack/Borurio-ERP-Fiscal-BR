@@ -8,6 +8,7 @@ import br.com.borurio.fiscal.service.NfeSequenciaService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -245,5 +246,54 @@ public class NfeSequenciaServiceImpl implements NfeSequenciaService {
         }
         seq.setUltimoNumero(numero);
         mapper.atualizarNumero(seq);
+    }
+
+    // -------------------------------------------------------------------------
+    // Fase 1 SVC (17-08-2026) — persistência/ciclo de substituição, sem transporte.
+    // -------------------------------------------------------------------------
+
+    // Propagation.MANDATORY (não SERIALIZABLE isolado, como os métodos do Gate 1 acima): este
+    // método nunca pode ser o início da própria transação — a unidade atômica real é consolidar +
+    // reservar nNF da filha + inserir filha + trocar o gate, sempre dentro da transação
+    // REPEATABLE_READ já aberta por NfeContingenciaService.abrirContingencia. Chamar isto fora de
+    // uma transação externa lança IllegalTransactionStateException do próprio Spring — nunca é
+    // possível consolidar o número da NORMAL sem, na mesma transação, também completar o resto.
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int consolidarNumeroParaContingencia(String cnpjEmitente, String serie, int numero) {
+        NfeSequencia seq = mapper.buscarParaAtualizar(cnpjEmitente, serie);
+        if (seq == null) {
+            throw new IllegalStateException(
+                    "Sequência não encontrada para CNPJ=" + cnpjEmitente + " série=" + serie
+                            + " ao tentar consolidar número=" + numero + " para contingência.");
+        }
+        int esperado = seq.getUltimoNumero() + 1;
+        if (numero != esperado) {
+            throw new IllegalStateException(
+                    "Número a consolidar para contingência (" + numero + ") não corresponde ao "
+                            + "próximo esperado (" + esperado + ") para CNPJ=" + cnpjEmitente
+                            + " série=" + serie + ".");
+        }
+        seq.setUltimoNumero(numero);
+        mapper.atualizarNumero(seq);
+        return seq.getUltimoNumero();
+    }
+
+    // Propagation.MANDATORY pelo mesmo motivo de consolidarNumeroParaContingencia — trocar o gate
+    // isoladamente, sem ter consolidado/inserido a filha na mesma transação, é exatamente o
+    // estado parcial que a Fase 1 existe para impedir.
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void substituirGateParaContingencia(String cnpjEmitente, String serie,
+                                                Long emissaoNormalEsperadaId, Long emissaoSvcNovaId) {
+        int affected = mapper.substituirGateParaContingencia(
+                cnpjEmitente, serie, emissaoNormalEsperadaId, emissaoSvcNovaId);
+        if (affected != 1) {
+            throw new IllegalStateException(
+                    "Troca de gate NORMAL->SVC falhou para CNPJ=" + cnpjEmitente + " série=" + serie
+                            + ": esperava emissao_ativa_id=" + emissaoNormalEsperadaId + ", mas o gate já "
+                            + "não corresponde (corrida real) — contingência abortada, rollback da transação "
+                            + "externa inteira garante que nenhum estado parcial fica visível.");
+        }
     }
 }

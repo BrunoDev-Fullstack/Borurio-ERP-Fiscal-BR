@@ -294,6 +294,18 @@ public class NfeSequenciaServiceTest {
             atual.setEmissaoAtivaId(null);
         }
 
+        @Override
+        public int substituirGateParaContingencia(String cnpjEmitente, String serie,
+                                                    Long emissaoNormalEsperadaId, Long emissaoSvcNovaId) {
+            NfeSequencia atual = dados.get(chave(cnpjEmitente, serie));
+            if (atual == null || atual.getEmissaoAtivaId() == null
+                    || !atual.getEmissaoAtivaId().equals(emissaoNormalEsperadaId)) {
+                return 0;
+            }
+            atual.setEmissaoAtivaId(emissaoSvcNovaId);
+            return 1;
+        }
+
         private NfeSequencia copiar(NfeSequencia seq) {
             NfeSequencia copia = new NfeSequencia();
             copia.setCnpjEmitente(seq.getCnpjEmitente());
@@ -759,5 +771,68 @@ public class NfeSequenciaServiceTest {
 
         assertTrue(resultado.aplicado());
         verify(mapper).atualizarNumero(argThat(s -> s.getUltimoNumero() == 5));
+    }
+
+    // -------------------------------------------------------------------------
+    // Fase 1 SVC (17-08-2026) — consolidarNumeroParaContingencia / substituirGateParaContingencia
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("consolidarNumeroParaContingencia avança ultimo_numero e retorna o valor consolidado")
+    void consolidarNumeroParaContingencia_numeroEsperado_avancaERetorna() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(99);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        int retorno = service.consolidarNumeroParaContingencia(CNPJ, SERIE, 100);
+
+        assertEquals(100, retorno, "retorno é a autoridade formal de onde o chamador deriva o número da filha");
+        verify(mapper).atualizarNumero(argThat(s -> s.getUltimoNumero() == 100));
+    }
+
+    @Test
+    @DisplayName("consolidarNumeroParaContingencia com número fora do esperado falha explicitamente — mesma checagem estrita de consumirNumero")
+    void consolidarNumeroParaContingencia_numeroInesperado_lancaIllegalState() {
+        NfeSequencia existente = new NfeSequencia();
+        existente.setCnpjEmitente(CNPJ);
+        existente.setSerie(SERIE);
+        existente.setUltimoNumero(99);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(existente);
+
+        assertThrows(IllegalStateException.class,
+                () -> service.consolidarNumeroParaContingencia(CNPJ, SERIE, 102));
+
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("consolidarNumeroParaContingencia em sequência inexistente falha explicitamente")
+    void consolidarNumeroParaContingencia_sequenciaInexistente_lancaIllegalState() {
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+
+        assertThrows(IllegalStateException.class,
+                () -> service.consolidarNumeroParaContingencia(CNPJ, SERIE, 1));
+        verify(mapper, never()).atualizarNumero(any());
+    }
+
+    @Test
+    @DisplayName("substituirGateParaContingencia delega ao mapper e não lança quando affectedRows==1")
+    void substituirGateParaContingencia_casFeliz_delegaSemLancar() {
+        when(mapper.substituirGateParaContingencia(CNPJ, SERIE, 501L, 900L)).thenReturn(1);
+
+        assertDoesNotThrow(() -> service.substituirGateParaContingencia(CNPJ, SERIE, 501L, 900L));
+
+        verify(mapper).substituirGateParaContingencia(CNPJ, SERIE, 501L, 900L);
+    }
+
+    @Test
+    @DisplayName("substituirGateParaContingencia com affectedRows==0 (gate mudou) lança IllegalStateException explícito")
+    void substituirGateParaContingencia_casFalhou_lancaIllegalState() {
+        when(mapper.substituirGateParaContingencia(CNPJ, SERIE, 501L, 900L)).thenReturn(0);
+
+        assertThrows(IllegalStateException.class,
+                () -> service.substituirGateParaContingencia(CNPJ, SERIE, 501L, 900L));
     }
 }

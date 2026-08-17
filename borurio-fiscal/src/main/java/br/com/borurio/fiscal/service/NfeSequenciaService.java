@@ -106,4 +106,39 @@ public interface NfeSequenciaService {
      *         normal (o gate impede outra reserva concorrente no meio do caminho).
      */
     void consumirNumero(String cnpjEmitente, String serie, int numero);
+
+    // -------------------------------------------------------------------------
+    // Fase 1 SVC (17-08-2026) — persistência/ciclo de substituição, sem transporte. Ambos os
+    // métodos abaixo são Propagation.MANDATORY de propósito: a unidade atômica real é
+    // "consolidar + reservar nNF da filha + inserir filha + trocar o gate", nunca um passo
+    // isolado — chamar qualquer um dos dois sem uma transação externa já aberta (sempre
+    // NfeContingenciaService.abrirContingencia) lança IllegalTransactionStateException.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Consolida o número da NORMAL como definitivamente não-reutilizável, avançando
+     * {@code ultimo_numero} até esse valor sem tocar {@code emissao_ativa_id} nem o estado da
+     * NORMAL (que continua {@code TRANSMITIDO}/{@code PENDENTE_CONFIRMACAO}, intocado). Mesma
+     * checagem estrita {@code numero == ultimoNumero + 1} de {@link #consumirNumero}, mas nunca a
+     * reaproveita — operação nomeada e auditável, específica de contingência.
+     *
+     * @return o {@code ultimoNumero} resultante da consolidação — autoridade formal de onde o
+     *         chamador deriva o número da filha ({@code retorno + 1}), nunca de um campo de
+     *         {@code nfe_emissao} lido antes do lock.
+     * @throws IllegalStateException se a sequência não existir, ou se {@code numero} não for
+     *         exatamente {@code ultimoNumero + 1}.
+     */
+    int consolidarNumeroParaContingencia(String cnpjEmitente, String serie, int numero);
+
+    /**
+     * CAS explícito da troca de gate NORMAL→SVC (Caminho B) — nunca um {@link #ocuparGate}
+     * genérico. Só troca se {@code emissao_ativa_id} ainda for exatamente
+     * {@code emissaoNormalEsperadaId}.
+     *
+     * @throws IllegalStateException se a troca afetar 0 linhas — o gate mudou entre a validação e
+     *         esta chamada (corrida real; nunca deveria acontecer dado o lock já seguro pelo
+     *         chamador, mas tratado como falha explícita, nunca como sucesso silencioso).
+     */
+    void substituirGateParaContingencia(String cnpjEmitente, String serie,
+                                         Long emissaoNormalEsperadaId, Long emissaoSvcNovaId);
 }

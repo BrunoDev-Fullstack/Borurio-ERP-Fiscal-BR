@@ -48,6 +48,35 @@ public class NfeEmissao {
         private Estados() {}
     }
 
+    /**
+     * Fase 1 SVC (17-08-2026, persistencia/ciclo, sem transporte) -- valores de {@link #tpEmis}.
+     * Tabela MOC confirmada em banca: 1=Normal, 4=EPEC, 6=SVC-AN, 7=SVC-RS. EPEC fora do escopo
+     * desta fase -- so NORMAL/SVC_AN/SVC_RS existem aqui.
+     */
+    public static final class TpEmis {
+        public static final String NORMAL = "1";
+        public static final String SVC_AN = "6";
+        public static final String SVC_RS = "7";
+
+        private TpEmis() {}
+    }
+
+    /**
+     * Fase 1 SVC -- valores de {@link #autorizadorDestino}: autoridade que detem o ciclo agora.
+     * Sempre derivado de {@link #tpEmis} pelo chamador (NfeContingenciaService), nunca recebido
+     * independente -- elimina estruturalmente a combinacao invalida tpEmis=SVC_AN com
+     * autorizadorDestino=SVC_RS (ou vice-versa). Distinto da rota por UF da Fase 0
+     * (SefazRotaResolver/SefazRotasProperties), que resolve o ENDPOINT dentro do modo NORMAL --
+     * duas dimensoes diferentes, nomes sem colisao semantica de proposito.
+     */
+    public static final class AutorizadorDestino {
+        public static final String NORMAL = "NORMAL";
+        public static final String SVC_AN = "SVC_AN";
+        public static final String SVC_RS = "SVC_RS";
+
+        private AutorizadorDestino() {}
+    }
+
     private Long id;
     private Long pedidoId;
     private Long empresaId;
@@ -68,6 +97,17 @@ public class NfeEmissao {
     private int tentativasConsulta;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    // Fase 1 SVC (17-08-2026) -- ver TpEmis/AutorizadorDestino acima. dhCont e String (nao
+    // LocalDateTime/OffsetDateTime) de proposito: ISO-8601 com offset formatado uma unica vez no
+    // momento real da abertura de contingencia e persistido literalmente, mesmo padrao ja usado
+    // por nfe_evento_idempotencia.dh_reg_evento_resultado (V037) -- MySQL/JDBC nunca veem um tipo
+    // com fuso, entao nao ha reinterpretacao de fuso em nenhum ponto do caminho.
+    private String tpEmis;
+    private String autorizadorDestino;
+    private Long emissaoOrigemId;
+    private String dhCont;
+    private String xJustContingencia;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -128,4 +168,19 @@ public class NfeEmissao {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getTpEmis() { return tpEmis; }
+    public void setTpEmis(String tpEmis) { this.tpEmis = tpEmis; }
+
+    public String getAutorizadorDestino() { return autorizadorDestino; }
+    public void setAutorizadorDestino(String autorizadorDestino) { this.autorizadorDestino = autorizadorDestino; }
+
+    public Long getEmissaoOrigemId() { return emissaoOrigemId; }
+    public void setEmissaoOrigemId(Long emissaoOrigemId) { this.emissaoOrigemId = emissaoOrigemId; }
+
+    public String getDhCont() { return dhCont; }
+    public void setDhCont(String dhCont) { this.dhCont = dhCont; }
+
+    public String getXJustContingencia() { return xJustContingencia; }
+    public void setXJustContingencia(String xJustContingencia) { this.xJustContingencia = xJustContingencia; }
 }

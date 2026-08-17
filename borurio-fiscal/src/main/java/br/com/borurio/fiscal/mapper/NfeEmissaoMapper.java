@@ -13,6 +13,9 @@ public interface NfeEmissaoMapper {
             + "chave_nfe AS chaveNfe, estado, cstat, xmotivo, nprot, request_id AS requestId, "
             + "tentativas, transmitido_em AS transmitidoEm, resolvido_em AS resolvidoEm, "
             + "ultima_consulta_em AS ultimaConsultaEm, tentativas_consulta AS tentativasConsulta, "
+            + "tp_emis AS tpEmis, autorizador_destino AS autorizadorDestino, "
+            + "emissao_origem_id AS emissaoOrigemId, dh_cont AS dhCont, "
+            + "x_just_contingencia AS xJustContingencia, "
             + "created_at AS createdAt, updated_at AS updatedAt "
             + "FROM nfe_emissao ";
 
@@ -130,4 +133,57 @@ public interface NfeEmissaoMapper {
             WHERE id = #{id} AND estado = 'AUTORIZADO'
             """)
     int marcarCancelado(@Param("id") Long id);
+
+    // -------------------------------------------------------------------------
+    // Fase 1 SVC (17-08-2026) -- persistencia/ciclo de substituicao, sem transporte.
+    // -------------------------------------------------------------------------
+
+    // Insert dedicado da linha filha (Caminho B) -- nunca reaproveita inserir(), que continua
+    // servindo so a abertura normal de ciclo (tp_emis/autorizador_destino ficam nos defaults da
+    // coluna '1'/'NORMAL' quando inserir() e usado). emissao_origem_id aponta pra NORMAL
+    // substituida -- uk_nfe_emissao_origem (V038) garante, no banco, que uma NORMAL so pode ser
+    // substituida uma vez.
+    @Insert("""
+            INSERT INTO nfe_emissao (
+                pedido_id, empresa_id, cnpj_emitente, modelo, serie, numero_nfe,
+                estado, tentativas, tp_emis, autorizador_destino, emissao_origem_id,
+                dh_cont, x_just_contingencia
+            ) VALUES (
+                #{pedidoId}, #{empresaId}, #{cnpjEmitente}, #{modelo}, #{serie}, #{numeroNfe},
+                #{estado}, #{tentativas}, #{tpEmis}, #{autorizadorDestino}, #{emissaoOrigemId},
+                #{dhCont}, #{xJustContingencia}
+            )
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int inserirContingencia(NfeEmissao emissao);
+
+    // Uso interno de NfeEmissaoService.aplicarNovoEstado -- checa, sob lock, se esta emissao foi
+    // substituida (existe uma linha filha com emissao_origem_id = este id). SEMPRE chamado antes
+    // de qualquer short-circuit de isTerminal -- a prova de substituicao nunca pode ser ofuscada
+    // por um estado terminal ja gravado (ver banca 17-08-2026, achado de late-NORMAL).
+    @Select(SELECT_COLUMNS + "WHERE emissao_origem_id = #{emissaoOrigemId} FOR UPDATE")
+    NfeEmissao buscarPorOrigemIdParaAtualizar(@Param("emissaoOrigemId") Long emissaoOrigemId);
+
+    // Leitura simples, sem lock -- uso operacional/futuro (ex.: localizar a filha de uma NORMAL
+    // substituida fora de um fluxo transacional de escrita).
+    @Select(SELECT_COLUMNS + "WHERE emissao_origem_id = #{emissaoOrigemId}")
+    NfeEmissao buscarPorOrigemId(@Param("emissaoOrigemId") Long emissaoOrigemId);
+
+    // Evidencia fiscal de uma NORMAL substituida (late-NORMAL) -- NUNCA toca nfe_sequencia/Pedido/
+    // Estoque, essa e a garantia estrutural inteira deste metodo. Guard idempotente pelo mesmo
+    // padrao de marcarCancelado: so escreve a partir de TRANSMITIDO/PENDENTE_CONFIRMACAO
+    // (affectedRows=0 numa segunda chamada -- o chamador decide, comparando a tupla fiscal
+    // completa, se e replay identico ou divergencia a auditar; este metodo nunca sobrescreve).
+    @Update("""
+            UPDATE nfe_emissao SET
+                estado       = #{estado},
+                cstat        = #{cstat, jdbcType=INTEGER},
+                xmotivo      = #{xmotivo, jdbcType=VARCHAR},
+                nprot        = #{nprot, jdbcType=VARCHAR},
+                resolvido_em = NOW()
+            WHERE id = #{id} AND estado IN ('TRANSMITIDO', 'PENDENTE_CONFIRMACAO')
+            """)
+    int aplicarEvidenciaSubstituida(@Param("id") Long id, @Param("estado") String estado,
+                                     @Param("cstat") Integer cstat, @Param("xmotivo") String xmotivo,
+                                     @Param("nprot") String nprot);
 }

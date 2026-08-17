@@ -13,12 +13,15 @@ import br.com.borurio.fiscal.mapper.NfeEmissaoMapper;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
 import br.com.borurio.web.dto.AberturaCicloResultado;
 import br.com.borurio.web.dto.TipoAberturaCiclo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Gate 1 da máquina de estados fiscal de numeração — ciclo operacional do nNF. Substitui
@@ -49,6 +52,26 @@ import java.util.List;
  */
 @Service
 public class NfeEmissaoService {
+
+    private static final Logger log = LoggerFactory.getLogger(NfeEmissaoService.class);
+
+    /**
+     * Resultado de {@code aplicarNovoEstado} -- distingue os desfechos possíveis pra que
+     * {@link #resolverCicloComEfeitos} saiba exatamente quando é seguro tocar Pedido/Estoque.
+     * Fase 1 SVC (17-08-2026, persistência/ciclo de substituição): antes só existia um boolean
+     * aplicado/não-aplicado; os dois casos novos (NORMAL substituída, ver
+     * {@code emissao_origem_id} em {@link NfeEmissao}) nunca disparam efeito operacional.
+     */
+    private enum ResultadoAplicacao {
+        /** Ciclo (não substituído) já estava terminal antes desta chamada -- no-op. */
+        NAO_APLICADO_JA_TERMINAL,
+        /** Transição normal aplicada -- único resultado que autoriza efeitos de Pedido/Estoque. */
+        APLICADO_NORMAL,
+        /** 1ª evidência fiscal gravada numa NORMAL substituída -- nunca consome número/libera gate/toca Pedido/Estoque. */
+        APLICADO_EVIDENCIA_SUBSTITUIDA,
+        /** NORMAL substituída já tinha evidência gravada (idêntica ou divergente, ver log WARN) -- nunca reaplica. */
+        NAO_APLICADO_EVIDENCIA_JA_REGISTRADA
+    }
 
     private final EmpresaMapper empresaMapper;
     private final PedidoMapper pedidoMapper;
@@ -220,10 +243,16 @@ public class NfeEmissaoService {
      * nfe_sequencia quando terminal) -> Pedido -> Estoque. Ou tudo persiste, ou nada persiste.
      *
      * Exactly-once do CONJUNTO: se o ciclo já estava terminal (chamada duplicada — retry,
-     * reconciliação concorrente), {@link #aplicarNovoEstado} devolve {@code false} e este método
-     * para imediatamente, sem tocar Pedido/Estoque — os efeitos já foram aplicados juntos, na
-     * mesma transação, pela chamada que venceu a primeira vez. Nunca é possível aplicar o efeito
-     * fiscal sem o efeito operacional, nem vice-versa.
+     * reconciliação concorrente), {@code aplicarNovoEstado} devolve um resultado diferente de
+     * {@code APLICADO_NORMAL} e este método para imediatamente, sem tocar Pedido/Estoque — os
+     * efeitos já foram aplicados juntos, na mesma transação, pela chamada que venceu a primeira
+     * vez. Nunca é possível aplicar o efeito fiscal sem o efeito operacional, nem vice-versa.
+     *
+     * Fase 1 SVC (17-08-2026): se {@code emissaoId} identifica uma NORMAL já substituída por
+     * contingência (existe uma linha com {@code emissao_origem_id = emissaoId}),
+     * {@code aplicarNovoEstado} persiste só a evidência fiscal na própria linha NORMAL e devolve
+     * {@code APLICADO_EVIDENCIA_SUBSTITUIDA}/{@code NAO_APLICADO_EVIDENCIA_JA_REGISTRADA} — este
+     * método nunca chama {@code pedidoMapper}/{@code estoqueService} pra nenhum dos dois.
      *
      * Ordem de lock estendida: Empresa -> nfe_sequencia -> nfe_emissao -> Pedido -> Estoque —
      * primeira vez que Pedido/Estoque entram na mesma transação que nfe_sequencia/nfe_emissao;
@@ -237,8 +266,8 @@ public class NfeEmissaoService {
     public void resolverCicloComEfeitos(Long emissaoId, String novoEstado, Integer cStat, String xMotivo, String nProt,
                                          Long pedidoId, String statusPedido, String chaveNfeParaPedido,
                                          boolean controlaEstoque, List<PedidoItem> itens, Long empresaId, String criadoPor) {
-        boolean aplicado = aplicarNovoEstado(emissaoId, novoEstado, cStat, xMotivo, nProt);
-        if (!aplicado) {
+        ResultadoAplicacao resultado = aplicarNovoEstado(emissaoId, novoEstado, cStat, xMotivo, nProt);
+        if (resultado != ResultadoAplicacao.APLICADO_NORMAL) {
             return;
         }
 
@@ -274,9 +303,7 @@ public class NfeEmissaoService {
         return affected == 1;
     }
 
-    // Retorna true se o novo estado foi de fato aplicado nesta chamada; false se o ciclo já
-    // estava terminal (no-op idempotente).
-    private boolean aplicarNovoEstado(Long emissaoId, String novoEstado, Integer cStat, String xMotivo, String nProt) {
+    private ResultadoAplicacao aplicarNovoEstado(Long emissaoId, String novoEstado, Integer cStat, String xMotivo, String nProt) {
         // Ordem canônica de lock do projeto: Empresa -> nfe_sequencia -> nfe_emissao (mesma de
         // abrirCiclo/retomarCicloAtivo e de FiscalNumberingService). Este método recebe só o id
         // da emissão, então precisa descobrir cnpj/série ANTES de travar nfe_sequencia — mas essa
@@ -301,13 +328,68 @@ public class NfeEmissaoService {
         if (emissao == null) {
             throw new IllegalStateException("nfe_emissao id=" + emissaoId + " não encontrada ao resolver ciclo.");
         }
+
+        // Fase 1 SVC (17-08-2026), fast-path (banca 17-08-2026, achado de code-review confirmado
+        // contra MySQL real — gap lock em uk_nfe_emissao_origem: X no supremum + INSERT_INTENTION
+        // concorrente WAITING): emissao_ativa_id NUNCA vira fonte de verdade — só um atalho seguro
+        // enquanto nfe_sequencia já está travada por outro motivo (transição terminal). Sob esse
+        // MESMO lock, se o gate ainda aponta pra esta emissão, uma substituição (Caminho B) já
+        // commitada não pode existir: abrirContingencia precisa desse mesmo lock, na mesma ordem
+        // canônica, ANTES de inserir a filha e mover o gate — então "gate == esta emissão" e
+        // "filha já existe" são mutuamente exclusivos no instante em que travamos. Só pulamos a
+        // busca por emissao_origem_id (a que toma o gap lock) neste caso; em qualquer outro —
+        // gate apontando pra outro lugar, gate NULL, ou transição não-terminal (P0-3 continua
+        // nunca travando nfe_sequencia aqui, de propósito, pra não reintroduzir a serialização que
+        // aquela correção existia pra eliminar) — a busca por emissao_origem_id roda exatamente
+        // como antes. emissao_origem_id continua a única prova durável; isto não a substitui.
+        boolean gateAindaNestaEmissao = terminal && seq != null && emissaoId.equals(seq.getEmissaoAtivaId());
+
+        if (!gateAindaNestaEmissao) {
+            NfeEmissao filha = nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(emissaoId);
+            if (filha != null) {
+                int affected = nfeEmissaoMapper.aplicarEvidenciaSubstituida(emissaoId, novoEstado, cStat, xMotivo, nProt);
+                if (affected == 1) {
+                    return ResultadoAplicacao.APLICADO_EVIDENCIA_SUBSTITUIDA;
+                }
+                // affected == 0: já havia evidência gravada (2ª resposta tardia, ex. retry
+                // duplicado). Idempotência por TUPLA FISCAL COMPLETA, null-safe — mesmo estado
+                // sozinho não prova mesma evidência (AUTORIZADO/100/nProt=X != AUTORIZADO/100/nProt=Y).
+                //
+                // Achado de code-review (17-08-2026, 2ª rodada, CONFIRMED): a versão anterior fazia
+                // um SEGUNDO SELECT não-bloqueante aqui (buscarPorId) pra ler a "gravada" -- sob
+                // REPEATABLE_READ, esse SELECT reaproveitaria o MESMO snapshot consistente já
+                // estabelecido pela 1ª leitura não-bloqueante da transação (preRead, logo acima),
+                // podendo devolver dado anterior ao commit de quem gravou a evidência primeiro,
+                // mesmo já sabendo (via affected==0) que existe evidência mais nova. `emissao`
+                // (já obtida via FOR UPDATE alguns passos acima) é a resposta certa: leitura COM
+                // LOCK sempre vê o último dado commitado, nunca o snapshot -- e como seguramos essa
+                // trava continuamente desde então, ninguém mais pôde tê-la alterado nesse meio-tempo.
+                // Reaproveitar em vez de reler elimina o bug e a viagem extra ao banco.
+                boolean identica = Objects.equals(emissao.getEstado(), novoEstado)
+                        && Objects.equals(emissao.getCstat(), cStat)
+                        && Objects.equals(emissao.getXmotivo(), xMotivo)
+                        && Objects.equals(emissao.getNprot(), nProt);
+                if (!identica) {
+                    // Nunca decide sozinho qual versão vale, nunca sobrescreve — só torna a
+                    // divergência visível (mesmo padrão de registrarEscalonamentoSeNecessario em
+                    // NfeReconciliacaoService).
+                    log.warn("[NfeEmissao] Evidência divergente para NORMAL substituída id={} -- gravada="
+                                    + "estado={}/cstat={}/xmotivo={}/nprot={}, tentada=estado={}/cstat={}/xmotivo={}/nprot={} "
+                                    + "-- não sobrescrita, requer revisão manual.",
+                            emissaoId, emissao.getEstado(), emissao.getCstat(), emissao.getXmotivo(), emissao.getNprot(),
+                            novoEstado, cStat, xMotivo, nProt);
+                }
+                return ResultadoAplicacao.NAO_APLICADO_EVIDENCIA_JA_REGISTRADA;
+            }
+        }
+
         if (NfeEmissao.Estados.isTerminal(emissao.getEstado())) {
             // Idempotência: decidida pelo estado já travado (a fonte válida), nunca pela
             // pré-leitura de cima — protege contra uma segunda resolução do mesmo ciclo (Gate 3:
-            // reconciliação pode ser chamada mais de uma vez). false sinaliza ao chamador
+            // reconciliação pode ser chamada mais de uma vez). Sinaliza ao chamador
             // (resolverCicloComEfeitos) que os efeitos de Pedido/Estoque já foram aplicados antes,
             // na transação que resolveu este ciclo pela primeira vez — nunca reaplicar.
-            return false;
+            return ResultadoAplicacao.NAO_APLICADO_JA_TERMINAL;
         }
 
         if (terminal) {
@@ -340,6 +422,6 @@ public class NfeEmissaoService {
             sequenciaService.consumirNumero(emissao.getCnpjEmitente(), emissao.getSerie(), emissao.getNumeroNfe());
             sequenciaService.liberarGate(emissao.getCnpjEmitente(), emissao.getSerie());
         }
-        return true;
+        return ResultadoAplicacao.APLICADO_NORMAL;
     }
 }

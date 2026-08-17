@@ -553,4 +553,168 @@ class NfeEmissaoServiceTest {
 
         assertFalse(venceu);
     }
+
+    // -------------------------------------------------------------------------
+    // Fase 1 SVC (17-08-2026) — branch late-NORMAL (emissao_origem_id como verdade durável).
+    // Mockito devolve null por padrão para buscarPorOrigemIdParaAtualizar em todos os testes
+    // ACIMA desta seção -- é exatamente essa a prova de que o comportamento pré-Fase-1 continua
+    // 100% inalterado quando não há substituição (filha == null).
+    // -------------------------------------------------------------------------
+
+    private NfeEmissao gravadaSubstituida(String estado, Integer cstat, String xmotivo, String nprot) {
+        NfeEmissao e = emissao(501L, PEDIDO_ID, estado, 5);
+        e.setCstat(cstat);
+        e.setXmotivo(xmotivo);
+        e.setNprot(nprot);
+        return e;
+    }
+
+    @Test
+    @DisplayName("Fast-path (banca 17-08-2026, achado de gap lock confirmado): gate ainda na própria emissão -- nunca consulta emissao_origem_id, comportamento idêntico ao pré-Fase-1")
+    void resolverCicloComEfeitos_gateAindaNaPropriaEmissao_fastPathPulaConsultaOrigem() {
+        NfeEmissao preRead = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(preRead);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(4, 501L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "prot",
+                PEDIDO_ID, "AUTORIZADO", "chave123", true, itensPadrao(), 10L, "sistema");
+
+        // Prova do fast-path: com o gate ainda apontando pra esta emissão (sob o mesmo lock de
+        // nfe_sequencia), uma substituição commitada é impossível -- a busca que toma o gap lock
+        // em uk_nfe_emissao_origem nunca é chamada (ver evidência real em
+        // NfeContingenciaGapLockReproducaoRealMySqlIT#depoisDoFastPath...).
+        verify(nfeEmissaoMapper, never()).buscarPorOrigemIdParaAtualizar(any());
+        verify(nfeEmissaoMapper, never()).aplicarEvidenciaSubstituida(any(), any(), any(), any(), any());
+        verify(sequenciaService).consumirNumero(CNPJ, "1", 5);
+        verify(sequenciaService).liberarGate(CNPJ, "1");
+        verify(pedidoMapper).atualizarStatus(PEDIDO_ID, "AUTORIZADO", "chave123");
+        verify(estoqueService).baixaDefinitivaItens(itensPadrao(), 10L, PEDIDO_ID, "sistema");
+    }
+
+    @Test
+    @DisplayName("Gate NÃO aponta mais pra esta emissão, mas sem filha (corrupção real): fast-path não se aplica, consulta emissao_origem_id normalmente e falha explícito")
+    void resolverCicloComEfeitos_gateNaoCorresponde_semFilha_consultaOrigemEFalha() {
+        NfeEmissao preRead = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(preRead);
+        // Gate aponta pra outro ciclo (999L) -- gateAindaNestaEmissao é false, então o fast-path
+        // não se aplica e a consulta por emissao_origem_id roda normalmente.
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(4, 999L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+        when(nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(501L)).thenReturn(null);
+
+        assertThrows(IllegalStateException.class, () -> service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "prot",
+                PEDIDO_ID, "AUTORIZADO", "chave123", true, itensPadrao(), 10L, "sistema"));
+
+        verify(nfeEmissaoMapper).buscarPorOrigemIdParaAtualizar(501L);
+        verifyNoInteractions(pedidoMapper, estoqueService);
+    }
+
+    @Test
+    @DisplayName("NORMAL substituída, ainda TRANSMITIDO: 1ª evidência aplicada — zero Pedido/Estoque/consumirNumero/liberarGate")
+    void resolverCicloComEfeitos_normalSubstituidaAindaTransmitido_aplicaEvidenciaSemEfeitos() {
+        NfeEmissao preRead = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        NfeEmissao ativa = emissao(501L, PEDIDO_ID, NfeEmissao.Estados.TRANSMITIDO, 5);
+        NfeEmissao filha = emissao(900L, PEDIDO_ID, NfeEmissao.Estados.RESERVADO, 6);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(preRead);
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(ativa);
+        when(nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(501L)).thenReturn(filha);
+        when(nfeEmissaoMapper.aplicarEvidenciaSubstituida(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "prot-tardio"))
+                .thenReturn(1);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "prot-tardio",
+                PEDIDO_ID, "AUTORIZADO", "chaveNormal", true, itensPadrao(), 10L, "sistema");
+
+        verify(nfeEmissaoMapper).aplicarEvidenciaSubstituida(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "prot-tardio");
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verifyNoInteractions(pedidoMapper, estoqueService);
+    }
+
+    @Test
+    @DisplayName("Idempotência 1/4: tupla fiscal idêntica repetida — no-op silencioso, zero efeitos")
+    void resolverCicloComEfeitos_evidenciaJaRegistrada_tuplaIdentica_noOp() {
+        NfeEmissao gravada = gravadaSubstituida(NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT1");
+        NfeEmissao filha = emissao(900L, PEDIDO_ID, NfeEmissao.Estados.RESERVADO, 6);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(gravada);
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(gravada);
+        when(nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(501L)).thenReturn(filha);
+        when(nfeEmissaoMapper.aplicarEvidenciaSubstituida(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT1"))
+                .thenReturn(0);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT1",
+                PEDIDO_ID, "AUTORIZADO", "chaveNormal", true, itensPadrao(), 10L, "sistema");
+
+        // Prova a reordenação (ajuste 3, v4): mesmo com emissao.estado já AUTORIZADO (terminal),
+        // a chamada ainda passou pelo caminho de evidência (aplicarEvidenciaSubstituida foi
+        // chamado) em vez de cair direto no short-circuit antigo de isTerminal.
+        verify(nfeEmissaoMapper).aplicarEvidenciaSubstituida(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT1");
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verifyNoInteractions(pedidoMapper, estoqueService);
+    }
+
+    @Test
+    @DisplayName("Idempotência 2/4: mesmo estado/cStat, nProt divergente — não sobrescreve, zero efeitos")
+    void resolverCicloComEfeitos_evidenciaJaRegistrada_nProtDivergente_naoSobrescreve() {
+        NfeEmissao gravada = gravadaSubstituida(NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT_ANTIGO");
+        NfeEmissao filha = emissao(900L, PEDIDO_ID, NfeEmissao.Estados.RESERVADO, 6);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(gravada);
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(gravada);
+        when(nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(501L)).thenReturn(filha);
+        when(nfeEmissaoMapper.aplicarEvidenciaSubstituida(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT_NOVO"))
+                .thenReturn(0);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT_NOVO",
+                PEDIDO_ID, "AUTORIZADO", "chaveNormal", true, itensPadrao(), 10L, "sistema");
+
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verifyNoInteractions(pedidoMapper, estoqueService);
+    }
+
+    @Test
+    @DisplayName("Idempotência 3/4: mesmo estado, cStat divergente — não sobrescreve, zero efeitos")
+    void resolverCicloComEfeitos_evidenciaJaRegistrada_cStatDivergente_naoSobrescreve() {
+        NfeEmissao gravada = gravadaSubstituida(NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT1");
+        NfeEmissao filha = emissao(900L, PEDIDO_ID, NfeEmissao.Estados.RESERVADO, 6);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(gravada);
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(gravada);
+        when(nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(501L)).thenReturn(filha);
+        when(nfeEmissaoMapper.aplicarEvidenciaSubstituida(501L, NfeEmissao.Estados.AUTORIZADO, 150, null, "PROT1"))
+                .thenReturn(0);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.AUTORIZADO, 150, null, "PROT1",
+                PEDIDO_ID, "AUTORIZADO", "chaveNormal", true, itensPadrao(), 10L, "sistema");
+
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verifyNoInteractions(pedidoMapper, estoqueService);
+    }
+
+    @Test
+    @DisplayName("Idempotência 4/4: estado divergente — não sobrescreve, zero efeitos (sem usar DENEGADO)")
+    void resolverCicloComEfeitos_evidenciaJaRegistrada_estadoDivergente_naoSobrescreve() {
+        NfeEmissao gravada = gravadaSubstituida(NfeEmissao.Estados.AUTORIZADO, 100, null, "PROT1");
+        NfeEmissao filha = emissao(900L, PEDIDO_ID, NfeEmissao.Estados.RESERVADO, 6);
+        when(nfeEmissaoMapper.buscarPorId(501L)).thenReturn(gravada);
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(501L)).thenReturn(gravada);
+        when(nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(501L)).thenReturn(filha);
+        when(nfeEmissaoMapper.aplicarEvidenciaSubstituida(501L, NfeEmissao.Estados.NUMERO_OCUPADO, 205, "NF-e já denegada", null))
+                .thenReturn(0);
+
+        service.resolverCicloComEfeitos(501L, NfeEmissao.Estados.NUMERO_OCUPADO, 205, "NF-e já denegada", null,
+                PEDIDO_ID, "ERRO", "chaveNormal", true, itensPadrao(), 10L, "sistema");
+
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verifyNoInteractions(pedidoMapper, estoqueService);
+    }
 }
