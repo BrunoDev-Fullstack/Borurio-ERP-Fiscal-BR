@@ -60,6 +60,10 @@ public class NfeXmlBuilder {
             append(doc, ideEl, "indIntermed", ide.getIndIntermed());
             append(doc, ideEl, "procEmi",  ide.getProcEmi());
             append(doc, ideEl, "verProc",  ide.getVerProc());
+            // SVC Fase 2 (18-08-2026) -- posicao confirmada contra o XSD oficial (leiauteNFe_v4.00.xsd):
+            // grupo opcional logo apos verProc, antes de NFref. append() ja e no-op para null/blank.
+            append(doc, ideEl, "dhCont",   ide.getDhCont());
+            append(doc, ideEl, "xJust",    ide.getXJust());
 
             infEl.appendChild(ideEl);
 

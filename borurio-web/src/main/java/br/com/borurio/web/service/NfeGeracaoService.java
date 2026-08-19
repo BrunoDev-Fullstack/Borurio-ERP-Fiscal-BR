@@ -10,6 +10,7 @@ import br.com.borurio.fiscal.dto.NfeEmissaoItem;
 import br.com.borurio.fiscal.dto.NfeEmissaoRequest;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
 import br.com.borurio.fiscal.dto.NfeSefazRetorno;
+import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeLog;
 import br.com.borurio.fiscal.service.NcmService;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
@@ -155,21 +156,132 @@ public class NfeGeracaoService {
 
         String cUF  = resolverCUF(ufEmitente);
         String cnpj = cnpjEmitente;
-        String serie = padLeft(req.getSerie(), 3);
 
-        // Se o número não for informado, o sequenciador atribui o próximo de forma atômica.
-        String numeroStr;
-        if (req.getNumero() == null || req.getNumero().isBlank()) {
-            int proximo = sequenciaService.proximoNumero(cnpj, req.getSerie());
-            numeroStr = String.valueOf(proximo);
-            log.info("[NfeGeracao] Número auto-atribuído pelo sequenciador | serie={} | numero={}", req.getSerie(), proximo);
+        // SVC Fase 2 (18-08-2026): origem única de tpEmis/dhCont/xJust E de numeroNfe/serie/cnpj
+        // — a mesma leitura de nfe_emissao alimenta chave43 e <ide>, nunca dois caminhos de
+        // decisão independentes. Fail-closed: emissaoId != null com linha ausente, tpEmis
+        // ausente/inválido, ou divergência de número/série/CNPJ contra o request nunca cai
+        // silenciosamente em NORMAL — geração abortada explicitamente. Só emissaoId == null
+        // (caminho administrativo legado, sem ciclo fiscal nenhum) tem default legítimo para
+        // NORMAL. Ver plano SVC Fase 2 (v2), itens 4/4b.
+        NfeEmissao emissaoAtual;
+        String tpEmis;
+        String dhCont;
+        String xJust;
+        String serie;
+        String nNF;
+
+        if (emissaoId != null) {
+            emissaoAtual = nfeEmissaoService.buscarPorId(emissaoId);
+            if (emissaoAtual == null) {
+                throw new IllegalStateException(
+                        "nfe_emissao id=" + emissaoId + " não encontrada ao gerar XML — geração abortada.");
+            }
+            // Banca 19-08-2026 (SVC Fase 2, achado novo): o fluxo real (PedidoEmissaoService ->
+            // abrirCiclo -> gerar) só chama gerar() com uma linha que abrirCiclo() acabou de travar
+            // como RESERVADO — mas gerar() em si não validava isso, dependendo inteiramente do
+            // chamador nunca errar. Fail-closed explícito: gerar() nunca monta chave/XML para um
+            // ciclo fora de RESERVADO (TRANSMITIDO/AUTORIZADO/DENEGADO/AGUARDANDO_CORRECAO/
+            // PENDENTE_CONFIRMACAO/NUMERO_OCUPADO/CANCELADO nunca podem gerar identidade nova aqui).
+            String estadoAtual = emissaoAtual.getEstado();
+            if (!NfeEmissao.Estados.RESERVADO.equals(estadoAtual)) {
+                throw new IllegalStateException("nfe_emissao id=" + emissaoId + " está em estado '"
+                        + estadoAtual + "' — geração de chave/XML só é permitida em RESERVADO.");
+            }
+            tpEmis = emissaoAtual.getTpEmis();
+            if (tpEmis == null || tpEmis.isBlank()) {
+                throw new IllegalStateException(
+                        "nfe_emissao id=" + emissaoId + " sem tpEmis definido — dado incompleto, geração abortada.");
+            }
+            if (!NfeEmissao.TpEmis.NORMAL.equals(tpEmis) && !NfeEmissao.TpEmis.SVC_AN.equals(tpEmis)
+                    && !NfeEmissao.TpEmis.SVC_RS.equals(tpEmis)) {
+                throw new IllegalStateException("nfe_emissao id=" + emissaoId + " tem tpEmis inválido: '"
+                        + tpEmis + "' — só NORMAL(1)/SVC_AN(6)/SVC_RS(7) são suportados.");
+            }
+            dhCont = emissaoAtual.getDhCont();
+            xJust  = emissaoAtual.getXJustContingencia();
+
+            // Banca 19-08-2026: fail-closed explícito em vez de NPE incidental — numeroNfe/serie/
+            // cnpjEmitente ausentes ou inválidos na linha reservada abortam com diagnóstico claro,
+            // nunca com uma exceção de runtime não relacionada ao contrato do método.
+            if (emissaoAtual.getNumeroNfe() <= 0) {
+                throw new IllegalStateException("nfe_emissao id=" + emissaoId + " tem numeroNfe inválido ("
+                        + emissaoAtual.getNumeroNfe() + ") — geração abortada.");
+            }
+            if (emissaoAtual.getSerie() == null || emissaoAtual.getSerie().isBlank()) {
+                throw new IllegalStateException(
+                        "nfe_emissao id=" + emissaoId + " sem série definida — geração abortada.");
+            }
+            if (emissaoAtual.getCnpjEmitente() == null || emissaoAtual.getCnpjEmitente().isBlank()) {
+                throw new IllegalStateException(
+                        "nfe_emissao id=" + emissaoId + " sem cnpjEmitente definido — geração abortada.");
+            }
+
+            String numeroReservado = String.valueOf(emissaoAtual.getNumeroNfe());
+            if (req.getNumero() != null && !req.getNumero().isBlank()
+                    && !numeroReservado.equals(stripLeadingZeros(req.getNumero()))) {
+                throw new IllegalStateException("Número do request (" + req.getNumero()
+                        + ") diverge do reservado em nfe_emissao id=" + emissaoId + " (" + numeroReservado
+                        + ") — geração abortada.");
+            }
+            if (!emissaoAtual.getSerie().equals(req.getSerie())) {
+                throw new IllegalStateException("Série do request (" + req.getSerie()
+                        + ") diverge da reservada em nfe_emissao id=" + emissaoId + " ("
+                        + emissaoAtual.getSerie() + ") — geração abortada.");
+            }
+            if (!emissaoAtual.getCnpjEmitente().equals(cnpjEmitente)) {
+                throw new IllegalStateException("CNPJ resolvido (" + cnpjEmitente
+                        + ") diverge do reservado em nfe_emissao id=" + emissaoId + " ("
+                        + emissaoAtual.getCnpjEmitente() + ") — geração abortada.");
+            }
+
+            serie = padLeft(emissaoAtual.getSerie(), 3);
+            nNF   = padLeft(numeroReservado, 9);
         } else {
-            numeroStr = req.getNumero();
+            // ÚNICO caso legítimo de default — caminho administrativo legado, sem ciclo nfe_emissao.
+            emissaoAtual = null;
+            tpEmis = NfeEmissao.TpEmis.NORMAL;
+            dhCont = null;
+            xJust  = null;
+
+            serie = padLeft(req.getSerie(), 3);
+
+            // Se o número não for informado, o sequenciador atribui o próximo de forma atômica.
+            String numeroStr;
+            if (req.getNumero() == null || req.getNumero().isBlank()) {
+                int proximo = sequenciaService.proximoNumero(cnpj, req.getSerie());
+                numeroStr = String.valueOf(proximo);
+                log.info("[NfeGeracao] Número auto-atribuído pelo sequenciador | serie={} | numero={}", req.getSerie(), proximo);
+            } else {
+                numeroStr = req.getNumero();
+            }
+            nNF = padLeft(numeroStr, 9);  // zero-padded for chave43 key
         }
-        String nNF = padLeft(numeroStr, 9);  // zero-padded for chave43 key
+
+        validarContingencia(emissaoId, tpEmis, dhCont, xJust);
+
+        // Banca 19-08-2026 (SVC Fase 2, decisão dos 3 casos de identidade fiscal): o gate de estado
+        // acima (linha ~187) já garante que só se chega aqui com a linha em RESERVADO. Nos 3 cenários
+        // que produzem RESERVADO, gerar cNF/AAMM novos a cada chamada é sempre a política correta,
+        // nunca reaproveitar nfe_emissao.chave_nfe:
+        //   1) RESERVADO recém-aberto (chave_nfe/cstat null) — nunca houve tentativa, gerar é óbvio.
+        //   2) RESERVADO via reverterParaReservadoPorFalhaLocal (chave_nfe presente, cstat null) —
+        //      só é chamado quando há certeza local/síncrona de que a chave anterior nunca saiu do
+        //      Borurio (nunca alcançou a SEFAZ); gerar de novo é seguro e mantém um único caminho de
+        //      código (não há necessidade de reaproveitar algo que nunca foi transmitido).
+        //   3) RESERVADO via retomarComoReservado após AGUARDANDO_CORRECAO (chave_nfe presente,
+        //      cstat NOT NULL — código real de rejeição da SEFAZ) — reenviar a MESMA chave já
+        //      processada arrisca cStat=204 (duplicidade); gerar cNF novo aqui não é só seguro, é
+        //      obrigatório. numeroNfe não muda nesta rodada (mesma linha, mesmo Gate 1) — divergência
+        //      entre isso e o texto do INTEGRATION_CONTRACT sobre "nNF novo a cada tentativa" fica
+        //      registrada para banca própria, não é escopo desta correção.
+        // Um único instante (`agora`) alimenta AAMM (chave) e dhEmi (<ide>) — antes eram duas
+        // chamadas independentes a LocalDateTime.now(), com risco teórico de divergir num boundary
+        // de minuto/mês entre as duas leituras do relógio. Não resolve a dívida multi-UF do offset
+        // -03:00 fixo (registrada à parte) — só garante que AAMM e dhEmi sempre vêm do mesmo agora.
+        LocalDateTime agora  = LocalDateTime.now();
         String cNF    = gerarCNF();
-        String aaaMM  = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyMM"));
-        String tpEmis = "1";
+        String aaaMM  = agora.format(DateTimeFormatter.ofPattern("yyMM"));
 
         String chave43 = cUF + aaaMM + cnpj + "55" + serie + nNF + tpEmis + cNF;
         String cDV     = calcularCDV(chave43);
@@ -190,7 +302,7 @@ public class NfeGeracaoService {
 
         InfNFe inf = new InfNFe();
         inf.setId("NFe" + chave);
-        inf.setIde(montarIde(req, cUF, cNF, nNFXml, serieXml, cDV, ufEmitente, empresa));
+        inf.setIde(montarIde(req, cUF, cNF, nNFXml, serieXml, cDV, ufEmitente, empresa, tpEmis, dhCont, xJust, agora));
         inf.setEmit(montarEmit(empresa, ufEmitente));
         inf.setDest(montarDest(req));
         inf.setDet(montarDet(req));
@@ -263,19 +375,22 @@ public class NfeGeracaoService {
 
     private Ide montarIde(NfeEmissaoRequest req, String cUF, String cNF,
                           String nNF, String serie, String cDV, String ufEmitente,
-                          Empresa empresa) {
+                          Empresa empresa, String tpEmis, String dhCont, String xJust,
+                          LocalDateTime agora) {
         Ide ide = new Ide();
         ide.setCUF(cUF);
         ide.setCNF(cNF);
         ide.setNatOp(req.getNaturezaOperacao() != null ? req.getNaturezaOperacao() : "VENDA DE MERCADORIA");
         ide.setSerie(serie);
         ide.setNNF(nNF);
-        ide.setDhEmi(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) + "-03:00");
+        ide.setDhEmi(agora.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) + "-03:00");
         ide.setTpNF("1");
         ide.setIdDest(resolverIdDest(req.getDestUf(), ufEmitente));
         ide.setCMunFG(emitente.getCodigoMunicipio());
         ide.setTpImp("1");
-        ide.setTpEmis("1");
+        // SVC Fase 2 (18-08-2026): origem única — nunca mais hardcoded "1" aqui, independente do
+        // valor usado para montar a chave (mesma variável `tpEmis` resolvida em gerar()).
+        ide.setTpEmis(tpEmis);
         ide.setCDV(cDV);
         ide.setTpAmb(String.valueOf(tpAmb));
         ide.setFinNFe("1");
@@ -284,7 +399,38 @@ public class NfeGeracaoService {
         ide.setIndIntermed("0"); // 0 = venda direta, sem intermediador/marketplace (emitente vende em nome próprio)
         ide.setProcEmi("0");
         ide.setVerProc("1.0.0");
+        // SVC Fase 2 (18-08-2026): só presentes para tpEmis != NORMAL — NfeXmlBuilder.append() já
+        // ignora null/blank, então NORMAL nunca emite os dois elementos no XML.
+        ide.setDhCont(dhCont);
+        ide.setXJust(xJust);
         return ide;
+    }
+
+    /**
+     * SVC Fase 2 (18-08-2026) — invariantes locais de dhCont/xJust (plano v2, item 7): os dois
+     * sempre juntos ou nenhum (nunca só um), e NORMAL nunca carrega resíduo de contingência. O
+     * XSD oficial só garante "os dois juntos ou nenhum" (grupo opcional único em &lt;ide&gt;) —
+     * "obrigatório quando tpEmis≠1" é regra de negócio em prosa, não constraint de XSD 1.0.
+     */
+    private void validarContingencia(Long emissaoId, String tpEmis, String dhCont, String xJust) {
+        boolean temDhCont = dhCont != null && !dhCont.isBlank();
+        boolean temXJust  = xJust != null && !xJust.isBlank();
+        if (temDhCont != temXJust) {
+            throw new IllegalStateException("nfe_emissao id=" + emissaoId + " (tpEmis=" + tpEmis
+                    + "): dhCont/xJust devem estar ambos presentes ou ambos ausentes — geração abortada.");
+        }
+        if (NfeEmissao.TpEmis.NORMAL.equals(tpEmis) && (temDhCont || temXJust)) {
+            throw new IllegalStateException("nfe_emissao id=" + emissaoId
+                    + ": tpEmis=NORMAL não pode ter dhCont/xJust residual — geração abortada.");
+        }
+        // Banca 19-08-2026: a checagem acima só garante "ambos ou nenhum" — faltava a cláusula de
+        // negócio "SVC exige os dois". Sem isso, tpEmis=6/7 com os dois campos ausentes passava
+        // despercebido (achado real, confirmado por teste diagnóstico em 18-08-2026).
+        boolean isSvc = NfeEmissao.TpEmis.SVC_AN.equals(tpEmis) || NfeEmissao.TpEmis.SVC_RS.equals(tpEmis);
+        if (isSvc && !temDhCont) {
+            throw new IllegalStateException("nfe_emissao id=" + emissaoId + " (tpEmis=" + tpEmis
+                    + "): contingência SVC exige dhCont e xJust presentes — geração abortada.");
+        }
     }
 
     /**

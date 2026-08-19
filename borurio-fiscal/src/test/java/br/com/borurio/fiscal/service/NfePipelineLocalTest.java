@@ -62,6 +62,37 @@ public class NfePipelineLocalTest {
             </NFe>
             """;
 
+    // SVC Fase 2 (18-08-2026): mesma fixture, tpEmis=6 (SVC-AN) com dhCont/xJust — prova que a
+    // assinatura permanece estruturalmente intocada quando a NF-e carrega contingência.
+    private static final String XML_NFE_SVC_NAO_ASSINADO = """
+            <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+                <infNFe Id="NFe35260412345678000195550010000000011000000010" versao="4.00">
+                    <ide>
+                        <cUF>35</cUF>
+                        <natOp>VENDA DE MERCADORIA</natOp>
+                        <mod>55</mod>
+                        <serie>1</serie>
+                        <nNF>1</nNF>
+                        <dhEmi>2026-04-28T10:00:00-03:00</dhEmi>
+                        <tpNF>1</tpNF>
+                        <idDest>1</idDest>
+                        <cMunFG>3550308</cMunFG>
+                        <tpImp>1</tpImp>
+                        <tpEmis>6</tpEmis>
+                        <cDV>0</cDV>
+                        <tpAmb>2</tpAmb>
+                        <finNFe>1</finNFe>
+                        <indFinal>1</indFinal>
+                        <indPres>1</indPres>
+                        <procEmi>0</procEmi>
+                        <verProc>1.0</verProc>
+                        <dhCont>2026-04-28T09:00:00-03:00</dhCont>
+                        <xJust>Justificativa de contingencia SVC-AN para teste local de pipeline.</xJust>
+                    </ide>
+                </infNFe>
+            </NFe>
+            """;
+
     @Test
     @DisplayName("Deve validar mockEnviNFe.xml contra XSD consolidado NF-e 4.00 sem SOAP")
     void deveValidarXsdLocalSemSoap() throws Exception {
@@ -379,6 +410,52 @@ public class NfePipelineLocalTest {
                 "Elemento <infNFe> não encontrado como filho direto de <NFe>.");
         assertTrue(foundSignature,
                 "Elemento <Signature> não encontrado como filho direto de <NFe>.");
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2 (18-08-2026): <Signature> continua filha direta de <NFe> e Id inalterado "
+            + "quando a NF-e carrega tpEmis=6/dhCont/xJust (contingência SVC-AN)")
+    void deveConfirmarAssinaturaDentroDeNFeComTpEmisSvc() throws Exception {
+
+        assumeTestCertificateAvailable();
+
+        CertificadoServiceImpl certificadoService = new CertificadoServiceImpl();
+        ReflectionTestUtils.setField(certificadoService, "certPath",     CERT_TESTE_PATH);
+        ReflectionTestUtils.setField(certificadoService, "certPassword", "2025@Qz1");
+        ReflectionTestUtils.setField(certificadoService, "certType",     CERT_TESTE_TYPE);
+        certificadoService.init();
+
+        AssinaturaXmlService assinaturaService = new AssinaturaXmlService(certificadoService);
+
+        String xmlAssinado = assinaturaService.assinar(XML_NFE_SVC_NAO_ASSINADO);
+        assertNotNull(xmlAssinado, "XML assinado não pode ser nulo.");
+
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+
+        Document signedDoc;
+        try (var stream = new ByteArrayInputStream(xmlAssinado.getBytes(StandardCharsets.UTF_8))) {
+            signedDoc = factory.newDocumentBuilder().parse(stream);
+        }
+
+        assertEquals("NFe", signedDoc.getDocumentElement().getLocalName());
+
+        NodeList signatures = signedDoc.getElementsByTagNameNS(
+                "http://www.w3.org/2000/09/xmldsig#", "Signature");
+        assertEquals(1, signatures.getLength(),
+                "O XML SVC assinado deve conter exatamente um elemento <Signature>.");
+
+        Node signatureNode = signatures.item(0);
+        assertEquals("NFe", signatureNode.getParentNode().getLocalName(),
+                "<Signature> deve continuar filha direta de <NFe> mesmo com tpEmis=6/dhCont/xJust — "
+                        + "a assinatura não inspeciona campos internos de <ide>.");
+
+        NodeList infNFeList = signedDoc.getElementsByTagNameNS(
+                "http://www.portalfiscal.inf.br/nfe", "infNFe");
+        assertEquals("NFe35260412345678000195550010000000011000000010",
+                ((org.w3c.dom.Element) infNFeList.item(0)).getAttribute("Id"),
+                "Id da infNFe deve permanecer inalterado após a assinatura, mesmo com dados de contingência.");
     }
 
     @Test

@@ -193,4 +193,64 @@ public class NfeXmlBuilderTest {
         assertThrows(NullPointerException.class, () -> new NfeXmlBuilder().build(nfe, null));
     }
 
+    // -----------------------------------------------------------------
+    // SVC Fase 2 (18-08-2026) — dhCont/xJust: append() pula nulos/blank (mesmo padrão dos
+    // demais campos de Ide); quando presentes, aparecem logo após verProc, antes de NFref —
+    // posição confirmada contra o XSD oficial (leiauteNFe_v4.00.xsd, grupo opcional em <ide>).
+    // -----------------------------------------------------------------
+
+    @Test
+    @DisplayName("SVC Fase 2: NORMAL (dhCont/xJust nunca setados) não inclui nenhum dos dois no XML")
+    public void build_normalSemDhContEXJust_naoInclueNenhumDosDoisNoXml() throws Exception {
+        String xml = new NfeXmlBuilder().build(nfeMinimaValida(), ModalidadeFrete.CONTA_TERCEIROS);
+
+        assertFalse(xml.contains("<dhCont>"), "NORMAL (tpEmis=1) nunca deve conter <dhCont> no XML.");
+        assertFalse(xml.contains("<xJust>"), "NORMAL (tpEmis=1) nunca deve conter <xJust> no XML.");
+
+        Document doc = parseXmlComEntidadesDesabilitadas(xml);
+        assertDoesNotThrow(() -> new XsdValidator().validate(doc, SCHEMA),
+                "XML NORMAL sem dhCont/xJust deve continuar válido contra o XSD.");
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: dhCont/xJust presentes aparecem logo após verProc, na ordem certa")
+    public void build_svcComDhContEXJust_aparecemLogoAposVerProc() throws Exception {
+        NFe nfe = nfeMinimaValida();
+        nfe.getInfNFe().getIde().setTpEmis("6");
+        nfe.getInfNFe().getIde().setDhCont("2026-08-18T10:05:00-03:00");
+        nfe.getInfNFe().getIde().setXJust("Justificativa de contingencia SVC-AN para fins de teste unitario.");
+
+        String xml = new NfeXmlBuilder().build(nfe, ModalidadeFrete.CONTA_TERCEIROS);
+
+        int idxVerProc = xml.indexOf("<verProc>");
+        int idxDhCont  = xml.indexOf("<dhCont>");
+        int idxXJust   = xml.indexOf("<xJust>");
+        int idxNFref   = xml.indexOf("<NFref>"); // ausente nesta fixture, mas garante que dhCont/xJust não vêm depois de nada de errado
+
+        assertTrue(idxVerProc >= 0 && idxDhCont > idxVerProc,
+                "<dhCont> deve vir depois de <verProc>.");
+        assertTrue(idxXJust > idxDhCont, "<xJust> deve vir depois de <dhCont>.");
+        assertEquals(-1, idxNFref, "Esta fixture não usa NFref — apenas confirma que não há interferência de ordem.");
+
+        assertTrue(xml.contains("<dhCont>2026-08-18T10:05:00-03:00</dhCont>"));
+        assertTrue(xml.contains("<xJust>Justificativa de contingencia SVC-AN para fins de teste unitario.</xJust>"));
+
+        Document doc = parseXmlComEntidadesDesabilitadas(xml);
+        assertDoesNotThrow(() -> new XsdValidator().validate(doc, SCHEMA),
+                "XML SVC com dhCont/xJust deve ser válido contra o XSD.");
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: dhCont em branco é tratado como ausente, mesmo comportamento de append() para os demais campos")
+    public void build_dhContBlank_naoApareceNoXml() throws Exception {
+        NFe nfe = nfeMinimaValida();
+        nfe.getInfNFe().getIde().setDhCont("   ");
+        nfe.getInfNFe().getIde().setXJust(null);
+
+        String xml = new NfeXmlBuilder().build(nfe, ModalidadeFrete.CONTA_TERCEIROS);
+
+        assertFalse(xml.contains("<dhCont>"));
+        assertFalse(xml.contains("<xJust>"));
+    }
+
 }

@@ -4,6 +4,8 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.fiscal.builder.NfeXmlBuilder;
 import br.com.borurio.fiscal.config.EmitenteProperties;
+import br.com.borurio.fiscal.domain.nfe.Ide;
+import br.com.borurio.fiscal.domain.nfe.InfNFe;
 import br.com.borurio.fiscal.domain.nfe.ModalidadeFrete;
 import br.com.borurio.fiscal.domain.nfe.NFe;
 import br.com.borurio.fiscal.dto.NfeEmissaoItem;
@@ -522,10 +524,29 @@ class NfeGeracaoServiceTest {
     // Gate 1 — persistência da chave em nfe_emissao ANTES da chamada à SEFAZ
     // -------------------------------------------------------------------------
 
+    /**
+     * Linha nfe_emissao mínima para os testes de SVC Fase 2 — número/série/CNPJ batem com
+     * requestValido()/empresaValida(...) de propósito, para não disparar as validações de
+     * divergência (cobertas em testes dedicados abaixo).
+     */
+    private br.com.borurio.fiscal.entity.NfeEmissao emissaoValida(Long id, String tpEmis, String dhCont, String xJust) {
+        br.com.borurio.fiscal.entity.NfeEmissao e = new br.com.borurio.fiscal.entity.NfeEmissao();
+        e.setId(id);
+        e.setEstado(br.com.borurio.fiscal.entity.NfeEmissao.Estados.RESERVADO);
+        e.setNumeroNfe(1);
+        e.setSerie("1");
+        e.setCnpjEmitente("22418179000134");
+        e.setTpEmis(tpEmis);
+        e.setDhCont(dhCont);
+        e.setXJustContingencia(xJust);
+        return e;
+    }
+
     @Test
     void gerar_comEmissaoId_persisteChaveAntesDeChamarOrquestrador() throws Exception {
         when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
         when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        when(nfeEmissaoService.buscarPorId(501L)).thenReturn(emissaoValida(501L, "1", null, null));
         Empresa empresa = empresaValida(12L, "1");
 
         service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 501L);
@@ -538,6 +559,471 @@ class NfeGeracaoServiceTest {
         ordem.verify(nfeEmissaoService).marcarTransmitido(eq(501L), chaveCaptor.capture());
         ordem.verify(nfeOrquestradorService).processar(any(), any(), any(), any());
         assertEquals(44, chaveCaptor.getValue().length(), "chave de acesso NF-e tem 44 dígitos");
+    }
+
+    // -------------------------------------------------------------------------
+    // SVC Fase 2 (18-08-2026) — origem única de tpEmis/dhCont/xJust e de numeroNfe/serie/CNPJ,
+    // fail-closed (plano v2, itens 4/4b/7/8).
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("SVC Fase 2: emissaoId presente com linha inexistente falha explícito, nunca cai em NORMAL")
+    void gerar_emissaoIdSemLinha_lancaIllegalStateExceptionSemChamarSefaz() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(999L)).thenReturn(null);
+        Empresa empresa = empresaValida(50L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 999L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: emissaoId presente com tpEmis nulo na linha falha explícito, nunca cai em NORMAL")
+    void gerar_emissaoComTpEmisNulo_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(502L)).thenReturn(emissaoValida(502L, null, null, null));
+        Empresa empresa = empresaValida(51L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 502L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: tpEmis fora de {1,6,7} na linha falha explícito")
+    void gerar_emissaoComTpEmisInvalido_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(503L)).thenReturn(emissaoValida(503L, "4", null, null));
+        Empresa empresa = empresaValida(52L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 503L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: número do request divergente do reservado falha explícito, XML nunca gerado com número errado")
+    void gerar_numeroDivergenteDaLinhaReservada_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(504L)).thenReturn(emissaoValida(504L, "1", null, null));
+        Empresa empresa = empresaValida(53L, "1");
+
+        NfeEmissaoRequest req = requestValido();
+        req.setNumero("999"); // diverge do numeroNfe=1 da linha reservada
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS, 504L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: série do request divergente da reservada falha explícito")
+    void gerar_serieDivergenteDaLinhaReservada_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(505L)).thenReturn(emissaoValida(505L, "1", null, null));
+        Empresa empresa = empresaValida(54L, "1");
+
+        NfeEmissaoRequest req = requestValido();
+        req.setSerie("2"); // diverge da serie="1" da linha reservada
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(req, empresa, ModalidadeFrete.CONTA_TERCEIROS, 505L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: CNPJ resolvido divergente do reservado falha explícito")
+    void gerar_cnpjDivergenteDaLinhaReservada_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        // linha reservada aponta para outro CNPJ, nunca o da Empresa resolvida abaixo
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(506L, "1", null, null);
+        emissao.setCnpjEmitente("99999999000191");
+        when(nfeEmissaoService.buscarPorId(506L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(55L, "1"); // CNPJ real: 22418179000134
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 506L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: dhCont sem xJust (linha inconsistente) falha explícito")
+    void gerar_dhContSemXJust_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(507L))
+                .thenReturn(emissaoValida(507L, "6", "2026-08-18T10:05:00-03:00", null));
+        Empresa empresa = empresaValida(56L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 507L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: tpEmis=NORMAL com dhCont residual (linha inconsistente) falha explícito")
+    void gerar_normalComDhContResidual_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(508L))
+                .thenReturn(emissaoValida(508L, "1", "2026-08-18T10:05:00-03:00", "Justificativa residual invalida."));
+        Empresa empresa = empresaValida(57L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 508L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    // -------------------------------------------------------------------------
+    // Banca 19-08-2026 — gate de estado, cláusula SVC obrigatória, fail-closed explícito e
+    // política de identidade fiscal por caso (achados confirmados em 18-08-2026, corrigidos aqui).
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Banca 19-08: SVC-AN com dhCont/xJust ambos ausentes falha explícito (achado 2, antes passava despercebido)")
+    void gerar_svcAnSemDhContNemXJust_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(530L)).thenReturn(emissaoValida(530L, "6", null, null));
+        Empresa empresa = empresaValida(70L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 530L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    @DisplayName("Banca 19-08: SVC-RS com dhCont/xJust ambos ausentes falha explícito (achado 2)")
+    void gerar_svcRsSemDhContNemXJust_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(nfeEmissaoService.buscarPorId(531L)).thenReturn(emissaoValida(531L, "7", null, null));
+        Empresa empresa = empresaValida(71L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 531L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    @Test
+    @DisplayName("Banca 19-08: gate de estado — RESERVADO é o único estado que permite gerar()")
+    void gerar_comEstadoReservado_permiteGeracao() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        when(nfeEmissaoService.buscarPorId(540L)).thenReturn(emissaoValida(540L, "1", null, null));
+        Empresa empresa = empresaValida(72L, "1");
+
+        assertDoesNotThrow(() -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 540L));
+
+        verify(nfeOrquestradorService).processar(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Banca 19-08: gate de estado — TRANSMITIDO/AUTORIZADO/etc. nunca geram chave/XML nova")
+    void gerar_comEstadoDiferenteDeReservado_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(541L, "1", null, null);
+        emissao.setEstado(br.com.borurio.fiscal.entity.NfeEmissao.Estados.AUTORIZADO);
+        when(nfeEmissaoService.buscarPorId(541L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(73L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 541L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+        verifyNoInteractions(nfeXmlBuilder);
+    }
+
+    @Test
+    @DisplayName("Banca 19-08: gate de estado — estado nulo na linha falha explícito, nunca cai em RESERVADO por omissão")
+    void gerar_comEstadoNulo_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(542L, "1", null, null);
+        emissao.setEstado(null);
+        when(nfeEmissaoService.buscarPorId(542L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(74L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 542L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    @Test
+    @DisplayName("Banca 19-08: fail-closed — série em branco na linha reservada falha explícito, nunca NPE")
+    void gerar_comSerieEmBrancoNaLinha_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(543L, "1", null, null);
+        emissao.setSerie("   ");
+        when(nfeEmissaoService.buscarPorId(543L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(75L, "1");
+
+        // assertThrows já prova que é IllegalStateException, não NullPointerException incidental —
+        // é exatamente essa distinção que a correção de fail-closed garante (achado 3).
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 543L));
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    @Test
+    @DisplayName("Banca 19-08: fail-closed — cnpjEmitente nulo na linha reservada falha explícito, nunca NPE")
+    void gerar_comCnpjNuloNaLinha_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(544L, "1", null, null);
+        emissao.setCnpjEmitente(null);
+        when(nfeEmissaoService.buscarPorId(544L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(76L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 544L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    @Test
+    @DisplayName("Banca 19-08: fail-closed — numeroNfe <= 0 na linha reservada falha explícito")
+    void gerar_comNumeroNfeInvalidoNaLinha_lancaIllegalStateException() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(545L, "1", null, null);
+        emissao.setNumeroNfe(0);
+        when(nfeEmissaoService.buscarPorId(545L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(77L, "1");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 545L));
+
+        verifyNoInteractions(nfeOrquestradorService);
+    }
+
+    /**
+     * Teste permanente da POLÍTICA decidida em banca (19-08-2026) — nunca remover, mesmo espírito
+     * do teste diagnóstico de 18-08 que provou o bug (removido após capturar a evidência), mas
+     * este documenta o comportamento CORRETO e decidido, não uma falha. Os 3 cenários que chegam a
+     * gerar() com estado==RESERVADO SEMPRE produzem uma chave nova — nunca reaproveitam
+     * nfe_emissao.chave_nfe, mesmo quando ela já existe (casos 2 e 3). Ver comentário em
+     * NfeGeracaoService.gerar() (banca 19-08-2026) para a justificativa fiscal de cada caso.
+     */
+    @Test
+    @DisplayName("Banca 19-08 — POLÍTICA PERMANENTE: caso 1 (nunca tentado) sempre gera chave nova")
+    void politicaChave_caso1_chaveNfeNulaCstatNulo_geraChaveNova() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(550L, "1", null, null);
+        assertNull(emissao.getChaveNfe());
+        assertNull(emissao.getCstat());
+        when(nfeEmissaoService.buscarPorId(550L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(80L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 550L);
+
+        String chaveNova = capturarChaveTransmitida(550L);
+        assertEquals(44, chaveNova.length());
+    }
+
+    @Test
+    @DisplayName("Banca 19-08 — POLÍTICA PERMANENTE: caso 2 (falha local, chave anterior nunca chegou à SEFAZ) gera chave nova, diferente da anterior")
+    void politicaChave_caso2_chaveNfePresenteCstatNulo_geraChaveNovaDiferenteDaAnterior() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(551L, "1", null, null);
+        // reverterParaReservadoPorFalhaLocal preserva chave_nfe da tentativa que nunca saiu do
+        // Borurio (cstat continua null — nunca houve resposta da SEFAZ, ver
+        // NfeEmissaoMapper.reverterTransmitidoParaReservado).
+        String chaveAnteriorNuncaTransmitida = "35260822418179000134550001000000019876543210";
+        emissao.setChaveNfe(chaveAnteriorNuncaTransmitida);
+        assertNull(emissao.getCstat());
+        when(nfeEmissaoService.buscarPorId(551L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(81L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 551L);
+
+        String chaveNova = capturarChaveTransmitida(551L);
+        assertEquals(44, chaveNova.length());
+        assertNotEquals(chaveAnteriorNuncaTransmitida, chaveNova,
+                "chave nunca transmitida à SEFAZ é descartada — gerar() sempre calcula uma nova, nunca reaproveita string persistida");
+    }
+
+    @Test
+    @DisplayName("Banca 19-08 — POLÍTICA PERMANENTE: caso 3 (retomada após rejeição SEFAZ, cStat presente) NUNCA reutiliza a chave já processada")
+    void politicaChave_caso3_chaveNfePresenteCstatPresente_nuncaReutilizaChaveProcessada() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        br.com.borurio.fiscal.entity.NfeEmissao emissao = emissaoValida(552L, "1", null, null);
+        // retomarComoReservado preserva chave_nfe/cstat/xmotivo/nprot da tentativa que a SEFAZ
+        // efetivamente processou e rejeitou — reenviar essa MESMA chave arrisca cStat=204
+        // (duplicidade). cstat NOT NULL é o sinal real que distingue este caso do caso 2.
+        String chaveJaProcessadaPelaSefaz = "35260822418179000134550001000000019876543210";
+        emissao.setChaveNfe(chaveJaProcessadaPelaSefaz);
+        emissao.setCstat(598);
+        emissao.setXmotivo("Rejeicao: Razao Social do destinatario incompativel");
+        when(nfeEmissaoService.buscarPorId(552L)).thenReturn(emissao);
+        Empresa empresa = empresaValida(82L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 552L);
+
+        String chaveNova = capturarChaveTransmitida(552L);
+        assertEquals(44, chaveNova.length());
+        assertNotEquals(chaveJaProcessadaPelaSefaz, chaveNova,
+                "chave já processada (cstat presente) NUNCA pode ser reenviada — risco real de cStat=204 duplicidade");
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: NORMAL com emissaoId — XML estruturalmente idêntico ao pré-Fase-2 (sem dhCont/xJust)")
+    void gerar_normalComEmissaoId_xmlSemDhContEXJust() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        when(nfeEmissaoService.buscarPorId(509L)).thenReturn(emissaoValida(509L, "1", null, null));
+        Empresa empresa = empresaValida(58L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 509L);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
+        Ide ide = captor.getValue().getInfNFe().getIde();
+        assertEquals("1", ide.getTpEmis());
+        assertNull(ide.getDhCont());
+        assertNull(ide.getXJust());
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: SVC-AN — tpEmis/dhCont/xJust corretos no XML, número da chave == numeroNfe reservado")
+    void gerar_svcAn_xmlComTpEmisDhContEXJustCorretos() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        when(nfeEmissaoService.buscarPorId(510L)).thenReturn(
+                emissaoValida(510L, "6", "2026-08-18T10:05:00-03:00", "Justificativa de contingencia SVC-AN valida."));
+        Empresa empresa = empresaValida(59L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 510L);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
+        Ide ide = captor.getValue().getInfNFe().getIde();
+        assertEquals("6", ide.getTpEmis());
+        assertEquals("2026-08-18T10:05:00-03:00", ide.getDhCont());
+        assertEquals("Justificativa de contingencia SVC-AN valida.", ide.getXJust());
+        assertEquals("1", ide.getNNF(), "nNF do XML deve bater com numeroNfe da linha reservada");
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2: SVC-RS — tpEmis/dhCont/xJust corretos no XML")
+    void gerar_svcRs_xmlComTpEmisDhContEXJustCorretos() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        when(nfeEmissaoService.buscarPorId(511L)).thenReturn(
+                emissaoValida(511L, "7", "2026-08-18T10:05:00-03:00", "Justificativa de contingencia SVC-RS valida."));
+        Empresa empresa = empresaValida(60L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 511L);
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
+        Ide ide = captor.getValue().getInfNFe().getIde();
+        assertEquals("7", ide.getTpEmis());
+        assertEquals("2026-08-18T10:05:00-03:00", ide.getDhCont());
+    }
+
+    /**
+     * Recalcula o DV de forma independente de NfeGeracaoService.calcularCDV() — mod-11 ponderado
+     * clássico da chave de acesso NF-e, implementado à parte para nunca reutilizar (e
+     * potencialmente mascarar um bug de) o mesmo método de produção usado como oráculo do teste.
+     */
+    private String calcularCdvIndependente(String chave43) {
+        int[] pesos = {2, 3, 4, 5, 6, 7, 8, 9};
+        int soma = 0;
+        int pesoIdx = 0;
+        for (int i = chave43.length() - 1; i >= 0; i--) {
+            soma += (chave43.charAt(i) - '0') * pesos[pesoIdx];
+            pesoIdx = (pesoIdx + 1) % pesos.length;
+        }
+        int resto = soma % 11;
+        return String.valueOf(resto < 2 ? 0 : 11 - resto);
+    }
+
+    private String capturarChaveTransmitida(Long emissaoId) throws Exception {
+        ArgumentCaptor<String> chaveCaptor = ArgumentCaptor.forClass(String.class);
+        verify(nfeEmissaoService).marcarTransmitido(eq(emissaoId), chaveCaptor.capture());
+        return chaveCaptor.getValue();
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2 — TESTES DA CHAVE: NORMAL — 44 posições, tpEmis na posição 35, nNF, DV independente, Id, <tpEmis> coerentes")
+    void chave_normal_estruturalmenteCorreta() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        when(nfeEmissaoService.buscarPorId(520L)).thenReturn(emissaoValida(520L, "1", null, null));
+        Empresa empresa = empresaValida(61L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 520L);
+
+        String chave = capturarChaveTransmitida(520L);
+        verificarChaveEstrutural(chave, "1", "1", 520L);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2 — TESTES DA CHAVE: SVC-AN — 44 posições, tpEmis=6 na posição 35, nNF, DV independente, Id, <tpEmis> coerentes")
+    void chave_svcAn_estruturalmenteCorreta() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        when(nfeEmissaoService.buscarPorId(521L)).thenReturn(
+                emissaoValida(521L, "6", "2026-08-18T10:05:00-03:00", "Justificativa de contingencia SVC-AN valida."));
+        Empresa empresa = empresaValida(62L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 521L);
+
+        String chave = capturarChaveTransmitida(521L);
+        verificarChaveEstrutural(chave, "6", "1", 521L);
+    }
+
+    @Test
+    @DisplayName("SVC Fase 2 — TESTES DA CHAVE: SVC-RS — 44 posições, tpEmis=7 na posição 35, nNF, DV independente, Id, <tpEmis> coerentes")
+    void chave_svcRs_estruturalmenteCorreta() throws Exception {
+        when(ncmService.buscarPorCodigo("84715011")).thenReturn(mock(br.com.borurio.fiscal.entity.Ncm.class));
+        when(retornoParser.parse(any())).thenReturn(retornoAutorizado());
+        when(nfeEmissaoService.buscarPorId(522L)).thenReturn(
+                emissaoValida(522L, "7", "2026-08-18T10:05:00-03:00", "Justificativa de contingencia SVC-RS valida."));
+        Empresa empresa = empresaValida(63L, "1");
+
+        service.gerar(requestValido(), empresa, ModalidadeFrete.CONTA_TERCEIROS, 522L);
+
+        String chave = capturarChaveTransmitida(522L);
+        verificarChaveEstrutural(chave, "7", "1", 522L);
+    }
+
+    private void verificarChaveEstrutural(String chave, String tpEmisEsperado, String nNFEsperado, Long emissaoId) {
+        assertEquals(44, chave.length(), "chave de acesso NF-e deve ter 44 posições");
+
+        String chave43 = chave.substring(0, 43);
+        char tpEmisNaChave = chave.charAt(34); // posição 35 (índice humano) = índice 34
+        assertEquals(tpEmisEsperado.charAt(0), tpEmisNaChave,
+                "posição 35 da chave deve ser o tpEmis resolvido para esta emissão");
+
+        // nNF ocupa as posições 26-34 (índice 25 a 33, 9 dígitos) — comparação numérica ignora zeros à esquerda.
+        String nNFNaChave = chave43.substring(25, 34);
+        assertEquals(Integer.parseInt(nNFEsperado), Integer.parseInt(nNFNaChave),
+                "nNF da chave deve bater com numeroNfe da linha reservada");
+
+        String cdvEsperado = calcularCdvIndependente(chave43);
+        assertEquals(cdvEsperado, chave.substring(43),
+                "DV recalculado de forma independente deve bater com o DV de produção");
+
+        ArgumentCaptor<NFe> captor = ArgumentCaptor.forClass(NFe.class);
+        verify(nfeXmlBuilder).build(captor.capture(), eq(ModalidadeFrete.CONTA_TERCEIROS));
+        InfNFe inf = captor.getValue().getInfNFe();
+        assertEquals("NFe" + chave, inf.getId(), "Id da infNFe deve ser \"NFe\" + chave completa");
+        assertEquals(tpEmisEsperado, inf.getIde().getTpEmis(),
+                "<tpEmis> do XML deve ser igual ao dígito 35 da chave");
     }
 
     @Test

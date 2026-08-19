@@ -28,6 +28,11 @@ public class Ide {
     private String procEmi;
     private String verProc;
 
+    // SVC Fase 2 (18-08-2026) -- so presentes quando tpEmis != NORMAL (contingencia SVC-AN/SVC-RS).
+    // Posicao no XSD oficial (leiauteNFe_v4.00.xsd): grupo opcional logo apos verProc, antes de NFref.
+    private String dhCont;
+    private String xJust;
+
     public String getCUF() { return cUF; }
     public void setCUF(String cUF) { this.cUF = cUF; }
 
@@ -86,4 +91,10 @@ public class Ide {
 
     public String getVerProc() { return verProc; }
     public void setVerProc(String verProc) { this.verProc = verProc; }
+
+    public String getDhCont() { return dhCont; }
+    public void setDhCont(String dhCont) { this.dhCont = dhCont; }
+
+    public String getXJust() { return xJust; }
+    public void setXJust(String xJust) { this.xJust = xJust; }
 }

@@ -205,6 +205,16 @@ public class NfeEmissaoService {
     }
 
     /**
+     * SVC Fase 2 (18-08-2026) — leitura simples (sem lock), usada por NfeGeracaoService para
+     * resolver tpEmis/dhCont/xJust/numeroNfe/serie/cnpjEmitente a partir do ciclo já reservado
+     * (Gate 1), ANTES de montar chave/XML. Não bloqueante de propósito: a chamada acontece antes
+     * de qualquer chamada à SEFAZ, fora de qualquer transação de escrita do ciclo fiscal.
+     */
+    public NfeEmissao buscarPorId(Long id) {
+        return nfeEmissaoMapper.buscarPorId(id);
+    }
+
+    /**
      * Resolve o ciclo do nNF a partir de um estado-alvo já classificado pelo chamador (Gate 1 não
      * inclui a camada semântica de classificação de cStat — isso é Gate 2; por ora o chamador
      * decide entre AUTORIZADO/DENEGADO/AGUARDANDO_CORRECAO/PENDENTE_CONFIRMACAO com a mesma lógica
