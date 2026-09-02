@@ -40,13 +40,19 @@ public class JwtFilter extends OncePerRequestFilter {
             "/swagger-ui",
             "/v3/api-docs",
             "/api/test/",
-            "/api/fiscal/nfe/test/",
-            "/api/integration/"
+            "/api/fiscal/nfe/test/"
     );
 
+    // "/api/integration/fiscal-authorizations" é o único endpoint de /api/integration/ que dispensa
+    // JWT (usa X-Api-Key, validado manualmente em OmsFiscalAuthorizationService). Precisa ser path
+    // exato, não prefixo — um prefixo "/api/integration/" também isentaria endpoints futuros/atuais
+    // sob esse namespace que exigem Bearer (ex.: fiscal-numbering), deixando-os órfãos de auth sem
+    // ninguém perceber (bug real encontrado em 31-08-2026: fiscal-numbering ficou inacessível com
+    // token válido por 5 semanas por causa desse prefixo largo demais).
     private static final Set<String> PUBLIC_EXACT = Set.of(
             "/ping",
-            "/actuator"
+            "/actuator",
+            "/api/integration/fiscal-authorizations"
     );
 
     private final JwtUtil jwtUtil;

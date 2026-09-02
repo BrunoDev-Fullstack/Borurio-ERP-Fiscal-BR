@@ -1,3 +1,4 @@
+
 package br.com.borurio.web.auth;
 
 import br.com.borurio.app.context.EmpresaContextHolder;
@@ -339,5 +340,65 @@ class JwtFilterTest {
         assertEquals(401, response.getStatus());
         assertTrue(response.getContentAsString().contains("INVALID_OMS_TOKEN"));
         assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    // -------------------------------------------------------------------------
+    // Regressão 31-08-2026 — "/api/integration/" era prefixo público inteiro em PUBLIC_PREFIXES
+    // (desde 17-06, quando só existia fiscal-authorizations sob esse namespace). Quando
+    // fiscal-numbering foi adicionado em 20-07 exigindo Bearer, ficou órfão de autenticação por
+    // 5 semanas: shouldNotFilter() pulava doFilterInternal por completo, então mesmo um Bearer OMS
+    // válido nunca era lido — a requisição seguia anônima e o SecurityConfig rejeitava com 401
+    // genérico sem log nenhum (writeJson do authenticationEntryPoint não loga). Fix: só o path
+    // exato de fiscal-authorizations é público; qualquer outro endpoint sob /api/integration/
+    // passa pelo JwtFilter normalmente.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("shouldNotFilter: fiscal-authorizations continua público (path exato, X-Api-Key, sem JWT)")
+    void shouldNotFilter_fiscalAuthorizations_continuaPublico() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setServletPath("/api/integration/fiscal-authorizations");
+
+        assertTrue(filter.shouldNotFilter(request));
+    }
+
+    @Test
+    @DisplayName("shouldNotFilter: fiscal-numbering NÃO é mais público — precisa passar pelo JwtFilter")
+    void shouldNotFilter_fiscalNumbering_naoEhMaisPublico() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setServletPath("/api/integration/fiscal-numbering/22418179000134");
+
+        assertFalse(filter.shouldNotFilter(request));
+    }
+
+    @Test
+    @DisplayName("regressão: PUT fiscal-numbering com Bearer OMS válido chega até a chain autenticado "
+            + "(antes do fix, shouldNotFilter bypassava o JwtFilter inteiro nesse path)")
+    void regressao_fiscalNumbering_bearerOmsValido_autenticaEChegaAteChain() throws Exception {
+        mockarClaimsOms();
+        when(omsTokenValidator.validate(JTI)).thenReturn(
+                OmsTokenAuthorizationContext.ativo(1L, 10L, "CLIENTE-OMS"));
+
+        MockHttpServletRequest request = requestComToken();
+        request.setServletPath("/api/integration/fiscal-numbering/22418179000134");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertNotNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    @DisplayName("regressão: POST fiscal-authorizations continua pulando o JwtFilter inteiro via doFilter() público")
+    void regressao_fiscalAuthorizations_continuaPulandoJwtFilterViaDoFilterPublico() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setServletPath("/api/integration/fiscal-authorizations");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verifyNoInteractions(jwtUtil, omsTokenValidator);
     }
 }
