@@ -114,8 +114,6 @@ management:
   health:
     db:
       enabled: false
-    redis:
-      enabled: false
 
 ###################################################################################################
 # Notas Técnicas:

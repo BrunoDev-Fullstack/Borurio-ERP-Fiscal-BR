@@ -1,0 +1,455 @@
+{
+  "info": {
+    "name": "Borurio ERP Fiscal BR — API v3.3.0",
+    "_postman_id": "borurio-erp-fiscal-br-v3",
+    "description": "Coleção completa da API REST do Borurio ERP Fiscal BR.\n\nURL HOM (Cloudflare Tunnel): https://hom-api.borurio.com\nSwagger HOM: https://hom-api.borurio.com/swagger-ui/index.html\n\nComo usar:\n1. A variável `baseUrl` já aponta para https://hom-api.borurio.com (HOM externo).\n2. Execute 'Auth / Login' — o token JWT será salvo automaticamente em `{{token}}`.\n3. Todas as demais requisições já usam Bearer {{token}}.\n\nOperações marcadas como [ADMIN] exigem usuário com role ADMIN.\nOperações sem marcação exigem apenas autenticação (qualquer role).\n\nNota: em HOM, cStat=225 no soapRetorno é comportamento normal (SP_NFE_PL_008i2). O DANFE pode ser gerado mesmo com cStat=225.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://hom-api.borurio.com", "type": "string" },
+    { "key": "token",   "value": "",                      "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var json = pm.response.json();",
+                "if (json.token) { pm.collectionVariables.set('token', json.token); }",
+                "pm.test('Login retorna token', () => pm.expect(json.token).to.be.a('string'));"
+              ]
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Empresas",
+      "description": "GET /empresas — autenticado (qualquer role). POST e PUT — somente ADMIN.",
+      "item": [
+        {
+          "name": "Listar empresas",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/empresas" }
+        },
+        {
+          "name": "Buscar empresa por ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/empresas/1" }
+        },
+        {
+          "name": "Buscar empresa por CNPJ",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/empresas/cnpj/12345678000195" }
+        },
+        {
+          "name": "Cadastrar empresa [ADMIN]",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/empresas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cnpj\": \"12345678000195\",\n  \"razaoSocial\": \"Empresa Teste Ltda\",\n  \"nomeFantasia\": \"Empresa Teste\",\n  \"ie\": \"123456789012\",\n  \"logradouro\": \"Rua das Flores\",\n  \"numero\": \"100\",\n  \"bairro\": \"Centro\",\n  \"municipio\": \"São Paulo\",\n  \"uf\": \"SP\",\n  \"cep\": \"01001000\",\n  \"codMunicipio\": 3550308,\n  \"crt\": 1,\n  \"tpAmb\": 2\n}"
+            }
+          }
+        },
+        {
+          "name": "Atualizar empresa [ADMIN]",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/empresas/1",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cnpj\": \"12345678000195\",\n  \"razaoSocial\": \"Empresa Atualizada Ltda\",\n  \"nomeFantasia\": \"Empresa Atualizada\",\n  \"ie\": \"123456789012\",\n  \"logradouro\": \"Rua das Flores\",\n  \"numero\": \"200\",\n  \"bairro\": \"Centro\",\n  \"municipio\": \"São Paulo\",\n  \"uf\": \"SP\",\n  \"cep\": \"01001000\",\n  \"codMunicipio\": 3550308,\n  \"crt\": 1,\n  \"tpAmb\": 2\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Produtos",
+      "item": [
+        {
+          "name": "Listar produtos (paginado)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/app/produtos?page=0&size=20", "query": [{"key":"page","value":"0"},{"key":"size","value":"20"}] } }
+        },
+        {
+          "name": "Listar produtos ativos",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/produtos/ativos" }
+        },
+        {
+          "name": "Buscar produto por ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/produtos/1" }
+        },
+        {
+          "name": "Buscar produto por código",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/produtos/codigo/PROD-001" }
+        },
+        {
+          "name": "Cadastrar produto",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/produtos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"codigo\": \"PROD-001\",\n  \"descricao\": \"Produto Teste NF-e\",\n  \"ncm\": \"84715000\",\n  \"cfop\": \"5102\",\n  \"unidade\": \"UN\",\n  \"preco\": 99.90,\n  \"origem\": 0,\n  \"csosn\": \"400\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Atualizar produto",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/produtos/1",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"codigo\": \"PROD-001\",\n  \"descricao\": \"Produto Atualizado\",\n  \"ncm\": \"84715000\",\n  \"cfop\": \"5102\",\n  \"unidade\": \"UN\",\n  \"preco\": 149.90,\n  \"origem\": 0,\n  \"csosn\": \"400\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Desativar produto (soft-delete)",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/app/produtos/1" }
+        },
+        {
+          "name": "Consultar estoque do produto",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/produtos/1/estoque" }
+        },
+        {
+          "name": "Entrada de estoque [ADMIN]",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/produtos/1/estoque/entrada",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantidade\": 50.00,\n  \"observacao\": \"Entrada inicial de estoque OMS\"\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Clientes",
+      "item": [
+        {
+          "name": "Listar clientes",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/clientes" }
+        },
+        {
+          "name": "Buscar cliente por ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/clientes/1" }
+        },
+        {
+          "name": "Cadastrar cliente PJ",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/clientes",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipoPessoa\": \"PJ\",\n  \"razaoSocial\": \"Comprador Ltda\",\n  \"cnpjCpf\": \"12345678000195\",\n  \"ie\": \"ISENTO\",\n  \"logradouro\": \"Av. Brasil\",\n  \"numero\": \"500\",\n  \"bairro\": \"Industrial\",\n  \"municipio\": \"Campinas\",\n  \"uf\": \"SP\",\n  \"cep\": \"13000000\",\n  \"codMunicipio\": 3509502\n}"
+            }
+          }
+        },
+        {
+          "name": "Cadastrar cliente PF",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/clientes",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipoPessoa\": \"PF\",\n  \"razaoSocial\": \"João da Silva\",\n  \"cnpjCpf\": \"12345678909\",\n  \"logradouro\": \"Rua das Palmeiras\",\n  \"numero\": \"12\",\n  \"bairro\": \"Jardim\",\n  \"municipio\": \"São Paulo\",\n  \"uf\": \"SP\",\n  \"cep\": \"01310100\",\n  \"codMunicipio\": 3550308\n}"
+            }
+          }
+        },
+        {
+          "name": "Atualizar cliente",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/clientes/1",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipoPessoa\": \"PJ\",\n  \"razaoSocial\": \"Comprador Atualizado Ltda\",\n  \"cnpjCpf\": \"12345678000195\",\n  \"ie\": \"ISENTO\",\n  \"logradouro\": \"Av. Brasil\",\n  \"numero\": \"600\",\n  \"bairro\": \"Industrial\",\n  \"municipio\": \"Campinas\",\n  \"uf\": \"SP\",\n  \"cep\": \"13000000\",\n  \"codMunicipio\": 3509502\n}"
+            }
+          }
+        },
+        {
+          "name": "Desativar cliente (soft-delete)",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/app/clientes/1" }
+        }
+      ]
+    },
+
+    {
+      "name": "Pedidos & NF-e",
+      "item": [
+        {
+          "name": "Listar pedidos (paginado)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/app/pedidos?page=0&size=20", "query": [{"key":"page","value":"0"},{"key":"size","value":"20"}] } }
+        },
+        {
+          "name": "Buscar pedido por ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/pedidos/1" }
+        },
+        {
+          "name": "Criar pedido (RASCUNHO)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/pedidos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destCnpjCpf\": \"12345678000195\",\n  \"destRazaoSocial\": \"Comprador Ltda\",\n  \"destIe\": \"ISENTO\",\n  \"destLogradouro\": \"Av. Brasil\",\n  \"destNumero\": \"500\",\n  \"destBairro\": \"Industrial\",\n  \"destMunicipio\": \"Campinas\",\n  \"destUf\": \"SP\",\n  \"destCep\": \"13000000\",\n  \"destCodMunicipio\": 3509502,\n  \"itens\": [\n    {\n      \"produtoId\": 1,\n      \"quantidade\": 2,\n      \"valorUnitario\": 99.90\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Emitir NF-e do pedido → SEFAZ",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/app/pedidos/1/emitir"
+          }
+        },
+        {
+          "name": "Consultar situação fiscal (consSitNFe)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/pedidos/1/situacao" }
+        },
+        {
+          "name": "Cancelar NF-e do pedido",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/pedidos/1/cancelar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"justificativa\": \"Cancelamento solicitado pelo cliente por erro de dados\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Emitir CC-e (Carta de Correção Eletrônica)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/pedidos/1/cce",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correcao\": \"Correção do campo endereço do destinatário: Rua correta é Av. Paulista\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Download DANFE (PDF) — substituir chave pelos 44 dígitos reais",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/pdf" }],
+            "url": "{{baseUrl}}/api/fiscal/nfe/35260519000000000000550010000000011000000011/danfe"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Usuários [ADMIN]",
+      "item": [
+        {
+          "name": "Listar usuários [ADMIN]",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/usuarios" }
+        },
+        {
+          "name": "Buscar usuário por ID [ADMIN]",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/app/usuarios/1" }
+        },
+        {
+          "name": "Criar usuário [ADMIN]",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/usuarios",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Operador Teste\",\n  \"email\": \"operador@empresa.com.br\",\n  \"senha\": \"senha@123\",\n  \"role\": \"OPERADOR\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Atualizar perfil do usuário [ADMIN]",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/usuarios/2",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Operador Atualizado\",\n  \"role\": \"OPERADOR\",\n  \"ativo\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Alterar senha do usuário [ADMIN]",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/app/usuarios/2/senha",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"novaSenha\": \"novaSenha@456\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Desativar usuário — soft-delete [ADMIN]",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/app/usuarios/2" }
+        }
+      ]
+    },
+
+    {
+      "name": "NF-e Fiscal (direto)",
+      "item": [
+        {
+          "name": "Logs de auditoria (paginado)",
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/fiscal/nfe/logs?page=0&size=20", "query": [{"key":"page","value":"0"},{"key":"size","value":"20"}] } }
+        },
+        {
+          "name": "Logs por chave NF-e (44 dígitos)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/fiscal/nfe/logs/35240312345678000195550010000000011000000010" }
+        },
+        {
+          "name": "Cancelar NF-e por chave",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/fiscal/nfe/cancelar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chaveNfe\": \"35240312345678000195550010000000011000000010\",\n  \"justificativa\": \"Cancelamento solicitado pelo cliente por erro de dados fiscais\",\n  \"cnpjEmitente\": \"12345678000195\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Emitir CC-e por chave",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/fiscal/nfe/cce",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chaveNfe\": \"35240312345678000195550010000000011000000010\",\n  \"correcao\": \"Correção do campo endereço: Rua correta é Av. Paulista 1000\",\n  \"sequencia\": 1,\n  \"cnpjEmitente\": \"12345678000195\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Inutilizar faixa de numeração",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/fiscal/nfe/inutilizar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cnpjEmitente\": \"12345678000195\",\n  \"uf\": \"SP\",\n  \"tpAmb\": 2,\n  \"serie\": 1,\n  \"nNFIni\": 10,\n  \"nNFFin\": 15,\n  \"xJust\": \"Numeração inutilizada por erro de sistema durante testes\"\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "NCM",
+      "description": "Tabela NCM usada como referência para cadastro de produtos. Requer autenticação.",
+      "item": [
+        {
+          "name": "Listar todos os NCMs",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/fiscal/ncm/listar" }
+        },
+        {
+          "name": "Buscar NCM por código",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/fiscal/ncm/84715000" }
+        },
+        {
+          "name": "Sincronizar tabela NCM",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/fiscal/ncm/sincronizar" }
+        }
+      ]
+    },
+
+    {
+      "name": "NF-e LEGADO (deprecado)",
+      "description": "Endpoints mantidos para compatibilidade retroativa. Use /api/app/pedidos para novas integrações.",
+      "item": [
+        {
+          "name": "[DEPRECADO] Status SEFAZ",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/fiscal/nfe/status" }
+        },
+        {
+          "name": "[DEPRECADO] Transmitir XML NF-e direto",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/xml" },
+              { "key": "CNPJ-Emitente", "value": "12345678000195" }
+            ],
+            "url": "{{baseUrl}}/api/fiscal/nfe/enviar",
+            "body": { "mode": "raw", "raw": "<!-- Cole aqui o XML completo da NF-e assinado -->" }
+          }
+        },
+        {
+          "name": "[DEPRECADO] Gerar NF-e por dados de negócio",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/fiscal/nfe/gerar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destCnpjCpf\": \"12345678000195\",\n  \"destRazaoSocial\": \"Comprador Ltda\",\n  \"destUf\": \"SP\",\n  \"itens\": []\n}"
+            }
+          }
+        },
+        {
+          "name": "[DEPRECADO] Consultar NF-e por chave",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/fiscal/nfe/35240312345678000195550010000000011000000010" }
+        }
+      ]
+    },
+
+    {
+      "name": "Utilitários",
+      "item": [
+        {
+          "name": "Ping API",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/test/ping" }
+        },
+        {
+          "name": "Health Actuator",
+          "request": { "method": "GET", "url": "{{baseUrl}}/actuator/health" }
+        }
+      ]
+    }
+
+  ]
+}

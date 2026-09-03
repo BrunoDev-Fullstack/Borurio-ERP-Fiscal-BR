@@ -1,194 +1,159 @@
-# =============================================================================
-# Docker Compose - Ambiente DEV / Homologação
-# Projeto: Borurio ERP Fiscal BR
-# Padrão: Monólito Modular (Web inclui Core, App e Fiscal)
-# Stack: Java 17 | Spring Boot 3.3.x | MySQL 8.4 | Redis 7.2 | MinIO | Mailpit
-# =============================================================================
-# Objetivo:
-# Ambiente de desenvolvimento e testes funcionais (Homologação SEFAZ-SP real)
-# Inclui todos os serviços (MySQL, Redis, MinIO, Mailpit)
-# e executa a aplicação principal "borurio-web-dev".
-# =============================================================================
-
 version: "3.9"
 
 services:
 
   # ---------------------------------------------------------------------------
-  # MySQL - Banco de Dados Local (Desenvolvimento)
+  # MySQL (DEV)
   # ---------------------------------------------------------------------------
   borurio-mysql-dev:
     image: mysql:8.4
     container_name: borurio-mysql-dev
     restart: unless-stopped
-    env_file:
-      - ./env/.env.dev
+
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-SENHA_NOVA_DO_ROOT}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-borurio_fiscal_dev}
-      MYSQL_USER: ${MYSQL_USER:-borurio}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-H4ck3r123}
+      MYSQL_ROOT_PASSWORD: SENHA_NOVA_DO_ROOT
+      MYSQL_DATABASE: borurio_fiscal_dev
+      MYSQL_USER: borurio
+      MYSQL_PASSWORD: H4ck3r123
       TZ: America/Sao_Paulo
+
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+
     ports:
       - "3307:3306"
+
     volumes:
-      - ./mysql/data-dev:/var/lib/mysql:rw
+      - mysql_dev_data:/var/lib/mysql
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
     networks:
       - borurio-net-dev
-    security_opt:
-      - no-new-privileges:true
+
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p${MYSQL_ROOT_PASSWORD} --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -pSENHA_NOVA_DO_ROOT --silent"]
       interval: 10s
       timeout: 5s
-      retries: 8
-      start_period: 25s
+      retries: 10
+      start_period: 40s
+
 
   # ---------------------------------------------------------------------------
-  # Redis - Cache e Sessões Locais
-  # ---------------------------------------------------------------------------
-  borurio-redis-dev:
-    image: redis:7.2
-    container_name: borurio-redis-dev
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
-    volumes:
-      - ./redis/data-dev:/data:rw
-    networks:
-      - borurio-net-dev
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
-
-  # ---------------------------------------------------------------------------
-  # MinIO - Armazenamento Local Compatível com S3
+  # MinIO (DEV)
   # ---------------------------------------------------------------------------
   borurio-minio-dev:
     image: minio/minio:latest
     container_name: borurio-minio-dev
     restart: unless-stopped
+
     command: server /data --console-address ":9001"
-    env_file:
-      - ./env/.env.dev
+
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
       TZ: America/Sao_Paulo
+
     ports:
-      - "9000:9000"   # API S3
-      - "9001:9001"   # Console Web
+      - "9000:9000"
+      - "9001:9001"
+
     volumes:
-      - ./minio/data-dev:/data:rw
+      - minio_dev_data:/data
+
     networks:
       - borurio-net-dev
-    security_opt:
-      - no-new-privileges:true
+
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 4
-      start_period: 20s
+
 
   # ---------------------------------------------------------------------------
-  # Mailpit - SMTP e Painel Web (Testes de E-mail)
-  # ---------------------------------------------------------------------------
-  borurio-mailpit-dev:
-    image: axllent/mailpit:latest
-    container_name: borurio-mailpit-dev
-    restart: unless-stopped
-    ports:
-      - "1025:1025"   # Porta SMTP local
-      - "8025:8025"   # Painel Web
-    networks:
-      - borurio-net-dev
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 1025 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    # Captura e visualiza e-mails enviados pela aplicação durante testes.
-
-  # ---------------------------------------------------------------------------
-  # Web (API Principal + Módulos Core / App / Fiscal)
+  # Aplicação (DEV)
   # ---------------------------------------------------------------------------
   borurio-web-dev:
     build:
       context: ../
-      dockerfile: ./Dockerfile   # Dockerfile raiz unificado
+      dockerfile: ./Dockerfile
+
     container_name: borurio-web-dev
     restart: unless-stopped
+    init: true
+
     depends_on:
       borurio-mysql-dev:
         condition: service_healthy
-      borurio-redis-dev:
-        condition: service_healthy
-      borurio-mailpit-dev:
-        condition: service_healthy
-      borurio-minio-dev:
-        condition: service_healthy
+
     env_file:
       - ./env/.env.dev
+
     environment:
       SPRING_PROFILES_ACTIVE: dev
-      SPRING_DATASOURCE_URL: jdbc:mysql://borurio-mysql-dev:3306/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
+
+      # Datasource explícito para execução dentro do Docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://borurio-mysql-dev:3306/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo&connectTimeout=30000&socketTimeout=60000
       SPRING_DATASOURCE_USERNAME: borurio
       SPRING_DATASOURCE_PASSWORD: H4ck3r123
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
-      REDIS_HOST: borurio-redis-dev
-      REDIS_PORT: 6379
+
+      # MinIO
+      MINIO_URL: http://borurio-minio-dev:9000
+      MINIO_CONSOLE_URL: http://borurio-minio-dev:9001
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
+
+      # Fiscal — certificado e emitente (JCHO GLOBAL LTDA, CN do cert A1)
+      FISCAL_AMBIENTE: 2
+      FISCAL_CERT_PATH: /app/certificados/pfx/certificado-jcho.pfx
+      FISCAL_EMITENTE_CNPJ: "54393421000159"
+      FISCAL_EMITENTE_RAZAO_SOCIAL: "JCHO GLOBAL LTDA"
+      FISCAL_EMITENTE_NOME_FANTASIA: "JCHO GLOBAL"
+      FISCAL_EMITENTE_IE: "ISENTO"
+      FISCAL_EMITENTE_CRT: "1"
+      FISCAL_EMITENTE_LOGRADOURO: "Rua Teste Homologacao"
+      FISCAL_EMITENTE_NUMERO: "1"
+      FISCAL_EMITENTE_BAIRRO: "Centro"
+      FISCAL_EMITENTE_MUNICIPIO: "Sao Paulo"
+      FISCAL_EMITENTE_CODIGO_MUNICIPIO: "3550308"
+      FISCAL_EMITENTE_UF: "SP"
+      FISCAL_EMITENTE_CEP: "01310100"
+
       TZ: America/Sao_Paulo
-      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,env,beans"
-      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
-      MANAGEMENT_SERVER_PORT: 8081
+
     ports:
-      - "8080:8080"   # API REST principal (NF-e / SEFAZ-SP)
-      - "8081:8081"   # Actuator (monitoramento)
-      - "8082:8082"   # Porta secundária (testes)
+      - "8080:8080"
+
     networks:
       - borurio-net-dev
+
     volumes:
-      - ../certificados:/app/certificados:ro   # Certificados A1 (Homologação SEFAZ)
-      - ~/.m2:/root/.m2:rw                     # Cache Maven
-      - ../logs:/var/log/borurio:rw            # Logs persistentes
-    command: ["sh", "-c", "java -jar borurio-web.jar"]
-    security_opt:
-      - no-new-privileges:true
-    tty: true
-    stdin_open: true
+      - ../sql:/app/sql:ro
+      - ./certs:/app/certificados:ro
+      - logs_dev:/var/log/borurio
+
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 45s
-    # API principal do ERP Fiscal:
-    # - Expõe endpoints REST
-    # - Processa NF-e (Homologação SEFAZ-SP)
-    # - Controla o fluxo fiscal
-    # - Lê o certificado A1 de /app/certificados/certificado-hom.pfx
-    # - Integra com MySQL, Redis, Mailpit e MinIO
+      start_period: 60s
 
-# =============================================================================
-# Volumes e Rede de Desenvolvimento
-# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
 volumes:
   mysql_dev_data:
-  redis_dev_data:
   minio_dev_data:
-  logs:
+  logs_dev:
 
+
+# ---------------------------------------------------------------------------
+# Network
+# ---------------------------------------------------------------------------
 networks:
   borurio-net-dev:
     driver: bridge

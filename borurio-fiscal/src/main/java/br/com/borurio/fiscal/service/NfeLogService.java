@@ -1,5 +1,6 @@
 package br.com.borurio.fiscal.service;
 
+import br.com.borurio.core.mvc.api.PageResponse;
 import br.com.borurio.fiscal.entity.NfeLog;
 import java.util.List;
 
@@ -47,4 +48,24 @@ public interface NfeLogService {
      * @return lista de registros associados à chave.
      */
     List<NfeLog> buscarPorChave(String chaveNfe);
+
+    /**
+     * Conta quantos eventos de um tipo foram registrados para uma NF-e.
+     * Utilizado para controle de sequência (CC-e máximo 20 eventos por chave).
+     *
+     * @param chaveNfe   chave de acesso da NF-e (44 dígitos).
+     * @param tipoEvento tipo do evento (ex: "CCE").
+     * @return total de registros encontrados.
+     */
+    int contarEventos(String chaveNfe, String tipoEvento);
+
+    PageResponse<NfeLog> listarPaginado(Long empresaId, int page, int size);
+
+    /**
+     * Remove registros de auditoria com data anterior ao limite de retenção.
+     *
+     * @param diasAntigos número de dias — registros mais antigos que esse valor são excluídos.
+     * @return total de registros removidos.
+     */
+    int deleteAntigos(int diasAntigos);
 }

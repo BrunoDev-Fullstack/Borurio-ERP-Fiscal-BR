@@ -20,7 +20,7 @@ Escopo:
 
 Autor:
   Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
-  Revisão 3.1.3 — Correção definitiva de paths relativos (classpath seguro)
+  Revisão 3.1.5 — Inclusão do elemento raiz NFe para compatibilidade Xerces
 ==============================================================================
 -->
 
@@ -35,58 +35,43 @@ Autor:
          1. IMPORTAÇÃO — Assinatura Digital (W3C XMLDSig v1.01 ajustado)
          ============================================================= -->
     <xs:import namespace="http://www.w3.org/2000/09/xmldsig#"
-               schemaLocation="../custom/xmldsig-core-schema_v1.01-ajustado.xsd"/>
+               schemaLocation="xmldsig-core-schema_v1.01-ajustado.xsd"/>
 
     <!-- =============================================================
          2. INCLUSÕES — Schemas nacionais padronizados
-         =============================================================
-         Estrutura:
-           • leiauteNFe_v4.00-ajustado.xsd → estrutura principal e tipos
-           • procNFe_v4.00.xsd              → processo completo (NF-e + protocolo)
-    -->
-    <xs:include schemaLocation="../custom/leiauteNFe_v4.00-ajustado.xsd"/>
-    <xs:include schemaLocation="../custom/procNFe_v4.00.xsd"/>
+         ============================================================= -->
+    <xs:include schemaLocation="leiauteNFe_v4.00-ajustado.xsd"/>
+    <xs:include schemaLocation="procNFe_v4.00.xsd"/>
 
     <!-- =============================================================
          3. ELEMENTOS RAIZ — Estruturas principais da NF-e 4.00
          ============================================================= -->
 
-    <!-- 3.1 Pedido de Concessão de Autorização de Uso -->
-    <xs:element name="enviNFe" type="TEnviNFe">
+    <!-- 3.1 Pedido de Autorização -->
+    <xs:element name="enviNFe" type="TEnviNFe"/>
+
+    <!-- 3.2 Retorno da SEFAZ -->
+    <xs:element name="retEnviNFe" type="TRetEnviNFe"/>
+
+    <!-- 🔴 CORREÇÃO CRÍTICA -->
+    <!-- 3.3 Nota Fiscal Eletrônica -->
+    <xs:element name="NFe" type="TNFe">
         <xs:annotation>
             <xs:documentation>
-                Elemento raiz "enviNFe" — representa o pedido de autorização
-                de uso da NF-e transmitido à SEFAZ.
+                Elemento raiz da NF-e conforme leiaute oficial.
+                Necessário para validação direta do XML NFe no parser Xerces.
             </xs:documentation>
         </xs:annotation>
     </xs:element>
-
-    <!-- 3.2 Retorno do Pedido de Autorização de Uso -->
-    <xs:element name="retEnviNFe" type="TRetEnviNFe">
-        <xs:annotation>
-            <xs:documentation>
-                Elemento "retEnviNFe" — representa o retorno da SEFAZ após o
-                processamento do pedido de autorização da NF-e.
-                Estrutura conforme leiaute PL_010b v1.30:
-                • tpAmb, verAplic, cStat, xMotivo, cUF, dhRecbto, infRec?
-            </xs:documentation>
-        </xs:annotation>
-    </xs:element>
-
-    <!-- 3.3 Processo completo da NF-e -->
-    <!--
-        O elemento "procNFe" é declarado em procNFe_v4.00.xsd,
-        incluído acima — não deve ser redeclarado.
-    -->
 
     <!-- =============================================================
-         4. ESTRUTURA OPCIONAL — Fallback para mocks e extensões
-         =============================================================
-         Propósito:
-           Evitar falhas durante testes unitários e mocks de integração
-           que possuam elementos fora da ordem SEFAZ, sem quebrar a
-           conformidade principal do schema.
-    -->
+         4. PROCESSO COMPLETO (procNFe)
+         ============================================================= -->
+    <!-- Já incluído via procNFe_v4.00.xsd -->
+
+    <!-- =============================================================
+         5. FALLBACK (uso controlado em testes)
+         ============================================================= -->
     <xs:complexType name="TExtraFallback">
         <xs:sequence>
             <xs:any namespace="##other"

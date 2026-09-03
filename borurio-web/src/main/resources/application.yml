@@ -1,83 +1,157 @@
 ﻿###############################################################################################
-# CONFIGURAÇÃO PRINCIPAL – BORURIO ERP FISCAL BR
+# CONFIGURAÇÃO PRINCIPAL – BORURIO ERP
 # ---------------------------------------------------------------------------------------------
-# Função:
-#   Este arquivo define o perfil ativo e configurações mínimas comuns a todos os ambientes.
-#   Ele herda as propriedades detalhadas do arquivo application-${spring.profiles.active}.yml.
+# Arquivo base de configuração do Spring Boot.
+# Contém apenas propriedades neutras e seguras compartilhadas entre ambientes.
 #
-# Módulo:
-#   borurio-web (API REST principal)
-#
-# Ambiente:
-#   Desenvolvimento / Homologação (perfil ativo: dev)
+# Configurações específicas devem estar em:
+#   application-dev.yml
+#   application-hom.yml
+#   application-prd.yml
 #
 # Stack:
 #   Spring Boot 3.3.x | Java 17 | UTF-8 (sem BOM)
 #
 # Autor:
-#   Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+#   Bruno Ribeiro – DevSecOps / Fullstack Java
 ###############################################################################################
 
 spring:
+
   application:
-    name: borurio-web
+    name: borurio-erp
 
-  ################################################################################################
-  # PERFIL ATIVO – Define qual arquivo de configuração será carregado
-  ################################################################################################
+  #############################################################################################
+  # PERFIL ATIVO
+  #
+  # Default: dev
+  # Pode ser sobrescrito por variável de ambiente
+  #
+  # Exemplo:
+  #   SPRING_PROFILES_ACTIVE=dev
+  #   SPRING_PROFILES_ACTIVE=hom
+  #   SPRING_PROFILES_ACTIVE=prd
+  #############################################################################################
+
   profiles:
-    active: dev   # => Herda de application-dev.yml
-
-  ################################################################################################
-  # DATASOURCE LOCAL – Configuração padrão para execução fora do Docker (opcional)
-  # Observação:
-  #   No Docker Compose, os parâmetros são substituídos por variáveis de ambiente.
-  ################################################################################################
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo
-    username: borurio
-    password: H4ck3r123
+    active: ${SPRING_PROFILES_ACTIVE:dev}
 
 ###############################################################################################
-# SERVIDOR WEB – Porta interna padrão
+# SERVIDOR WEB
 ###############################################################################################
+
 server:
-  port: 8080
+
   servlet:
     context-path: /
+
   error:
     include-message: always
+    include-binding-errors: always
 
 ###############################################################################################
-# LOGGING – Configuração de nível de log e rastreabilidade padrão
+# LOGGING BASE
+# Ajustes detalhados devem ser feitos em logback-{profile}.xml
 ###############################################################################################
+
 logging:
+
   level:
     root: INFO
     org.springframework: INFO
     org.hibernate: WARN
-    br.com.borurio: DEBUG
-  file:
-    path: logs/
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+    br.com.borurio: INFO
 
 ###############################################################################################
-# METADADOS DO AMBIENTE E INFORMAÇÕES DO PROJETO
+# METADADOS DA APLICAÇÃO
 ###############################################################################################
+
 app:
-  name: Borurio ERP Fiscal BR
+
+  name: Borurio ERP
   version: ${project.version:1.0.0}
-  description: "Configuração principal - carrega perfis específicos (dev, prd, hom)"
-  owner: "Bruno Ribeiro – DevSecOps / Fullstack Java"
+  description: "ERP fiscal e logístico com emissão NF-e integrado à SEFAZ."
+  owner: "Bruno Ribeiro – DevSecOps"
+
+###############################################################################################
+# CORS — CORS_ALLOWED_ORIGINS obrigatório em PRD; fallback localhost para dev/hom
+###############################################################################################
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080}
+
+###############################################################################################
+# NFE LOG — retenção de auditoria; padrão 365 dias (LGPD)
+###############################################################################################
+nfe:
+  log:
+    retencao-dias: ${NFE_LOG_RETENCAO_DIAS:365}
+    retencao:
+      cron: ${NFE_LOG_RETENCAO_CRON:0 0 2 * * ?}
+
+###############################################################################################
+# RATE LIMIT — proteção login e emissão NF-e
+###############################################################################################
+rate:
+  limit:
+    login:
+      max: ${RATE_LIMIT_LOGIN_MAX:10}
+    emitir:
+      max: ${RATE_LIMIT_EMITIR_MAX:30}
+
+###############################################################################################
+# SEFAZ RETRY — padrão conservador; sobrescreva por ambiente se necessário
+###############################################################################################
+sefaz:
+  retry:
+    max-attempts: ${SEFAZ_RETRY_MAX_ATTEMPTS:3}
+    wait-seconds: ${SEFAZ_RETRY_WAIT_SECONDS:2}
+
+  #############################################################################################
+  # RECONCILIACAO FISCAL (Gate 3) — backoff da Consulta Situacao sobre ciclos
+  # TRANSMITIDO/PENDENTE_CONFIRMACAO. Defaults conservadores; nunca hardcoded no Java porque os
+  # critérios de consumo indevido (cStat 656) são definidos pelo autorizador e podem mudar.
+  #############################################################################################
+  reconciliacao:
+    backoff-inicial-segundos: ${SEFAZ_RECONCILIACAO_BACKOFF_INICIAL_SEGUNDOS:30}
+    backoff-multiplicador: ${SEFAZ_RECONCILIACAO_BACKOFF_MULTIPLICADOR:2.0}
+    backoff-maximo-segundos: ${SEFAZ_RECONCILIACAO_BACKOFF_MAXIMO_SEGUNDOS:600}
+    limite-tentativas: ${SEFAZ_RECONCILIACAO_LIMITE_TENTATIVAS:10}
+    idade-maxima-minutos: ${SEFAZ_RECONCILIACAO_IDADE_MAXIMA_MINUTOS:60}
 
 ###############################################################################################
 # NOTAS TÉCNICAS
-# ---------------------------------------------------------------------------------------------
-# - Este arquivo é o entrypoint de configuração do Spring Boot.
-# - application-dev.yml contém as definições detalhadas de banco, Redis, SEFAZ e Actuator.
-# - Perfis disponíveis: dev | prd | hom
-# - Para subir com outro perfil: mvn spring-boot:run -Dspring-boot.run.profiles=hom
-# - Porta padrão interna: 8080 (mapeada como 8081 no Docker)
+#
+# NÃO definir neste arquivo:
+#   datasource
+#   redis
+#   certificados
+#   portas
+#
+# Esses itens devem estar em:
+#
+#   application-dev.yml
+#   application-hom.yml
+#   application-prd.yml
+#
+###############################################################################################
+
+###############################################################################################
+# EXECUÇÃO
+###############################################################################################
+
+# DEV
+# mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+
+# HOM
+# mvn spring-boot:run "-Dspring-boot.run.profiles=hom"
+
+# PRD
+# SPRING_PROFILES_ACTIVE=prd docker-compose -f "docker-compose.prd.yml" up -d
+
+###############################################################################################
+# PADRÕES ADOTADOS
+#
+# Clean Architecture
+# DevSecOps
+# Separação de ambientes
 ###############################################################################################

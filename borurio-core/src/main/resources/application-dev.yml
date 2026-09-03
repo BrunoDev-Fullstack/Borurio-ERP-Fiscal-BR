@@ -37,16 +37,6 @@ spring:
     username: root
     password: root
 
-  # ---------------------- Redis (Cache / Sessões) ----------------------
-  data:
-    redis:
-      host: 127.0.0.1
-      port: 6379
-      database: 0
-      timeout: 1500ms
-
-  cache:
-    type: redis
 
 # =========================
 # LOGGING GLOBAL

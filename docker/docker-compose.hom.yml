@@ -1,0 +1,144 @@
+version: "3.9"
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # MySQL (HOM)
+  # ---------------------------------------------------------------------------
+  borurio-mysql-hom:
+    image: mysql:8.4
+    container_name: borurio-mysql-hom
+    restart: unless-stopped
+
+    env_file:
+      - ./env/.env.hom
+
+    environment:
+      MYSQL_DATABASE: borurio_fiscal_hom
+      MYSQL_USER: borurio
+      TZ: America/Sao_Paulo
+
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+
+    ports:
+      - "3308:3306"
+
+    volumes:
+      - mysql_hom_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+    networks:
+      - borurio-net-hom
+
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+
+  # ---------------------------------------------------------------------------
+  # MinIO (HOM)
+  # ---------------------------------------------------------------------------
+  borurio-minio-hom:
+    image: minio/minio:latest
+    container_name: borurio-minio-hom
+    restart: unless-stopped
+
+    command: server /data --console-address ":9001"
+
+    env_file:
+      - ./env/.env.hom
+
+    environment:
+      TZ: America/Sao_Paulo
+
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+
+    volumes:
+      - minio_hom_data:/data
+
+    networks:
+      - borurio-net-hom
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 4
+
+
+  # ---------------------------------------------------------------------------
+  # Application (HOM)
+  # ---------------------------------------------------------------------------
+  borurio-web-hom:
+    build:
+      context: ../
+      dockerfile: ./Dockerfile
+
+    image: borurio-web-hom:latest
+    container_name: borurio-web-hom
+    restart: unless-stopped
+    init: true
+
+    depends_on:
+      borurio-mysql-hom:
+        condition: service_healthy
+
+    env_file:
+      - ./env/.env.hom
+
+    environment:
+      SPRING_PROFILES_ACTIVE: hom
+
+      # Datasource — explicit Docker hostname; overrides any env_file value
+      SPRING_DATASOURCE_URL: "jdbc:mysql://borurio-mysql-hom:3306/borurio_fiscal_hom?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo&connectTimeout=30000&socketTimeout=60000"
+      SPRING_DATASOURCE_USERNAME: borurio
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
+
+      # JWT — secret comes from env_file (.env.hom SECURITY_JWT_SECRET)
+      SECURITY_JWT_EXPIRATION_MS: 3600000
+
+      # Certificate path — valor não-sensível; password vem do env_file (.env.hom)
+      FISCAL_CERT_PATH: /app/certificados/pfx/certificado-jcho.pfx
+
+      TZ: America/Sao_Paulo
+
+    ports:
+      - "8081:8081"
+
+    networks:
+      - borurio-net-hom
+
+    volumes:
+      - ./certs:/app/certificados:ro
+      - logs_hom:/var/log/borurio
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  mysql_hom_data:
+  minio_hom_data:
+  logs_hom:
+
+
+# ---------------------------------------------------------------------------
+# Network
+# ---------------------------------------------------------------------------
+networks:
+  borurio-net-hom:
+    driver: bridge

@@ -1,79 +1,106 @@
 # =============================================================================
-# Dockerfile - Borurio ERP Fiscal BR (Raiz Unificado)
-# =============================================================================
-# Módulos: Core | App | Fiscal | Web
-# Stack: Java 17 | Spring Boot 3.3.x | MyBatis | Flyway | Redis | MySQL
-# Padrões: Multi-stage | DevSecOps | Least Privilege | Healthcheck
-# Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
+# Dockerfile - Borurio ERP Fiscal BR
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# Etapa 1 - Build Maven (monorepo completo)
-# -----------------------------------------------------------------------------
+# =============================================================================
+# ETAPA 1 — BUILD MAVEN
+# =============================================================================
 FROM maven:3.9.9-eclipse-temurin-17 AS builder
+
 WORKDIR /build
 
-# Habilita cache Maven (BuildKit)
 VOLUME /root/.m2
 
-# Copia apenas os POMs para melhor cache
-COPY pom.xml .
-COPY borurio-core/pom.xml borurio-core/
-COPY borurio-app/pom.xml borurio-app/
-COPY borurio-fiscal/pom.xml borurio-fiscal/
-COPY borurio-web/pom.xml borurio-web/
-
-# Resolve plugins Maven (rápido, sem baixar tudo)
-RUN mvn -B -N dependency:resolve-plugins -DskipTests
-
-# Copia o código-fonte completo
 COPY . .
 
-# Compila e empacota todos os módulos do reator Maven (Core, App, Fiscal, Web)
-RUN mvn -B -am clean package -DskipTests -Ddockerfile.skip=true
+RUN mvn -B clean install -DskipTests
 
-# -----------------------------------------------------------------------------
-# Etapa 2 - Runtime (imagem leve e segura)
-# -----------------------------------------------------------------------------
-FROM eclipse-temurin:17-jdk-jammy AS runtime
 
-# Cria usuário não-root e estrutura segura
-RUN set -eux; \
-    groupadd -r borurio && useradd -r -g borurio borurio && \
-    mkdir -p /app /var/log/borurio /opt/borurio && \
-    chown -R borurio:borurio /app /var/log/borurio /opt/borurio && \
-    ln -snf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime && \
-    echo "America/Sao_Paulo" > /etc/timezone
+# =============================================================================
+# ETAPA 2 — RUNTIME
+# =============================================================================
+FROM eclipse-temurin:17-jre-jammy
+
+LABEL maintainer="Bruno Ribeiro DevSecOps"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        openssl \
+        tzdata && \
+    update-ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# =============================================================================
+# CERTIFICADOS ICP-BRASIL
+# =============================================================================
+RUN set -e && \
+    curl -k -L --retry 5 --retry-delay 2 \
+        https://acraiz.icpbrasil.gov.br/ICP-Brasilv10.crt \
+        -o /tmp/icp-brasil-v10.crt && \
+    curl -k -L --retry 5 --retry-delay 2 \
+        https://ccd.acsoluti.com.br/lcr/ac-soluti-ssl-ev-v10-g4.crt \
+        -o /tmp/ac-soluti-g4.crt && \
+    keytool -importcert \
+        -alias icp-brasil-v10 \
+        -file /tmp/icp-brasil-v10.crt \
+        -cacerts \
+        -storepass changeit \
+        -noprompt && \
+    keytool -importcert \
+        -alias ac-soluti-ssl-ev-g4 \
+        -file /tmp/ac-soluti-g4.crt \
+        -cacerts \
+        -storepass changeit \
+        -noprompt && \
+    rm -f /tmp/*.crt
+
+
+# =============================================================================
+# USUÁRIO NÃO ROOT
+# =============================================================================
+RUN groupadd -r borurio && \
+    useradd -r -g borurio borurio && \
+    mkdir -p /app /var/log/borurio && \
+    chown -R borurio:borurio /app /var/log/borurio
 
 WORKDIR /app
 USER borurio
 
-# Copia os artefatos compilados
-COPY --from=builder /build/borurio-core/target/borurio-core-1.0.0.jar ./borurio-core.jar
-COPY --from=builder /build/borurio-app/target/borurio-app-1.0.0.jar ./borurio-app.jar
-COPY --from=builder /build/borurio-fiscal/target/borurio-fiscal-1.0.0.jar ./borurio-fiscal.jar
-COPY --from=builder /build/borurio-web/target/borurio-web-1.0.0.jar ./borurio-web.jar
 
-# -----------------------------------------------------------------------------
-# Variáveis de ambiente (seguras e configuráveis)
-# -----------------------------------------------------------------------------
-ENV SPRING_PROFILES_ACTIVE=dev \
-    TZ=America/Sao_Paulo \
-    JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8" \
-    SPRING_DATASOURCE_URL="jdbc:mysql://borurio-mysql-dev:3306/borurio_fiscal_dev?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=America/Sao_Paulo" \
-    SPRING_DATASOURCE_USERNAME="borurio" \
-    SPRING_DATASOURCE_PASSWORD="H4ck3r123" \
-    SPRING_REDIS_HOST="borurio-redis-dev" \
-    SPRING_REDIS_PORT="6379" \
-    MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE="health,info,metrics" \
-    MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS="always"
+# =============================================================================
+# ARTEFATO
+# =============================================================================
+COPY --from=builder /build/borurio-web/target/borurio-web-1.0.0.jar /app/app.jar
 
-# -----------------------------------------------------------------------------
-# Healthcheck e Execução
-# -----------------------------------------------------------------------------
+
+# =============================================================================
+# ENV
+# =============================================================================
+ENV TZ=America/Sao_Paulo \
+    JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport \
+    -XX:MaxRAMPercentage=75.0 \
+    -Dfile.encoding=UTF-8 \
+    -Duser.timezone=America/Sao_Paulo" \
+    SERVER_PORT=8080
+
+
+# =============================================================================
+# PORTA DA APLICAÇÃO
+# =============================================================================
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-  CMD curl -fs http://localhost:8080/actuator/health || exit 1
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_TOOL_OPTIONS -jar borurio-web.jar"]
+# =============================================================================
+# HEALTHCHECK
+# =============================================================================
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+CMD curl -fsS http://localhost:8080/actuator/health || exit 1
+
+
+# =============================================================================
+# ENTRYPOINT
+# =============================================================================
+ENTRYPOINT ["java","-jar","/app/app.jar"]

@@ -18,6 +18,11 @@ Ajustes aplicados:
   - Eliminadas dependências externas.
   - Tornado seguro para parser Java/Xerces (sem entidades externas).
   - Revisado para uso direto em importação via nfe_v4.00_consolidado.xsd.
+  - 14/07/2026: restaurado fixed="rsa-sha1"/"sha1" em SignatureMethod/DigestMethod
+    (Algorithm) e fixed=C14N inclusivo em CanonicalizationMethod, conforme o
+    schema oficial vigente (PL_010e_v1.02) — este arquivo era o que de fato
+    validava localmente (via nfe_v4.00_consolidado.xsd) e estava permissivo
+    demais, sem barrar SHA-256 antes da correção do algoritmo de assinatura.
 
 Escopo:
   Ambientes: DEV / HOMOLOGAÇÃO / PRODUÇÃO
@@ -74,7 +79,7 @@ Autor:
         <xs:sequence minOccurs="0" maxOccurs="unbounded">
             <xs:any namespace="##any" processContents="lax"/>
         </xs:sequence>
-        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
+        <xs:attribute name="Algorithm" type="xs:anyURI" use="required" fixed="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
     </xs:complexType>
 
     <xs:complexType name="SignatureMethodType" mixed="true">
@@ -82,7 +87,7 @@ Autor:
             <xs:element name="HMACOutputLength" type="xs:integer" minOccurs="0"/>
             <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
         </xs:sequence>
-        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
+        <xs:attribute name="Algorithm" type="xs:anyURI" use="required" fixed="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
     </xs:complexType>
 
     <!-- =============================================================
@@ -116,7 +121,7 @@ Autor:
         <xs:sequence minOccurs="0" maxOccurs="unbounded">
             <xs:any namespace="##any" processContents="lax"/>
         </xs:sequence>
-        <xs:attribute name="Algorithm" type="xs:anyURI" use="required"/>
+        <xs:attribute name="Algorithm" type="xs:anyURI" use="required" fixed="http://www.w3.org/2000/09/xmldsig#sha1"/>
     </xs:complexType>
 
     <!-- =============================================================

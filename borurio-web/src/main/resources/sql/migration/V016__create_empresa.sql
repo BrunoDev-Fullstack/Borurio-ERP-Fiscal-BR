@@ -1,0 +1,21 @@
+CREATE TABLE empresa (
+    id               BIGINT      NOT NULL AUTO_INCREMENT,
+    cnpj             VARCHAR(14) NOT NULL,
+    razao_social     VARCHAR(60) NOT NULL,
+    nome_fantasia    VARCHAR(60),
+    ie               VARCHAR(14),
+    crt              VARCHAR(1)  NOT NULL DEFAULT '1',
+    uf               VARCHAR(2)  NOT NULL,
+    logradouro       VARCHAR(60),
+    numero           VARCHAR(10),
+    bairro           VARCHAR(60),
+    municipio        VARCHAR(60),
+    codigo_municipio VARCHAR(7),
+    cep              VARCHAR(8),
+    serie_nfe_padrao VARCHAR(3)  NOT NULL DEFAULT '1',
+    ativo            TINYINT(1)  NOT NULL DEFAULT 1,
+    criado_em        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_empresa_cnpj (cnpj)
+);

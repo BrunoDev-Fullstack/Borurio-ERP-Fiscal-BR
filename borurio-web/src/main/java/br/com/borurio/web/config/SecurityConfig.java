@@ -1,116 +1,155 @@
 package br.com.borurio.web.config;
 
 import br.com.borurio.web.auth.JwtFilter;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-/**
- * =============================================================================
- * CONFIGURAÇÃO DE SEGURANÇA — BORURIO ERP FISCAL BR
- * =============================================================================
- * Controla autenticação via JWT, define endpoints públicos e aplica política
- * stateless (sem sessão) para as APIs REST do ERP Fiscal BR.
- *
- * Perfis suportados:
- *   • dev — libera endpoints fiscais e de observabilidade (para homologação SEFAZ)
- *   • hom / prd — exige autenticação JWT para endpoints sensíveis
- *
- * Endpoints públicos (todos os perfis):
- *   /auth/login
- *   /swagger-ui/**
- *   /v3/api-docs/**
- *   /actuator/**
- *   /api/test/**
- *
- * Endpoints adicionais liberados apenas no perfil dev:
- *   /api/fiscal/**
- *
- * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Data: Outubro/2025
- * =============================================================================
- */
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+
+@EnableMethodSecurity
 @Configuration
 public class SecurityConfig {
 
-    @Autowired
-    private JwtFilter jwtFilter;
+    private final JwtFilter jwtFilter;
+    private final ObjectMapper objectMapper;
 
-    // __________________________________________________________________________
-    // PERFIS: HOMOLOGAÇÃO / PRODUÇÃO
-    // --------------------------------------------------------------------------
+    @Value("${cors.allowed-origins:http://localhost:8080}")
+    private String allowedOrigins;
+
+    public SecurityConfig(JwtFilter jwtFilter, ObjectMapper objectMapper) {
+        this.jwtFilter = jwtFilter;
+        this.objectMapper = objectMapper;
+    }
+
+    private void writeJson(HttpServletResponse response, int status, String message) throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(
+                objectMapper.writeValueAsString(Map.of(
+                        "code", status,
+                        "message", message,
+                        "success", false
+                ))
+        );
+    }
+
+    // Chain 1: Actuator — public, sem JWT, maior prioridade.
     @Bean
-    @Profile({"hom", "prd"})
-    public SecurityFilterChain filterChainDefault(HttpSecurity http) throws Exception {
+    @Order(1)
+    public SecurityFilterChain actuatorSecurityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher(EndpointRequest.toAnyEndpoint())
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.disable())
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .authorizeHttpRequests(auth -> auth
+                        .anyRequest().permitAll()
+                );
+        return http.build();
+    }
+
+    // Chain 2: Aplicacao principal — JWT obrigatorio para rotas protegidas.
+    @Bean
+    @Order(2)
+    public SecurityFilterChain appSecurityFilterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
-                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/auth/login",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/actuator/**",
-                                "/api/test/**"
+                                new AntPathRequestMatcher("/auth/**"),
+                                new AntPathRequestMatcher("/ping"),
+                                new AntPathRequestMatcher("/api/test/**"),
+                                new AntPathRequestMatcher("/api/integration/fiscal-authorizations", "POST"),
+                                new AntPathRequestMatcher("/swagger-ui/**"),
+                                new AntPathRequestMatcher("/swagger-ui.html"),
+                                new AntPathRequestMatcher("/v3/api-docs/**"),
+                                new AntPathRequestMatcher("/v3/api-docs.yaml")
                         ).permitAll()
+                        .requestMatchers(
+                                new AntPathRequestMatcher("/api/app/empresas", "POST"),
+                                new AntPathRequestMatcher("/api/app/empresas/**", "PUT"),
+                                new AntPathRequestMatcher("/api/app/usuarios"),
+                                new AntPathRequestMatcher("/api/app/usuarios/**"),
+                                new AntPathRequestMatcher("/api/app/produtos/*/estoque/entrada", "POST"),
+                                new AntPathRequestMatcher("/api/admin/**")
+                        ).hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                .exceptionHandling(ex -> ex
+                        .accessDeniedHandler((req, res, e) ->
+                                writeJson(res, 403, "Acesso negado"))
+                        .authenticationEntryPoint((req, res, e) ->
+                                writeJson(res, 401, "Autenticação necessária"))
+                );
 
         return http.build();
     }
 
-    // __________________________________________________________________________
-    // PERFIL: DESENVOLVIMENTO
-    // --------------------------------------------------------------------------
     @Bean
-    @Profile("dev")
-    public SecurityFilterChain filterChainDev(HttpSecurity http) throws Exception {
-        http
-                .csrf(csrf -> csrf.disable())
-                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/auth/login",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/actuator/**",
-                                "/api/test/**",
-                                "/api/fiscal/**"   // Liberação completa para endpoints fiscais (ping, status, envio)
-                        ).permitAll()
-                        .anyRequest().authenticated()
-                )
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
 
-        return http.build();
+        List<String> origins = List.of(allowedOrigins.split(","));
+        boolean wildcard = origins.contains("*");
+
+        if (wildcard) {
+            config.addAllowedOriginPattern("*");
+        } else {
+            config.setAllowedOrigins(origins);
+            config.setAllowCredentials(true);
+        }
+
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Api-Key"));
+        config.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 
-    // __________________________________________________________________________
-    // BEANS AUXILIARES
-    // --------------------------------------------------------------------------
-
-    /**
-     * Algoritmo padrão de hashing de senha.
-     */
+    // JwtFilter e @Component — Spring Boot o registra automaticamente no servlet container.
+    // Como ele tambem e adicionado via addFilterBefore, ele executaria duas vezes por request.
+    // setEnabled(false) desabilita o registro automatico, mantendo apenas o gerenciado pelo Security.
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+    public FilterRegistrationBean<JwtFilter> jwtFilterRegistration(JwtFilter filter) {
+        FilterRegistrationBean<JwtFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
-    /**
-     * Gerenciador de autenticação global usado pelo AuthService.
-     */
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
-        return config.getAuthenticationManager();
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration configuration
+    ) throws Exception {
+        return configuration.getAuthenticationManager();
     }
 }

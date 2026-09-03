@@ -1,0 +1,162 @@
+###################################################################################################
+# AMBIENTE HOM — BORURIO ERP FISCAL BR
+###################################################################################################
+
+server:
+  address: 0.0.0.0
+  port: 8081
+  servlet:
+    context-path: /
+
+spring:
+
+  application:
+    name: borurio-erp-hom
+
+  ################################################################################################
+  # BANCO DE DADOS — HOM
+  ################################################################################################
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/borurio?useSSL=false&serverTimezone=America/Sao_Paulo&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+
+    hikari:
+      pool-name: BorurioHikariPool-HOM
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  ################################################################################################
+  # JPA
+  ################################################################################################
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+
+  ################################################################################################
+  # FLYWAY — CORREÇÃO DEFINITIVA
+  ################################################################################################
+  flyway:
+    enabled: true
+    locations: classpath:sql/migration
+    baseline-on-migrate: true
+
+  ################################################################################################
+  # JACKSON
+  ################################################################################################
+  jackson:
+    serialization:
+      indent_output: false
+    time-zone: America/Sao_Paulo
+    locale: pt_BR
+    default-property-inclusion: non_null
+
+###################################################################################################
+# LOGGING
+###################################################################################################
+logging:
+  config: classpath:logback-hom.xml
+  level:
+    root: INFO
+    br.com.borurio: INFO
+
+###################################################################################################
+# CORS
+###################################################################################################
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080,http://localhost:3000}
+
+###################################################################################################
+# SEGURANÇA — JWT (COM FALLBACK)
+###################################################################################################
+security:
+  jwt:
+    secret: ${SECURITY_JWT_SECRET}
+    expiration-ms: ${SECURITY_JWT_EXPIRATION_MS:3600000}
+    # Piso mínimo de validade restante do certificado para PERMITIR rotação administrativa do
+    # jti OMS — não altera a expiração de /fiscal-authorizations (POST) nem da reautorização.
+    oms-rotation-min-validity-ms: ${SECURITY_JWT_OMS_ROTATION_MIN_VALIDITY_MS:3600000}
+
+###################################################################################################
+# SEFAZ — HOMOLOGAÇÃO REAL
+###################################################################################################
+sefaz:
+  ambiente: HOM
+  tpAmb: 2
+  urls:
+    autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx
+    retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx
+    consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx
+    status: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx
+    inutilizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeinutilizacao4.asmx
+    recepcao-evento: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferecepcaoevento4.asmx
+    # Manifestação do Destinatário usa AN (cOrgao=91). O endpoint AN HOM retorna 403 do nosso IP local
+    # (acesso bloqueado pela SEFAZ federal para IPs residenciais/dev). Funcional em ambiente corporativo/PRD.
+    manifestacao-evento: https://hom.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx
+  # Rotas do autorizador NORMAL por UF (Fase 0 do Gate SVC, 14-08-2026) — só SP nesta fase; UF sem
+  # entrada aqui falha fechado em SefazRotaResolver, nunca cai para SP por omissão. Mesmos valores
+  # de sefaz.urls.* acima (duplicado deliberadamente: sefaz.urls.* segue servindo inutilização/
+  # recepção de evento/manifestação via SefazProperties, fora do escopo desta fase).
+  rotas:
+    SP:
+      autorizacao: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeautorizacao4.asmx
+      retorno: https://homologacao.nfe.fazenda.sp.gov.br/ws/nferetautorizacao4.asmx
+      consulta: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfeconsultaprotocolo4.asmx
+      status: https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx
+
+###################################################################################################
+# CERTIFICADO DIGITAL A1
+###################################################################################################
+fiscal:
+  certificate:
+    # Certificado A1 da empresa emitente configurada no ambiente HOM.
+    # O arquivo certificado-jcho.pfx deve corresponder ao certificado físico validado no ambiente.
+    # Não renomear o arquivo sem atualizar FISCAL_CERT_PATH, Docker e documentação operacional.
+    path: ${FISCAL_CERT_PATH:/app/certificados/pfx/certificado-jcho.pfx}
+    password: ${FISCAL_CERT_PASSWORD}
+
+  emitente:
+    cnpj:              ${FISCAL_EMITENTE_CNPJ}
+    razao-social:      ${FISCAL_EMITENTE_RAZAO_SOCIAL}
+    nome-fantasia:     ${FISCAL_EMITENTE_NOME_FANTASIA:}
+    ie:                ${FISCAL_EMITENTE_IE}
+    crt:               ${FISCAL_EMITENTE_CRT:1}
+    logradouro:        ${FISCAL_EMITENTE_LOGRADOURO}
+    numero:            ${FISCAL_EMITENTE_NUMERO}
+    bairro:            ${FISCAL_EMITENTE_BAIRRO}
+    municipio:         ${FISCAL_EMITENTE_MUNICIPIO}
+    codigo-municipio:  ${FISCAL_EMITENTE_CODIGO_MUNICIPIO}
+    uf:                ${FISCAL_EMITENTE_UF}
+    cep:               ${FISCAL_EMITENTE_CEP}
+
+###################################################################################################
+# ACTUATOR
+###################################################################################################
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+###################################################################################################
+# METADADOS
+###################################################################################################
+app:
+  profile: hom
+  description: Ambiente de homologação SEFAZ-SP
+  version: ${project.version:1.0.0}
+
+###################################################################################################
+# SWAGGER — URL externa via Cloudflare Tunnel
+###################################################################################################
+swagger:
+  external-url: https://hom-api.borurio.com

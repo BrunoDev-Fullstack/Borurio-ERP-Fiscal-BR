@@ -1,0 +1,408 @@
+# Checklist de Entrega — Borurio ERP Fiscal BR
+
+| Atributo          | Valor                               |
+|-------------------|-------------------------------------|
+| Versão            | 1.11                                |
+| Data              | 2026-08-14                          |
+| Sprint            | Gate 1 (numeração), Gate 2/3 (semântica cStat + reconciliação), Gate 5 (retorno fiscal ao OMS), Gate de Cancelamento (evento 110111), Gate CC-e (evento 110110), Gate Estoque (ajuste por empresa) e hardening de `PUT /api/app/empresas/{id}` — **todos commitados**. |
+| Ambiente validado | Código commitado (numeração, reconciliação, retorno OMS, cancelamento, CC-e, estoque por empresa, PUT empresa) testado contra MySQL efêmero de teste antes de cada commit, incluindo concorrência real, rollback real da finalização do CC-e e correção comprovada de lost update no PUT empresa; **nenhum dos gates acima ainda foi deployado em HOM** — release `4a39a88` continua sendo o último release ativo em HOM |
+
+> Esta revisão (14-08-2026) registra o fechamento em código de duas frentes independentes, ambas nascidas de pedidos do CC: o ajuste de estoque por empresa (`9e845ba`) e o hardening de `PUT /api/app/empresas/{id}` (`849da14`, achado de banca arquitetural — defeito de contrato e lost update comprovados e corrigidos antes do commit). A revisão anterior (13-08-2026) registrava o fechamento em código do Gate CC-e: correção isolada do parser (`8b6b19b`) e implementação completa do gate (`4791572`), ambos commitados após banca técnica final (incluindo um IT dedicado de rollback real da finalização, contra MySQL 8.4). A consolidação de 22-07-2026 (P0.1–P0.4, Gate 7H, modFrete) permanece válida e não foi alterada retroativamente — ver seção 8 para o estado de cada documento.
+
+## 0. Estado consolidado (14-08-2026)
+
+**Commits desta janela (10 a 14-08-2026), HEAD atual `849da14`:**
+- `5640276` — Gate 1: ciclo operacional do nNF, gate de série ativa, ordem canônica de lock, isolamento tenant-null, classificação de falha pré-transmissão
+- `620005e` — Gate 2/3: matriz semântica de `cStat` e reconciliação ativa de resultado incerto
+- `d8590fd` — Gate 5: retorno de `serie`/`numeroNFe`/estado fiscal ao contrato OMS
+- `a746fdf` — consolidação de relatório/checkpoint técnico de 11-08-2026 (documental)
+- `59b92d5` — Gate de Cancelamento (evento 110111): idempotência, reconciliação, concorrência, estorno exactly-once
+- `8b6b19b` — fix isolado: correção da extração de `infEvento` em `procEventoNFe` (escopo de `retEvento`) — defeito já existia no cancelamento commitado em `59b92d5`, corrigido em commit próprio antes do Gate CC-e para não misturar bugfix com feature
+- `4791572` — Gate CC-e (evento 110110): sequência fiscal própria, idempotência de operação, reconciliação com validação de conteúdo, bootstrap histórico fail-closed — ver detalhamento abaixo
+- `9e845ba` — Gate Estoque: prova formal de que `controleEstoqueAtivo=false` já era suportado pela lógica de produção sem nenhuma mudança de código (`PedidoEmissaoService`/`NfeEmissaoService`/`NfeEventoService` intocados) — ver detalhamento abaixo
+- `849da14` — hardening independente de `PUT /api/app/empresas/{id}` (Rota B): DTO parcial dedicado, merge controlado campo a campo, correção do lost update comprovado com lock pessimista — ver detalhamento abaixo
+
+**Gate Estoque (ajuste por empresa) — CONCLUÍDO E COMMITADO (`9e845ba`):**
+- Pedido do CC (item 4 do backlog abaixo): suporte a `controleEstoqueAtivo=false` para a empresa do cenário de testes
+- Auditoria fria confirmou que a lógica de produção já resolvia integralmente o pedido — `controleEstoqueAtivo=false` já bloqueava reserva/baixa/estorno de estoque sem nenhuma alteração em `PedidoEmissaoService`, `NfeEmissaoService` ou `NfeEventoService`
+- **Não houve remoção global da validação de estoque**: empresas com controle ativo (`controleEstoqueAtivo=true`, comportamento padrão) continuam bloqueando `/emitir` por saldo insuficiente exatamente como antes
+- Empresas com controle desativado não reservam, não baixam, não desfazem e não estornam estoque em nenhum ponto do ciclo fiscal
+- Três lacunas de **prova** (não de comportamento) fechadas com testes novos: isolamento multiempresa, reemissão no mesmo pedido com estoque desativado, `PENDENTE_CONFIRMACAO` sem efeito de estoque, e um IT dedicado (`NfeEmissaoEstoqueDesativadoRealMySqlIT`) contra MySQL 8.4 real com `EstoqueServiceImpl` real (não mock), saldo zero, concorrência
+- Commit de evidência: `9e845ba`
+
+**PUT /api/app/empresas/{id} (Rota B) — hardening independente CONCLUÍDO E COMMITADO (`849da14`):**
+- Achado de banca arquitetural: o único payload documentado do endpoint (certificado) já falhava por Bean Validation antes de chegar ao service; corrigido com um DTO de atualização PARCIAL dedicado (`EmpresaAtualizacaoRequest`), nunca reaproveitando a entidade `Empresa` como corpo HTTP
+- Distinção real entre campo **omitido** (preserva o valor persistido) e campo **presente com `null` explícito** (limpa campos opcionais, rejeitado com 422 para obrigatórios) — rastreamento de presença via comportamento padrão do Jackson, provado ponta a ponta via MockMvc
+- CNPJ imutável por este endpoint — só aceita o mesmo valor já persistido (normalizado) ou omissão
+- `certSenha` protegida: nunca reencripta um valor já preservado, nunca aparece em response/log/`toString()`
+- Merge controlado campo a campo (sem reflection/BeanUtils) reaproveitando `EmpresaMapper.atualizar` inalterado
+- **Lost update comprovado e corrigido**: banca identificou que a leitura sem lock seguida de UPDATE de linha inteira permitia que duas requisições concorrentes em campos diferentes da mesma empresa perdessem uma alteração — comprovado primeiro contra MySQL 8.4 real (IT dedicado, defeito confirmado), depois corrigido com lock pessimista (`EmpresaMapper.buscarPorIdParaAtualizar`, `SELECT ... FOR UPDATE`) dentro de uma única fronteira transacional (`TransactionTemplate`, mesmo padrão de `OmsAuthorizationAdminService`/`NfeCceOrquestradorService` — nunca `@Transactional` por self-invocation)
+- Concorrência (campos diferentes, mesmo campo, empresas diferentes) e rollback (exceção real após o lock, antes do UPDATE) revalidados contra MySQL 8.4 real depois da correção — todos os cenários verdes
+- Commit de evidência: `849da14`
+
+**Gate CC-e (evento 110110) — CONCLUÍDO E COMMITADO (`4791572`, fix de base em `8b6b19b`):**
+- Endpoint OMS `POST /api/app/pedidos/{id}/cce` com `Idempotency-Key` obrigatório — identifica a intenção da OMS, distinta da identidade fiscal crescente (chave+110110+nSeq)
+- Sequência fiscal própria 1–20 (`nfe_evento_sequencia`, reserva atômica `FOR UPDATE` + isolamento `SERIALIZABLE`) e idempotência de operação persistente (`nfe_evento_idempotencia`), separada da identidade fiscal — migration V037
+- Bootstrap de sequência histórica fail-closed via Consulta Situação — nunca assume `ultimo_nseq_registrado=0` sem confirmar
+- Matriz de `cStat` tratada explicitamente: 135 (registrado), 136 e 573 (pendente confirmação, nunca decide sozinho), 594 (rejeição estrutural, terminal)
+- Reconciliação do 573 valida **conteúdo** (`xCorrecao`) além da identidade fiscal — identidade batendo sozinha nunca basta (`CCE_EVENTO_DIVERGENTE`)
+- Endpoint fiscal legado `/api/fiscal/nfe/cce` desabilitado para transmissão real (HTTP 410) — nunca mais transmite 110110 fora do gate
+- Correção do parser `procEventoNFe` (escopo `retEvento`/`infEvento`) registrada separadamente no commit `8b6b19b` — o defeito já existia no cancelamento commitado em `59b92d5`
+- Concorrência real validada contra MySQL 8.4 efêmero — deadlock real encontrado sob disputa de `FOR UPDATE` em `nfe_evento_sequencia`, corrigido com isolamento `SERIALIZABLE`
+- Rollback real da transação de finalização (`aplicarFinalizacao`) validado com IT dedicado contra MySQL 8.4 efêmero — falha forçada após a 1ª escrita real confirma que `nfe_evento`, `nfe_evento_idempotencia` e `nfe_evento_sequencia` permanecem no estado anterior
+- Evidências completas de teste: ver seção 6 e `docs/report/Relatorio_Tecnico_Diario_2026-08-13.md`
+
+**Gate 1 — CONCLUÍDO E COMMITADO (`5640276`):**
+- Ciclo operacional do nNF (`nfe_emissao`, V033) — número fiscal "em voo" até destino definitivo, substitui o sequenciador simples anterior
+- Gate de série ativa (`nfe_sequencia.emissao_ativa_id`, V034) — nenhum número seguinte alocado enquanto o anterior da mesma série não tiver resultado terminal
+- Ordem canônica de lock (`nfe_sequencia` → `nfe_emissao`) — deadlock real reproduzido e corrigido contra MySQL
+- Isolamento multiempresa tenant-null fail-closed — `JwtFilter` nega (403 `TENANT_REQUIRED`) usuário sem empresa vinculada e sem `ROLE_ADMIN`; ADMIN sem tenant preservado; OMS inalterado
+- Classificação de falha pré-transmissão por fase de execução — novo `errorCode LOCAL_PROCESSING_FAILURE`; timeout/conexão continuam conservadores (`PENDENTE_CONFIRMACAO`)
+- Correção do contrato de exceção obsoleto em `EstoqueService` (`IllegalStateException` → `BusinessException`) e remoção do `skipTests` hardcoded em `borurio-app`, restaurando execução real da suíte do módulo
+- Suítes verdes e P0-1/P0-2/P0-3 validados contra MySQL real antes do commit; `git diff --check` limpo
+- **Ainda não deployado em HOM** — release `4a39a88` continua ativo em HOM
+
+**Gate 2/3/5 — CONCLUÍDOS E COMMITADOS (`620005e`, `d8590fd`):** classificação semântica de `cStat`, reconciliação ativa de resultado incerto, e retorno de `serie`/`numeroNFe`/estado fiscal ao contrato OMS — fecham o item 1 do backlog abaixo.
+
+**Backlog funcional CC — 5 itens solicitados pelo integrador chinês:**
+1. Numeração + retorno de `serie`/`numeroNFe` no `/emitir`/`/situacao` — **CONCLUÍDO** (Gate 1 + Gate 2/3 + Gate 5, commitados)
+2. Correção do fluxo de cancelamento — interpretação de `cStat`/`xMotivo`, idempotência — **CONCLUÍDO, COMMITADO (`59b92d5`)**
+3. CC-e — interpretação completa do retorno SEFAZ antes da rodada de integração — **CONCLUÍDO, COMMITADO (`4791572`, fix de base em `8b6b19b`)**
+4. Configuração de estoque para o cenário do CC (`controleEstoqueAtivo=false` na empresa específica) — **CONCLUÍDO, COMMITADO (`9e845ba`)**
+5. Teste de contingência fiscal formal — PENDENTE
+
+**Fila atual:** contingência fiscal formal (próximo gate funcional) → regressão/documentação final → preparação HOM + smoke test → nova rodada integrada com o CC → push (continua bloqueado até o fechamento completo do conjunto). Estoque e PUT Empresa **estão concluídos e commitados** nesta janela; contingência segue como a próxima frente.
+
+**Estado consolidado de 22-07-2026 (preservado, não alterado nesta revisão):**
+
+**Concluído internamente:**
+- Implementação dos requisitos informados pelo integrador chinês (CC)
+- Build e deploy do release `4a39a88` em HOM
+- Migration V032 aplicada, `flyway_schema_history` sem falhas
+- Health HOM `UP`, `RestartCount=0`
+- Gate 7H — revogação/rotação global de autorização OMS (auditoria append-only, controle otimista por versão, idempotência)
+- Rotação da autorização real do integrador OMS — token anterior invalidado, token novo ativo
+- `modFrete` explícito por fluxo — OMS/marketplace = 2 (Terceiros), legado = 9 (Sem Transporte)
+- Nova NF-e autorizada em HOM (`cStat=100`) com `modFrete=2` confirmado no XML transmitido — evidência de que motor fiscal e resolução multi-CNPJ estão funcionais
+- Cancelamento, CC-e, inutilização e consulta de situação — implementados e cobertos por teste automatizado (ver seção 1.3)
+- Validação interna ponta a ponta (299/299 testes automatizados + validação funcional em HOM real)
+
+**Backlog funcional CC/HOM (pendente):**
+- Entrega controlada do token OMS novo ao CC
+- Testes externos do CC em HOM — autenticação, consulta de pedidos e produtos, emissão, comportamento multi-CNPJ
+- Aceite final da integração pelo CC
+- **Pendência cadastral fiscal:** a empresa-âncora do token OMS do CC tem Inscrição Estadual não aceita pela SEFAZ; uma emissão real em HOM para essa empresa chegou à SEFAZ e retornou `cStat=209` (IE do emitente inválida) — não foi falha de autenticação, XML, assinatura, transmissão nem da arquitetura multiempresa, é pendência cadastral externa ao código. O cadastro fiscal deve ser confirmado e, se necessário, corrigido pelo responsável fiscal da empresa junto à SEFAZ — segue como item aberto
+- Uso temporário de uma empresa alternativa vinculada ao mesmo token, com IE aceita pela SEFAZ nessa emissão em HOM, para os testes de emissão enquanto a pendência acima não é resolvida
+- Validação SEFAZ de cancelamento, CC-e, inutilização e consulta em contexto multi-CNPJ (ver seção 1.3)
+
+**Pendente pré-produção (Gate 10, não bloqueia os testes do CC):**
+- Troca das credenciais administrativas expostas durante a sessão de trabalho
+- Rotação do `SECURITY_JWT_SECRET` de HOM
+- Remoção do segredo hardcoded do `application-dev.yml`
+- Gestão externa de segredos (secrets manager)
+- Revisão final de observabilidade
+- Plano de rollback de produção
+- Validação de série e numeração inicial de produção
+- Checklist formal de go-live
+
+**Roadmap funcional futuro (não bloqueia o primeiro go-live):**
+- Devolução, transferência, remessa, bonificação — tipos de operação ainda não implementados, sem urgência confirmada pelo CC
+- Demais evoluções fiscais futuras identificadas (parametrização de frete por canal, dashboards/relatórios, Reforma Tributária IBS/CBS/IS)
+
+> **Importante:** o sistema não está em produção. O planejamento de go-live só se inicia após a validação final do CC.
+
+---
+
+## 1. Motor fiscal NF-e 4.00
+
+### 1.1 Geração e transmissão
+
+| Item                                                                                        | Estado      |
+|----------------------------------------------------------------------------------------------|-------------|
+| Geração de XML NF-e 4.00 completa (`ide`, `emit`, `dest`, `det`, `total`, `transp`, `pag`)   | CONCLUÍDO   |
+| Validação XSD pré-assinatura (`nfe_v4.00_consolidado.xsd`)                                   | CONCLUÍDO   |
+| Assinatura XMLDSig RSA-SHA1 + C14N (conforme schema oficial vigente)                          | CONCLUÍDO — `cStat=100` obtido em HOM/SP em 14-07-2026 |
+| Envelope SOAP 1.2 com `indSinc=1` (síncrono)                                                  | CONCLUÍDO   |
+| Autenticação mTLS com certificado A1 PKCS12                                                   | CONCLUÍDO   |
+| Chave de acesso 44 dígitos com dígito verificador módulo 11                                   | CONCLUÍDO   |
+
+### 1.2 Numeração e concorrência
+
+| Item                                                                                                                     | Estado                                     |
+|----------------------------------------------------------------------------------------------------------------------------|---------------------------------------------|
+| Sequenciador atômico de nNF por CNPJ + série                                                                              | CONCLUÍDO |
+| Baseline seguro de numeração por CNPJ e série — inicialização idempotente; erro explícito em valor divergente (não avança nem regride silenciosamente) | CONCLUÍDO — validado em HOM/SP em 22-07-2026 (duas séries/CNPJ distintas avançadas corretamente em emissões reais sequenciais, sem colisão) |
+| Proteção contra emissão concorrente duplicada por pedido — claim atômico, resposta `HTTP 409 EMISSAO_EM_ANDAMENTO` controlada para a chamada que perde a corrida | CONCLUÍDO — validado por teste automatizado (2 e 10 threads reais); código exercitado com sucesso em emissões reais sequenciais em 22-07-2026 |
+| **Gate 1 — ciclo operacional do nNF (`nfe_emissao`) + gate de série ativa (`nfe_sequencia.emissao_ativa_id`)** — nenhum número seguinte é alocado enquanto o anterior da mesma série não tiver destino definitivo | CONCLUÍDO — commit `5640276` — **não deployado em HOM** |
+| **Ordem canônica de lock (`nfe_sequencia` → `nfe_emissao`)** — deadlock real reproduzido e corrigido contra MySQL (9 cenários) | CONCLUÍDO — commit `5640276` — **não deployado em HOM** |
+| **Classificação de falha pré-transmissão por fase de execução** — `errorCode LOCAL_PROCESSING_FAILURE` para falha comprovadamente local; timeout/conexão continuam `PENDENTE_CONFIRMACAO` | CONCLUÍDO — commit `5640276` — **não deployado em HOM** |
+| Isolamento multiempresa tenant-null fail-closed (`JwtFilter`, `errorCode TENANT_REQUIRED`) | CONCLUÍDO — commit `5640276` — **não deployado em HOM** |
+| Reconciliação ativa de resultado incerto (Gate 3) e classificação semântica definitiva de `cStat` (Gate 2) | CONCLUÍDO — commit `620005e` — **não deployado em HOM** |
+| Retorno de `serie`/`numeroNFe` no `/emitir`/`/situacao` (Gate 5) | CONCLUÍDO — commit `d8590fd` — **não deployado em HOM** |
+
+### 1.3 Eventos pós-emissão
+
+| Item                                                                                                    | Estado                     |
+|-----------------------------------------------------------------------------------------------------------|-----------------------------|
+| Cancelamento NF-e (evento 110111) — gate completo: `nfe_evento`, idempotência, reconciliação, concorrência, estorno de estoque exactly-once, preservação da autorização original | **CONCLUÍDO — commit `59b92d5`** — testado internamente (unitário + concorrência real MySQL); pendente revalidação SEFAZ multi-CNPJ e deploy HOM |
+| Carta de Correção — CC-e (evento 110110) — gate completo: sequência 1–20 própria (`nfe_evento_sequencia`), idempotência de operação (`nfe_evento_idempotencia`), reconciliação com validação de conteúdo, bootstrap histórico fail-closed | **CONCLUÍDO — commit `4791572`** (V037; fix de base do parser em `8b6b19b`) — testado internamente (unitário + concorrência real MySQL + rollback real da finalização); pendente revalidação SEFAZ multi-CNPJ e deploy HOM |
+| Inutilização de numeração (`NfeInutilizacaoController`)                                                    | IMPLEMENTADO E TESTADO INTERNAMENTE — pendente revalidação SEFAZ multi-CNPJ |
+| Consulta de situação (`consSitNFe`)                                                                       | IMPLEMENTADO E TESTADO INTERNAMENTE — pendente revalidação SEFAZ multi-CNPJ |
+| Manifestação do Destinatário (eventos 210200/210210/210220/210240 — NT 2012.004)                         | CONCLUÍDO — entregue 26-05-2026 |
+| Contexto fiscal correto por empresa/CNPJ nos eventos acima — empresa, certificado e UF resolvidos pelo CNPJ real da operação, sem fallback silencioso para configuração global; CNPJ da chave de acesso validado contra o contexto resolvido | IMPLEMENTADO E TESTADO INTERNAMENTE — pendente revalidação SEFAZ multi-CNPJ |
+
+**Cancelamento e CC-e (ambos commitados) foram reescritos como gates dedicados** (`nfe_evento` + tabelas próprias de sequência/idempotência), cobertos por testes automatizados incluindo concorrência real e, no caso do CC-e, rollback real da transação de finalização — tudo contra MySQL real, ver seção 6. Inutilização e consulta de situação seguem na implementação anterior, ainda pendente de revalidação SEFAZ multi-CNPJ: confirmação de que a seleção de empresa/certificado nesses eventos funciona ponta a ponta com uma NF-e emitida por uma empresa diferente da empresa-âncora do token — o mesmo padrão já comprovado na emissão (ver seção 1.5).
+
+### 1.4 indFinal / indIntermed
+
+| Item                                                                                                     | Estado                                    |
+|--------------------------------------------------------------------------------------------------------|---------------------------------------------|
+| `indFinal` configurável por empresa emitente — padrão `"1"`, override `"0"`/`"1"` por empresa, fallback de compatibilidade para empresa nula/campo ausente, falha explícita para valor fora do domínio | CONCLUÍDO — não depende mais do documento (CPF/CNPJ) do destinatário |
+| `indIntermed` presente e serializado no XML para o fluxo atual — escopo: operação de venda direta, `indIntermed="0"`, tag presente no `<ide>`, nenhuma alteração no contrato OMS | CONCLUÍDO — validado em HOM/SP em 22-07-2026; não representa regra universal para toda NF-e |
+| Modalidade de frete (`modFrete`) explícita por fluxo — OMS/marketplace = 2 (Terceiros), legado = 9 (Sem Transporte) | CONCLUÍDO — validado em HOM/SP em 22-07-2026, confirmado no XML autorizado (`cStat=100`) |
+| Revogação e rotação global de autorização/token OMS (Gate 7H) — auditoria append-only, controle otimista por versão, idempotência | CONCLUÍDO — validado em HOM/SP em 22-07-2026 |
+| Marketplace / plataforma de terceiro (origem da venda por pedido, `indIntermed="1"`, grupo `infIntermed` com CNPJ do intermediador e identificador da operação) | FORA DO ESCOPO ATUAL / EVOLUÇÃO FUTURA — depende de definição de negócio e possível evolução do contrato OMS |
+
+### 1.5 Snapshot fiscal imutável
+
+| Item                                                                                          | Estado    |
+|-----------------------------------------------------------------------------------------------|-----------|
+| Cópia de `codigo`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn` no item do pedido | CONCLUÍDO |
+| `csosn` default `"400"` quando nulo no produto                                                | CONCLUÍDO |
+| `origem` default `0` quando nulo no produto                                                   | CONCLUÍDO |
+| Snapshot congelado no momento da criação do pedido                                            | CONCLUÍDO |
+
+### 1.6 Auditoria fiscal
+
+| Item                                                            | Estado    |
+|-------------------------------------------------------------------|-----------|
+| Tabela `nfe_documento` com estado persistido de cada NF-e         | CONCLUÍDO |
+| Tabela `nfe_log` com eventos `ENVIO_NFE` e `TRANSMISSAO_SEFAZ`    | CONCLUÍDO |
+| Falhas de log não interrompem o fluxo fiscal                      | CONCLUÍDO |
+
+### 1.7 Estoque mínimo fiscal
+
+| Item                                                                                     | Estado    |
+|-------------------------------------------------------------------------------------------|-----------|
+| Reserva atômica de estoque antes da transmissão SEFAZ (lança 422 se insuficiente)         | CONCLUÍDO |
+| Baixa definitiva após `cStat=100` (AUTORIZADO)                                            | CONCLUÍDO |
+| Desfazer reserva após REJEITADO ou ERRO (nunca mascara resultado SEFAZ)                   | CONCLUÍDO |
+| Manutenção da reserva em AGUARDANDO (liberação manual ou novo ciclo)                      | CONCLUÍDO |
+| Estorno de baixa após CANCELADO (`estoque += qtd` auditado)                               | CONCLUÍDO |
+| Entrada manual de estoque via `POST /api/app/produtos/{id}/estoque/entrada` [ADMIN]       | CONCLUÍDO |
+| Consulta de saldo em tempo real via `GET /api/app/produtos/{id}/estoque`                  | CONCLUÍDO |
+| Tabela `estoque_movimento` — auditoria completa de todos os movimentos                    | CONCLUÍDO |
+| Isolamento multiempresa — `empresa_id` em todos os UPDATEs atômicos                       | CONCLUÍDO |
+| Controle de estoque opcional por empresa (`controleEstoqueAtivo`)                         | CONCLUÍDO — entregue 10-07-2026, prova formal ampliada em 14-08-2026 (commit `9e845ba`) |
+
+**Prova formal de 14-08-2026 (commit `9e845ba`):** banca confirmou que `controleEstoqueAtivo=false` já era suportado integralmente pela lógica de produção vigente, sem nenhuma alteração em `PedidoEmissaoService`, `NfeEmissaoService` ou `NfeEventoService`. Não houve remoção global da validação de estoque — empresas com controle ativo continuam bloqueando `/emitir` por saldo insuficiente normalmente; empresas com controle desativado simplesmente não reservam, não baixam, não desfazem e não estornam estoque. Isolamento multiempresa, reemissão no mesmo pedido com estoque desativado, ausência de efeito de estoque em `PENDENTE_CONFIRMACAO` e concorrência real (MySQL 8.4 efêmero, `EstoqueServiceImpl` real) foram provados nesta rodada.
+
+---
+
+## 2. Integração OMS
+
+### 2.1 API REST
+
+| Módulo                         | Endpoint base                                 | Estado                                     |
+|--------------------------------|------------------------------------------------|--------------------------------------------|
+| Ping / health check            | `GET /api/test/ping`                           | CONCLUÍDO |
+| Autenticação                   | `POST /auth/login`                             | CONCLUÍDO |
+| Autorização Fiscal OMS         | `POST /api/integration/fiscal-authorizations`  | CONCLUÍDO — entregue 22-06-2026 (V028 multi-CNPJ) |
+| Empresas                       | `/api/app/empresas`                            | CONCLUÍDO |
+| Produtos                       | `/api/app/produtos`                            | CONCLUÍDO |
+| Estoque de produtos            | `/api/app/produtos/{id}/estoque`               | CONCLUÍDO — entregue 18-05-2026 |
+| Clientes                       | `/api/app/clientes`                            | CONCLUÍDO |
+| Pedidos + ciclo fiscal         | `/api/app/pedidos`                             | CONCLUÍDO |
+| Usuários                       | `/api/app/usuarios`                            | CONCLUÍDO |
+| Logs fiscais                   | `/api/fiscal/nfe/logs`                         | CONCLUÍDO |
+| NCM                            | `/api/fiscal/ncm`                              | CONCLUÍDO |
+| DANFE (PDF)                    | `/api/fiscal/nfe/{chave}/danfe`                | CONCLUÍDO — entregue 18-05-2026 |
+| Manifestação Destinatário      | `POST /api/fiscal/nfe/manifestar`              | CONCLUÍDO — entregue 26-05-2026 |
+| NF-e legado (deprecated)       | `/api/fiscal/nfe`                              | Mantido por compatibilidade — não usar em integrações novas |
+
+**Hardening de `PUT /api/app/empresas/{id}` — CONCLUÍDO em 14-08-2026 (commit `849da14`):** DTO de atualização parcial dedicado (`EmpresaAtualizacaoRequest`), distinção real entre campo omitido (preserva) e `null` explícito (limpa/rejeita conforme obrigatoriedade), CNPJ imutável por este endpoint, `certSenha` nunca exposta em response/log, merge controlado campo a campo. Inclui a correção de um lost update comprovado pela banca: leitura passou a usar `SELECT ... FOR UPDATE` (`EmpresaMapper.buscarPorIdParaAtualizar`) dentro de uma única transação (`TransactionTemplate`), fechando a janela em que duas requisições concorrentes em campos diferentes da mesma empresa podiam perder uma alteração. Concorrência e rollback revalidados contra MySQL 8.4 real depois da correção — ver seção 6.
+
+### 2.2 O que o time chinês precisa consumir / integrar
+
+| Ação                                                                                                       | Responsável       | Status   |
+|--------------------------------------------------------------------------------------------------------------|--------------------|----------|
+| Ler o contrato de integração vigente (ver seção 8 quanto à versão)                                          | Time chinês        | PENDENTE TÉCNICO |
+| Receber `X-Api-Key` OMS via canal seguro                                                                    | Operações          | PENDENTE TÉCNICO |
+| Executar `POST /api/integration/fiscal-authorizations` para cada CNPJ emitente                              | Time chinês        | PENDENTE TÉCNICO |
+| Executar smoke test multi-CNPJ em HOM (produto, pedido, emissão, eventos pós-emissão)                       | Time chinês        | Emissão validada internamente em 22-07-2026 (`cStat=100`); execução pelo próprio CC e eventos pós-emissão em contexto multi-CNPJ seguem PENDENTE TÉCNICO |
+| Adaptar OMS para a sequência: autorização OMS → produto → pedido (com `cnpjEmitente`) → emitir → situação    | Time chinês        | PENDENTE TÉCNICO |
+| Implementar renovação de token ao aproximar-se do `tokenExpiraEm` (data do certificado A1)                  | Time chinês        | PENDENTE TÉCNICO |
+| Tratar máquina de estados do pedido: `RASCUNHO`, `AUTORIZADO`, `AGUARDANDO`, `REJEITADO`, `ERRO`, `CANCELADO` | Time chinês        | PENDENTE TÉCNICO |
+| Tratar `HTTP 403 CNPJ_NOT_AUTHORIZED` na criação de pedidos                                                  | Time chinês        | PENDENTE TÉCNICO |
+| Mapear campos da OMS para os payloads validados do contrato de integração vigente                            | Time chinês        | PENDENTE TÉCNICO |
+
+---
+
+## 3. Multiempresa
+
+| Item                                                                                                              | Estado                     |
+|------------------------------------------------------------------------------------------------------------------|-----------------------------|
+| Isolamento de dados por `empresa_id` em `produto`, `pedido`, `nfe_log`                                           | CONCLUÍDO |
+| `empresa_id` extraído do JWT via ThreadLocal — não enviado no body                                               | CONCLUÍDO |
+| Certificado A1 por empresa com cache em memória                                                                  | CONCLUÍDO |
+| Criptografia AES-256-GCM para senha do certificado                                                               | CONCLUÍDO — passthrough em HOM |
+| Multi-CNPJ OMS — token por cliente OMS; múltiplos CNPJs sob o mesmo token                                        | CONCLUÍDO — entregue 22-06-2026 |
+| Auto-criação de empresa a partir do Subject X.509 na autorização OMS                                             | CONCLUÍDO — entregue 22-06-2026 |
+| Validação `cnpjEmitente` OMS em `POST /pedidos` — fail-fast antes de persistir                                   | CONCLUÍDO — entregue 22-06-2026 |
+| Token determinístico — `emitidoEm` truncado a segundos garante token idêntico em reautorizações                 | CONCLUÍDO — entregue 22-06-2026 |
+| Estoque vinculado à empresa-âncora do pedido, distinta da empresa fiscal do CNPJ emitente                        | CONCLUÍDO — entregue 30-06-2026 |
+| Endereço do emitente completado automaticamente via `POST /pedidos` quando o cadastro estiver incompleto         | CONCLUÍDO — entregue 10-07-2026 |
+| Bloqueio de `/emitir` antes da SEFAZ quando o endereço do emitente está incompleto (`EMITTER_ADDRESS_INCOMPLETE`) | CONCLUÍDO — entregue 10-07-2026 |
+| Contexto fiscal resolvido pela empresa emitente real (não pela empresa-âncora nem por configuração global) na emissão | CONCLUÍDO — validado em HOM/SP em 22-07-2026 (autorização real multi-CNPJ, `cStat=100`, empresa resolvida por `cnpjEmitente` distinta da empresa-âncora). Cobertura restrita à emissão — eventos pós-emissão (cancelamento, CC-e, consulta, inutilização) seguem no item abaixo, ainda não exercitados contra a SEFAZ real em contexto multi-CNPJ |
+| Certificado e UF vinculados ao CNPJ correto em toda operação pós-emissão                                         | IMPLEMENTADO, AGUARDANDO VALIDAÇÃO EM HOM |
+| Numeração isolada por CNPJ e série                                                                               | CONCLUÍDO — validado em HOM/SP em 22-07-2026 (duas séries distintas avançadas corretamente, sem colisão) |
+| Baseline de numeração protegido contra sobrescrita divergente (erro explícito, sem avanço/regressão silenciosa) | IMPLEMENTADO, AGUARDANDO VALIDAÇÃO EM HOM |
+| `indFinal` configurável por empresa emitente                                                                     | CONCLUÍDO — ver seção 1.4 |
+| Smoke test multi-CNPJ real em HOM — emissão e baseline de numeração | CONCLUÍDO — validado em HOM/SP em 22-07-2026 (`cStat=100`) |
+| Smoke test multi-CNPJ real em HOM — cancelamento, CC-e, consulta, inutilização                                  | Pendente — não executado |
+
+---
+
+## 4. Banco e migrations
+
+| Item                                                              | Estado                                                   |
+|--------------------------------------------------------------------|-----------------------------------------------------------|
+| Migrations Flyway V001–V028                                        | CONCLUÍDO — aplicadas em HOM (V028 com reparo manual em 22-06-2026) |
+| Migration V029 — controle de estoque opcional por empresa          | CONCLUÍDO — aplicada em HOM, confirmada em 22-07-2026 (`flyway_schema_history`, 32 migrations, 0 falhas) |
+| Migration V030 — `ind_final_padrao` em `empresa` (`CHAR(1) NOT NULL DEFAULT '1'`) | CONCLUÍDO — aplicada em HOM, confirmada em 22-07-2026 |
+| Migration V031 — auditoria de sincronização fiscal (`nfe_sequencia_auditoria`) | CONCLUÍDO — aplicada em HOM, confirmada em 22-07-2026 |
+| Migration V032 — revogação/rotação de autorização OMS (`oms_fiscal_authorization_audit`, coluna `versao`) | CONCLUÍDO — aplicada em HOM em 22-07-2026, Flyway em v032, 0 falhas |
+| Migrations V033–V038 — `nfe_emissao` (Gate 1), gate de série, reconciliação (Gate 3), `nfe_evento`/CC-e, contingência SVC | CONCLUÍDO — aplicadas em HOM (Flyway em v038 em 19-08-2026) |
+| Migrations V039 / V040 / V041 — estados de recovery de ciclo `ABANDONADO` / `TRANSPORTE_NAO_ENTREGUE` e correção do COMMENT para o **modelo gap** (só `COMMENT` — `estado` já é `VARCHAR(30)`) | CONCLUÍDO — aplicadas em HOM em 02-09-2026, Flyway validando **41 migrations**, em **v041**, 0 falhas |
+| Rotação de credencial do MySQL HOM (usuário de aplicação + `root`) | CONCLUÍDO — executada em 02-09-2026 (rotação in-place via `ALTER USER`, `.env.hom` atualizado, containers HOM recriados, `health`/`Flyway`/`login` revalidados). **DEV e PRD não tocados.** |
+
+---
+
+## 5. Segurança
+
+| Item                                                       | Estado    |
+|--------------------------------------------------------------|-----------|
+| JWT stateless HMAC-SHA256, validade 1h                      | CONCLUÍDO |
+| RBAC com roles `ADMIN` e `OPERADOR`                          | CONCLUÍDO |
+| Respostas 401/403 em JSON estruturado                        | CONCLUÍDO |
+| Proteção anti-XXE em parsers XML                             | CONCLUÍDO |
+| `SecurityConfig` com dois `SecurityFilterChain` separados     | CONCLUÍDO |
+| Criptografia AES-256-GCM para senha do certificado            | CONCLUÍDO — passthrough em HOM |
+
+> Pendências de segurança específicas para liberação de PRD estão consolidadas na seção 9, não repetidas aqui.
+
+---
+
+## 6. Testes automatizados
+
+| Item                                                                                                                        | Estado                    |
+|-------------------------------------------------------------------------------------------------------------------------------|----------------------------|
+| Última execução local registrada em 22/07/2026 (`mvn test`, reactor completo) — resultado: 299 testes aprovados, 1 teste ignorado preexistente (não relacionado) | Registrado — não substitui migration em MySQL real, smoke test em HOM, uso de certificado real de homologação nem validação contra SEFAZ (essa validação contra SEFAZ real ocorreu separadamente em HOM, `cStat=100`, ver seção 1.5) |
+| Última execução registrada em 10/08/2026 (Gate 1) — `borurio-web` 306/306, `borurio-fiscal` 73/73 (1 skip intencional preexistente, não relacionado), `borurio-app` 20/20; P0-1/P0-2/P0-3 validados também contra MySQL real (container efêmero de teste, descartado após a banca) | Registrado — commitado em `5640276`; não substitui deploy/smoke test em HOM |
+| Última execução registrada em 12/08/2026 (Gate de Cancelamento + Gate CC-e, implementação) — regressão completa do reator (`borurio-app`+`borurio-fiscal`+`borurio-web`): **428/428**. Inclui 33 testes novos do orquestrador CC-e, 6 do classificador CC-e, 21 do parser (bootstrap/xCorrecao), e 2 testes de concorrência real contra MySQL 8.4 efêmero (deadlock real encontrado sob 10 chamadas concorrentes disputando `FOR UPDATE` de `nfe_evento_sequencia`, corrigido com isolamento `SERIALIZABLE`) | Registrado — cancelamento commitado em `59b92d5`; CC-e testado nesta data, commitado no dia seguinte (ver linha abaixo); container MySQL efêmero removido após a prova; não substitui deploy/smoke test em HOM |
+| Banca final e fechamento em 13/08/2026 (Gate CC-e) — testes focados: parser 21/21, classificador CC-e 6/6, cancelamento 16/16 + 15/15, CC-e 33/33 + 2/2 + 19/19; **IT dedicado de rollback real da finalização do CC-e: 1/1** (MySQL 8.4 efêmero, falha forçada após 1ª escrita, `nfe_evento`/`nfe_evento_idempotencia`/`nfe_evento_sequencia` confirmados no estado anterior); concorrência real CC-e revalidada: 2/2; regressão completa do reator sem falhas/erros (mantido apenas o skip preexistente não relacionado); `git diff --check` limpo | Registrado — commits `8b6b19b` (fix) e `4791572` (Gate CC-e); container MySQL efêmero removido ao final; nenhum deploy ou serviço externo de DEV/HOM/SEFAZ acionado nesta banca, validações locais; não substitui deploy/smoke test em HOM — ver `docs/report/Relatorio_Tecnico_Diario_2026-08-13.md` |
+| Banca de 14/08/2026 (Gate Estoque + PUT Empresa) — Gate Estoque: 3 testes de prova novos + `NfeEmissaoEstoqueDesativadoRealMySqlIT` 1/1 (MySQL 8.4 real, `EstoqueServiceImpl` real, saldo zero, concorrência); PUT Empresa: lost update primeiro **comprovado** (IT dedicado contra MySQL 8.4 real), depois **corrigido** com lock pessimista (`SELECT ... FOR UPDATE` + `TransactionTemplate`) e revalidado — IT final de concorrência **4/4** (campos diferentes, mesmo campo, empresas diferentes, rollback), IT de atualização parcial **9/9**, `EmpresaAtualizacaoServiceTest` **17/17**, controllers **5/5 + 5/5**; regressão final da banca: `borurio-app` **20/20**, `borurio-fiscal` **123/123** (1 skip preexistente, não relacionado), `borurio-web` **488/488** — **total 631/631, 0 falhas/erros**; `git diff --check` limpo | Registrado — commits `9e845ba` (Gate Estoque) e `849da14` (PUT Empresa); container MySQL 8.4 efêmero removido ao final; nenhum deploy ou serviço externo de DEV/HOM/SEFAZ acionado nesta banca, validações locais; não substitui deploy/smoke test em HOM |
+| Rodada de 02/09/2026 (Validação preventiva V1 + recovery de ciclo modelo gap) — `FISCAL_TEXT_INVALID_CHARS` (charset/`maxLength` `TString`, `data.reason`, gate de idempotência por `externalOrderId`); estados `ABANDONADO`/`TRANSPORTE_NAO_ENTREGUE` com **modelo gap** (encerra o ciclo, libera o gate, avança `ultimo_numero` até o `nNF`, nunca regride/ultrapassa, idempotente com reparo); `mapearStatusPedido` corrigido (`DENEGADO`→`ERRO`, `ABANDONADO`→`REJEITADO`, `TRANSPORTE_NAO_ENTREGUE`→`ERRO`); `PedidoEmissaoService` retomada-`EMITINDO` usa `encerraCiclo()`. Regressão: `borurio-app` **20/20**, `borurio-fiscal` **185/185** (1 skip preexistente), `borurio-web` **554/554** — **759/759, 0 falhas**. MySQL 8.4 real: `NfeRecoveryGapRealMySqlIT` **8/8** (avanço até o `nNF`, gap grande sem `+1`, recovery repetido não vira `2,3,4…`, contador adiante não regride, reparo de estado bricado, cobertura explícita de `uk_nfe_emissao_numero`, concorrência recovery×recovery e recovery×`abrirCiclo`) + regressão `NfeEmissaoLockOrderRealMySqlIT` **9/9**, `Gate3ReconciliacaoRealMySqlIT` **3/3**, `NfeContingenciaConcorrenciaRealMySqlIT` **9/9**, `NfeContingenciaGapLockReproducaoRealMySqlIT` **4/4**, `NfeEmissaoEstoqueDesativadoRealMySqlIT` **1/1**; `git diff --check` limpo | Registrado — **sem commit** (versionamento manual do Bruno); migrations `V039`/`V040`/`V041` aplicadas em HOM; deploy HOM feito (`candidate-gap-recovery-20260902`), 1ª NF-e `cStat=100` pela OMS em HOM validada (pedido 68, J.ZHENG série 5 nNF 2); container MySQL efêmero removido ao final |
+| Cenários de autorização OMS cobertos em `OmsFiscalAuthorizationServiceTest`                                                   | CONCLUÍDO — entregue 22-06-2026 |
+| Validação `cnpjEmitente` OMS em `PedidoControllerTest`                                                                        | CONCLUÍDO — entregue 22-06-2026 |
+| Endpoints deprecated cobertos em `NfeEnvioControllerTest`                                                                     | CONCLUÍDO — entregue 22-06-2026 |
+| Reemissão REJEITADO/ERRO — `PedidoEmissaoServiceTest`                                                                         | CONCLUÍDO — entregue 10-07-2026 |
+| Endereço do emitente via pedido — `PedidoControllerTest`                                                                      | CONCLUÍDO — entregue 10-07-2026 |
+| `errorCode`/`retryable` — `GlobalExceptionHandlerTest`, `NfeGeracaoServiceTest`                                              | CONCLUÍDO — entregue 10-07-2026 |
+| Concorrência de emissão (2 e 10 threads reais) — `PedidoEmissaoServiceTest`                                                   | CONCLUÍDO |
+| Contexto fiscal multi-CNPJ — `PedidoOperacaoServiceTest`, `NfeInutilizacaoControllerTest`                                     | CONCLUÍDO |
+| Baseline de numeração — `NfeSequenciaServiceTest` (concorrência determinística, lock em memória)                              | CONCLUÍDO |
+| `indFinal` configurável por empresa — `NfeGeracaoServiceTest`                                                                 | CONCLUÍDO |
+| Contexto WebMvc isolado por módulo — MockitoExtension para serviços                                                           | CONCLUÍDO |
+
+> Contagens históricas anteriores (163, 167, 190) não devem ser reutilizadas como estado atual — cada uma corresponde a um ponto diferente do desenvolvimento. A contagem válida é a última execução registrada nesta tabela.
+
+---
+
+## 7. Validação em HOM
+
+`cStat=225` deixou de ser o comportamento esperado. A causa raiz foi identificada e corrigida: o motor assinava o XML com RSA-SHA256, mas o schema XMLDSig oficial vigente da SEFAZ (`xmldsig-core-schema_v1.01.xsd`, confirmado no pacote oficial `PL_010e_v1.02`) exige RSA-SHA1/SHA-1.
+
+**Resultado:** `cStat=100` (Autorizado o uso da NF-e) obtido em HOM/SP para a empresa homologada atual (vinculada ao token, com IE aceita pela SEFAZ), em teste interno e em teste do integrador chinês via OMS, com confirmação cruzada no portal público (hom.nfe.fazenda.gov.br), em 14-07-2026. O campo foi incluído após a rejeição `434`, e o fluxo posteriormente alcançou `cStat=100`.
+
+**Cadastro histórico do emitente** (mantido no sistema desde etapas anteriores do projeto, não apto para emissão atual) segue bloqueado em HOM — IE cassada por inatividade desde 2024, pendência cadastral externa, não corrigível por código.
+
+**Bug de dado já corrigido em 10-07-2026:** cadastro de emitente sem endereço (empresa auto-criada via OMS). Bloqueado preventivamente via `EMITTER_ADDRESS_INCOMPLETE` antes de chamar a SEFAZ.
+
+**Nova autorização real em 22-07-2026:** com o release `4a39a88` (Gate 7H + modFrete) já ativo em HOM, uma nova NF-e foi autorizada pela SEFAZ-SP (`cStat=100`) usando uma empresa vinculada ao token com cadastro fiscal aceito pela SEFAZ, confirmando `<modFrete>2</modFrete>` no XML efetivamente transmitido. Essa autorização real cobre o código vigente na data — incluindo a proteção contra emissão concorrente (seção 1.2), o contexto fiscal multi-CNPJ nos eventos pós-emissão (seções 1.3 e 3), o baseline de numeração (seção 1.2), o `indFinal` configurável por empresa (seção 1.4) e o `indIntermed`, todos presentes no release testado.
+
+Validação em HOM: se `cStat=225` ainda ocorrer, tratar como rejeição real e verificar `data.xMotivo`. `cStat≥200` retorna HTTP 422 `SEFAZ_REJECTED` (não HTTP 200).
+
+---
+
+## 8. Documentação
+
+| Documento                                                          | Estado          |
+|----------------------------------------------------------------------|------------------|
+| Manual técnico motor fiscal PT-BR (`MTF-001_motor-fiscal-nfe.md`)    | CONCLUÍDO — v3.2, atualizado em 10-08-2026 (Gate 1: seções 4.4, 5.9, 7.5, 9.3, 9.7, 11.2a) |
+| Manual técnico motor fiscal EN (`MTF-001_motor-fiscal-nfe_EN.md`)    | PENDENTE — backfill da v3.0 (22-07-2026) já registrado como pendente; v3.2 (Gate 1, 10-08-2026) também pendente. Não atualizado nesta revisão — PT-BR é a versão canônica, EN segue em catch-up separado |
+| Contrato de integração PT-BR (`INTEGRATION_CONTRACT_PT-BR.md`)      | CONCLUÍDO — v1.12, atualizado em 10-08-2026 (novo `errorCode LOCAL_PROCESSING_FAILURE`, seção 6.4/8.2a) |
+| Contrato de integração EN (`INTEGRATION_CONTRACT_EN.md`)            | PENDENTE — v1.11 catch-up de 22-07-2026 continua sendo a última versão EN; v1.12 (10-08-2026) não portada nesta revisão |
+| Checklist onboarding OMS chinesa (`CHECKLIST_OMS_ONBOARDING.md`)    | CONCLUÍDO — v1.15, atualizado em 10-08-2026 (nota de `LOCAL_PROCESSING_FAILURE` no Bloco 5) |
+| FAQ Smoke Test OMS (`FAQ_SMOKE_TEST_OMS.md`)                         | CONCLUÍDO — consolidado em 22-07-2026 |
+| Roteiro de entrega ao time chinês (`ROTEIRO_ENTREGA_TIME_CHINES.md`) | PENDENTE TÉCNICO — fora do escopo desta consolidação (22-07-2026) |
+| Postman collection                                                    | PENDENTE TÉCNICO — atualização para os endpoints/campos mais recentes não confirmada |
+| Swagger UI                                                            | CONCLUÍDO — operacional em DEV e HOM |
+| Diagramas arquiteturais                                               | PENDENTE TÉCNICO — atualização não confirmada nesta consolidação |
+
+---
+
+## 9. Bloqueadores para PRD
+
+### 9.1 Pendências que não bloqueiam integração HOM
+
+| Item                                                                                    | Prioridade |
+|--------------------------------------------------------------------------------------------|------------|
+| CI/CD automatizado (GitHub Actions → deploy HOM → smoke test)                              | Médio      |
+| Atualização da Postman collection para os endpoints e campos mais recentes                 | Médio      |
+| Smoke test com certificado A1 real de um segundo CNPJ (depende de certificado disponível)  | Baixo      |
+| Validação preventiva V2 — NCM, CFOP×destino, origem, CSOSN, CRT, unidade (V1 cobre só charset/`maxLength` `TString`) | Baixo |
+
+### 9.2 Bloqueadores críticos
+
+| Bloqueador                                                                                                  | Prioridade                            | Responsável        |
+|-----------------------------------------------------------------------------------------------------------|----------------------------------------|---------------------|
+| Teste controlado em produção (operação fiscal real, passível de cancelamento, acompanhado pelo contador)   | Crítico — bloqueante para go-live      | Bruno / Contador     |
+| Certificados A1 de produção com CNPJ real (`tpAmb=1`)                                                       | Crítico                                | Bruno / Operações    |
+| `CERT_ENCRYPTION_KEY` configurada em PRD por mecanismo seguro de gestão de segredos, fora do repositório e dos arquivos versionados | Crítico | Bruno / Operações    |
+| URL de PRD definida e acessível externamente                                                                | Crítico                                | Operações            |
+| Retirar segredos de arquivos versionados                                                                    | Crítico                                | Bruno                |
+| Rotacionar credenciais antes de PRD                                                                          | Crítico                                | Bruno                |
+| Revisar sanitização de logs para impedir exposição de XML fiscal completo, headers de autenticação, senhas, certificados, tokens e demais dados sensíveis | Crítico | Bruno |
+| Isolar certificados por empresa (armazenamento e acesso)                                                     | Crítico                                | Bruno / Operações    |
+| Revisar permissões de acesso ao ambiente de produção                                                        | Crítico                                | Operações            |
+| Validar procedimento de rollback                                                                             | Crítico                                | Bruno / Operações    |
+| Primeira emissão controlada                                                                                  | Crítico — bloqueante para go-live      | Bruno / Contador     |
+| Validação fiscal e contábil da operação                                                                     | Crítico — bloqueante para go-live      | Contador / Responsável tributário |
+| Definir e implementar estratégia de contingência fiscal formal, avaliando SVC-AN, SVC-RS e EPEC conforme UF, operação e documentação oficial vigente | Crítico — P1 pré-produção | Bruno / Responsável fiscal |
+| Documentar critérios de ativação da contingência                                                            | Crítico                                | Bruno                |
+| Documentar reconciliação posterior a contingência                                                            | Crítico                                | Bruno                |
+| Testar estados incertos (falha de comunicação com a SEFAZ após transmissão)                                 | Crítico                                | Bruno                |
+| Validar a estratégia de contingência com o responsável fiscal                                                | Crítico                                | Contador / Responsável tributário |
+| Definição de negócio para `indIntermed` em cenário de marketplace/plataforma de terceiro (ver seção 1.4)     | Bloqueante apenas para esse cenário — não bloqueia venda direta | Bruno / Time chinês / Responsável fiscal |
+| Política de inutilização / regularização de gap de numeração — um `nNF` encerrado por recovery administrativo (`ABANDONADO` / `TRANSPORTE_NAO_ENTREGUE`) fica como *número não autorizado no histórico*. O motor garante que a numeração local não colida; a inutilização formal (`infInut`) ou justificativa de pulo de numeração junto à SEFAZ é decisão fiscal separada, **não automatizada**. Precisa ser definida antes de PRD. | Crítico — P1 pré-produção | Bruno / Responsável fiscal |
+
+**Escopo técnico da contingência fiscal formal:** controlar `tpEmis`, `dhCont` e `xJust`; selecionar o autorizador adequado; preservar série, número e chave de acesso; tratar estado incerto após a transmissão (consultar situação antes de nova tentativa, evitando autorização duplicada); persistir XML e estado da emissão; reconciliar posteriormente com a SEFAZ; implementar observabilidade, auditoria e testes unitários, de integração e homologação.
+
+**Impacto na homologação OMS:** este item não bloqueia os testes atuais do CC e não exige alteração imediata no contrato. Enquanto a contingência fiscal formal não estiver implementada, o OMS continua tratando `HTTP 503` com `retryable=true` e repetindo `POST /api/app/pedidos/{id}/emitir` no mesmo pedido.
+
+> `cStat=100` obtido em HOM/SP em 14-07-2026 confirma conformidade de schema/assinatura, mas **não substitui** a validação em produção — número de série real, comportamento do certificado PRD e o ciclo fiscal completo perante o contador só podem ser confirmados com uma emissão real controlada.
+
+---
+
+## 10. Critérios finais de aceite
+
+Antes de considerar a entrega do motor fiscal encerrada para produção, os itens abaixo devem estar satisfeitos:
+
+- [ ] Todos os itens da seção 9.2 concluídos.
+- [ ] Smoke test multi-CNPJ real em HOM executado para: emissão, cancelamento, CC-e, consulta, inutilização e baseline de numeração.
+- [ ] Migrations V029 e V030 confirmadas aplicadas em HOM.
+- [ ] Documentação das seções 8 individualmente revisada e com versões consistentes entre si.
+- [ ] Definição de negócio para `indIntermed` obtida e, se aplicável, implementada — ou registrada como fora de escopo formalmente aceito para o lançamento inicial.
+- [ ] Bloco estrutural de `indIntermed` formalizado em commit.
+- [ ] Teste controlado em produção realizado e validado pelo contador.

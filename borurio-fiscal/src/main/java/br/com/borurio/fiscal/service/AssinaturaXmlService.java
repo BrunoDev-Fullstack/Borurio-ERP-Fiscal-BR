@@ -1,107 +1,174 @@
 package br.com.borurio.fiscal.service;
 
-
-import org.springframework.core.io.ClassPathResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
+import org.w3c.dom.*;
 
 import javax.xml.crypto.dsig.*;
 import javax.xml.crypto.dsig.dom.DOMSignContext;
-import javax.xml.crypto.dsig.keyinfo.KeyInfo;
-import javax.xml.crypto.dsig.keyinfo.KeyInfoFactory;
-import javax.xml.crypto.dsig.keyinfo.X509Data;
+import javax.xml.crypto.dsig.keyinfo.*;
 import javax.xml.crypto.dsig.spec.C14NMethodParameterSpec;
 import javax.xml.crypto.dsig.spec.TransformParameterSpec;
-import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import java.security.KeyStore;
+import javax.xml.transform.*;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+
+import java.io.ByteArrayInputStream;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
-import java.util.Collections;
+import java.util.*;
 
-/**
- * Serviço responsável por assinar digitalmente XMLs fiscais (NF-e)
- * usando certificado A1 (.pfx) conforme o padrão SEFAZ v4.00.
- *
- * Projeto compatível com pipelines DevSecOps e execução segura em ambiente CI/CD.
- */
 @Service
 public class AssinaturaXmlService {
 
-    private static final String CERT_PATH = "certs/generic-dev-cert.pfx";
-    private static final String CERT_PASSWORD = "123456";
+    private static final Logger log = LoggerFactory.getLogger(AssinaturaXmlService.class);
+
+    // Algoritmos exigidos pelo schema oficial XMLDSig da NF-e (fixed="rsa-sha1"/"sha1"
+    // em xmldsig-core-schema_v1.01.xsd, confirmado no pacote PL_010e_v1.02 vigente)
+    private static final String C14N_INCLUSIVO   = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+    private static final String C14N_EXCLUSIVO   = "http://www.w3.org/2001/10/xml-exc-c14n#";
+    private static final String DIGEST_SHA1      = "http://www.w3.org/2000/09/xmldsig#sha1";
+    private static final String SIGN_RSA_SHA1    = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
+
+    private final CertificadoService certificadoService;
+
+    public AssinaturaXmlService(CertificadoService certificadoService) {
+        this.certificadoService = certificadoService;
+    }
 
     /**
-     * Assina o XML fiscal, localizando a tag <infNFe> e aplicando assinatura digital.
-     *
-     * @param xmlBytes XML em formato byte[]
-     * @return XML assinado em formato byte[]
+     * Assina NF-e: localiza infNFe, assina com XMLDSIG e insere Signature em NFe raiz.
      */
-    public byte[] assinarXml(byte[] xmlBytes) {
-        try {
-            // Carrega o certificado digital A1 (.pfx)
-            KeyStore keyStore = KeyStore.getInstance("PKCS12");
-            keyStore.load(new ClassPathResource(CERT_PATH).getInputStream(), CERT_PASSWORD.toCharArray());
+    public String assinar(String xmlNfe) throws Exception {
+        Document doc = parseXml(xmlNfe);
+        Element infNFe = localizarElementoPorTag(doc, "infNFe");
+        return assinarElemento(doc, infNFe, doc.getDocumentElement(), null);
+    }
 
-            String alias = keyStore.aliases().nextElement();
-            PrivateKey privateKey = (PrivateKey) keyStore.getKey(alias, CERT_PASSWORD.toCharArray());
-            X509Certificate certificate = (X509Certificate) keyStore.getCertificate(alias);
+    /** Assina NF-e usando o certificado de uma empresa específica. */
+    public String assinar(String xmlNfe, CertificadoContexto ctx) throws Exception {
+        Document doc = parseXml(xmlNfe);
+        Element infNFe = localizarElementoPorTag(doc, "infNFe");
+        return assinarElemento(doc, infNFe, doc.getDocumentElement(), ctx);
+    }
 
-            // Prepara o documento XML
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-            dbf.setNamespaceAware(true);
-            DocumentBuilder builder = dbf.newDocumentBuilder();
-            Document xml = builder.parse(new java.io.ByteArrayInputStream(xmlBytes));
+    /**
+     * Assina evento fiscal (cancelamento, CC-e etc): localiza infEvento, assina
+     * e insere Signature dentro do elemento pai evento.
+     */
+    public String assinarEvento(String xmlEvento) throws Exception {
+        Document doc = parseXml(xmlEvento);
+        Element infEvento = localizarElementoPorTag(doc, "infEvento");
+        Element eventoContainer = (Element) infEvento.getParentNode();
+        return assinarElemento(doc, infEvento, eventoContainer, null);
+    }
 
-            // Localiza e marca o elemento <infNFe> como referência de assinatura
-            NodeList nodeList = xml.getElementsByTagName("infNFe");
-            if (nodeList.getLength() == 0) {
-                throw new RuntimeException("Tag <infNFe> não encontrada no XML.");
-            }
+    /** Assina evento fiscal (cancelamento, CC-e) com o certificado de uma empresa específica (multi-CNPJ). */
+    public String assinarEvento(String xmlEvento, CertificadoContexto ctx) throws Exception {
+        Document doc = parseXml(xmlEvento);
+        Element infEvento = localizarElementoPorTag(doc, "infEvento");
+        Element eventoContainer = (Element) infEvento.getParentNode();
+        return assinarElemento(doc, infEvento, eventoContainer, ctx);
+    }
 
-            Element element = (Element) nodeList.item(0);
-            String id = element.getAttribute("Id");
-            element.setIdAttribute("Id", true); // Define o atributo Id como identificador
+    /**
+     * Assina inutNFe: localiza infInut, assina e insere Signature em inutNFe raiz.
+     */
+    public String assinarInutilizacao(String xmlInut) throws Exception {
+        Document doc = parseXml(xmlInut);
+        Element infInut = localizarElementoPorTag(doc, "infInut");
+        Element inutContainer = (Element) infInut.getParentNode();
+        return assinarElemento(doc, infInut, inutContainer, null);
+    }
 
-            // Cria a estrutura da assinatura digital
-            XMLSignatureFactory fac = XMLSignatureFactory.getInstance("DOM");
-            Reference ref = fac.newReference(
-                    "#" + id,
-                    fac.newDigestMethod(DigestMethod.SHA1, null),
-                    Collections.singletonList(fac.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null)),
-                    null,
-                    null
-            );
+    /** Assina inutNFe com o certificado de uma empresa específica (multi-CNPJ). */
+    public String assinarInutilizacao(String xmlInut, CertificadoContexto ctx) throws Exception {
+        Document doc = parseXml(xmlInut);
+        Element infInut = localizarElementoPorTag(doc, "infInut");
+        Element inutContainer = (Element) infInut.getParentNode();
+        return assinarElemento(doc, infInut, inutContainer, ctx);
+    }
 
-            SignedInfo si = fac.newSignedInfo(
-                    fac.newCanonicalizationMethod(CanonicalizationMethod.INCLUSIVE, (C14NMethodParameterSpec) null),
-                    fac.newSignatureMethod(SignatureMethod.RSA_SHA1, null),
-                    Collections.singletonList(ref)
-            );
-
-            // Adiciona informações do certificado ao XML
-            KeyInfoFactory kif = fac.getKeyInfoFactory();
-            X509Data x509Data = kif.newX509Data(Collections.singletonList(certificate));
-            KeyInfo ki = kif.newKeyInfo(Collections.singletonList(x509Data));
-
-            // Executa a assinatura digital
-            DOMSignContext dsc = new DOMSignContext(privateKey, xml.getDocumentElement());
-            XMLSignature signature = fac.newXMLSignature(si, ki);
-            signature.sign(dsc);
-
-            // Retorna o XML assinado
-            java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
-            javax.xml.transform.TransformerFactory.newInstance()
-                    .newTransformer()
-                    .transform(new javax.xml.transform.dom.DOMSource(xml),
-                            new javax.xml.transform.stream.StreamResult(os));
-
-            return os.toByteArray();
-
-        } catch (Exception e) {
-            throw new RuntimeException("Erro ao assinar XML fiscal: " + e.getMessage(), e);
+    private String assinarElemento(Document doc, Element elementoParaAssinar,
+                                   Element containerAssinatura,
+                                   CertificadoContexto ctx) throws Exception {
+        String id = elementoParaAssinar.getAttribute("Id");
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException(
+                    elementoParaAssinar.getTagName() + " sem atributo Id");
         }
+        elementoParaAssinar.setIdAttribute("Id", true);
+
+        PrivateKey privateKey = ctx != null ? ctx.privateKey() : certificadoService.getPrivateKey();
+        X509Certificate cert  = ctx != null ? ctx.certificate() : certificadoService.getCertificate();
+
+        XMLSignatureFactory sigFactory = XMLSignatureFactory.getInstance("DOM");
+
+        List<Transform> transforms = new ArrayList<>();
+        transforms.add(sigFactory.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null));
+        transforms.add(sigFactory.newTransform(C14N_INCLUSIVO, (TransformParameterSpec) null));
+
+        Reference reference = sigFactory.newReference(
+                "#" + id,
+                sigFactory.newDigestMethod(DIGEST_SHA1, null),
+                transforms, null, null);
+
+        SignedInfo signedInfo = sigFactory.newSignedInfo(
+                sigFactory.newCanonicalizationMethod(C14N_INCLUSIVO, (C14NMethodParameterSpec) null),
+                sigFactory.newSignatureMethod(SIGN_RSA_SHA1, null),
+                Collections.singletonList(reference));
+
+        KeyInfoFactory kif = sigFactory.getKeyInfoFactory();
+        X509Data x509Data = kif.newX509Data(Collections.singletonList(cert));
+        KeyInfo keyInfo = kif.newKeyInfo(Collections.singletonList(x509Data));
+
+        XMLSignature signature = sigFactory.newXMLSignature(signedInfo, keyInfo);
+        DOMSignContext context = new DOMSignContext(privateKey, containerAssinatura);
+        signature.sign(context);
+
+        return serializar(doc);
+    }
+
+    private Element localizarElementoPorTag(Document doc, String tag) {
+        NodeList nodes = doc.getElementsByTagNameNS("http://www.portalfiscal.inf.br/nfe", tag);
+        if (nodes.getLength() == 0) {
+            nodes = doc.getElementsByTagName(tag);
+        }
+        if (nodes.getLength() == 0) {
+            throw new IllegalArgumentException(tag + " não encontrado no XML");
+        }
+        return (Element) nodes.item(0);
+    }
+
+    private Document parseXml(String xml) throws Exception {
+
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+
+        // Proteção contra XXE
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+
+        return factory.newDocumentBuilder()
+                .parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private String serializar(Document doc) throws Exception {
+
+        TransformerFactory tf = TransformerFactory.newInstance();
+        Transformer t = tf.newTransformer();
+
+        // Mantém o XML compacto (sem alteração de whitespace)
+        t.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+        t.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
+        t.setOutputProperty(OutputKeys.INDENT, "no");
+
+        StringWriter sw = new StringWriter();
+        t.transform(new DOMSource(doc), new StreamResult(sw));
+
+        return sw.toString();
     }
 }

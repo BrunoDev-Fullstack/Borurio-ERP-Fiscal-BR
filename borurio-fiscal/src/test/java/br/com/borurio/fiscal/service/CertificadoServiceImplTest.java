@@ -1,42 +1,36 @@
 package br.com.borurio.fiscal.service;
 
 import br.com.borurio.fiscal.service.impl.CertificadoServiceImpl;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.net.ssl.SSLContext;
 
-/**
- * Teste unitário para validar o carregamento do certificado digital A1 (.pfx)
- * e a inicialização correta do SSLContext.
- *
- * Compatível com a versão sem @PostConstruct.
- * O SSLContext é inicializado sob demanda via getSslContext().
- */
-@ActiveProfiles("dev")
-public class CertificadoServiceImplTest {
+import static br.com.borurio.fiscal.support.TestResourceSupport.assumeTestCertificateAvailable;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+class CertificadoServiceImplTest {
 
     @Test
     void deveCarregarCertificadoEAbrirSSLContext() {
-        // Instancia o serviço
+
+        assumeTestCertificateAvailable();
+
         CertificadoServiceImpl service = new CertificadoServiceImpl();
 
-        // Define parâmetros manualmente (simulando injeção do Spring)
-        System.setProperty("fiscal.certificate.path", "certs/generic-dev-cert.pfx");
-        System.setProperty("fiscal.certificate.password", "senha123");
-        System.setProperty("fiscal.certificate.type", "PKCS12");
+        // @Value não é injetado via System.setProperty() fora do contexto Spring.
+        // ReflectionTestUtils injeta diretamente nos campos privados.
+        ReflectionTestUtils.setField(service, "certPath",     "cert/test-cert.pfx");
+        ReflectionTestUtils.setField(service, "certPassword", "2025@Qz1");
+        ReflectionTestUtils.setField(service, "certType",     "PKCS12");
 
-        // Força inicialização sob demanda
+        service.init();
+
         SSLContext sslContext = service.getSslContext();
 
-        // Validação
-        if (sslContext != null) {
-            System.out.println("[TESTE OK] Certificado carregado e SSLContext criado (TLS 1.2).");
-        } else {
-            System.out.println("[AVISO] Certificado não carregado — verifique o caminho e a senha do .pfx.");
-        }
+        assertNotNull(sslContext,
+                "O SSLContext não deveria ser nulo após carregar o certificado.");
 
-        Assertions.assertNotNull(sslContext, "O SSLContext não deveria ser nulo após carregar o certificado.");
+        System.out.println("[TESTE OK] Certificado carregado e SSLContext criado com sucesso.");
     }
 }

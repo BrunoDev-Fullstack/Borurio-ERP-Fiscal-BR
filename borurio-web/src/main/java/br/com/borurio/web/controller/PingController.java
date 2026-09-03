@@ -1,6 +1,9 @@
 package br.com.borurio.web.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,7 +35,11 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/test")
+@Tag(name = "Utilitários", description = "Healthcheck e endpoints auxiliares de diagnóstico")
 public class PingController {
+
+    @Value("${app.profile:dev}")
+    private String activeProfile;
 
     /**
      * Endpoint de verificação básica de disponibilidade da API.
@@ -40,6 +47,12 @@ public class PingController {
      *
      * @return JSON contendo informações básicas do ambiente ativo.
      */
+    @Operation(
+            summary = "Healthcheck — verifica disponibilidade da API",
+            description = "Endpoint público, sem autenticação. Retorna `status: UP` quando a API está operacional. " +
+                          "O campo `environment` indica o perfil Spring ativo (`dev`, `hom` ou `prd`). " +
+                          "Use este endpoint como primeiro passo do smoke test antes de autenticar."
+    )
     @GetMapping("/ping")
     public ResponseEntity<Map<String, Object>> ping() {
         log.debug("Verificação de disponibilidade /api/test/ping acionada.");
@@ -48,7 +61,7 @@ public class PingController {
         body.put("status", "UP");
         body.put("code", HttpStatus.OK.value());
         body.put("message", "API Borurio ERP Fiscal BR está operacional.");
-        body.put("environment", "dev");
+        body.put("environment", activeProfile);
         body.put("timestamp", OffsetDateTime.now(ZoneId.of("America/Sao_Paulo")).toString());
 
         return ResponseEntity.ok(body);

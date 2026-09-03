@@ -1,10 +1,12 @@
 package br.com.borurio.web;
 
-import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
+import org.springframework.boot.context.TypeExcludeFilter;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -14,50 +16,50 @@ import java.time.format.DateTimeFormatter;
  * APLICAÇÃO PRINCIPAL — BORURIO ERP FISCAL BRASIL
  * =============================================================================
  * Responsável por inicializar o contexto Spring Boot, integrar os módulos
- * principais (core, app, fiscal, web) e configurar o mapeamento MyBatis.
+ * principais (core, app, fiscal e web) e configurar o escaneamento global de
+ * componentes e mappers.
  *
  * Estrutura Modular:
  *   • borurio-core   → Núcleo compartilhado (enums, DTOs, utilitários)
  *   • borurio-app    → Camada de negócio e regras de domínio
  *   • borurio-fiscal → Integração SEFAZ-SP / NF-e 4.00 / Auditoria Fiscal
- *   • borurio-web    → API REST principal e ponto de entrada unificado
+ *   • borurio-web    → API REST principal (ponto de entrada oficial)
  *
- * Padrões Técnicos:
- *   • Spring Boot 3.3.x / Java 17
- *   • MyBatis-Plus para integração de mappers
- *   • Component Scan global e modular
- *   • Perfis controlados via application-*.yml (dev, hom, prd)
- *   • Log estruturado de inicialização (via STDOUT / Docker)
+ * Tecnologias:
+ *   • Java 17 / Spring Boot 3.3.x
+ *   • MyBatis (mappers SQL)
+ *   • MySQL 8.4 / Redis / MinIO
+ *   • Flyway / Actuator / Swagger-OpenAPI
+ *   • Logback (log estruturado e amigável para containers)
  *
  * Autor: Bruno Ribeiro — Desenvolvedor Fullstack / DevSecOps
- * Sprint: Fiscal 3.5 — Integração SEFAZ-SP Real (Homologação)
- * Data: Outubro/2025
+ * Última revisão: 13/11/2025
  * =============================================================================
  */
 @SpringBootApplication
-@ComponentScan(basePackages = {
-        "br.com.borurio.core",
-        "br.com.borurio.app",
-        "br.com.borurio.fiscal",
-        "br.com.borurio.web"
-})
-@MapperScan(basePackages = {
-        "br.com.borurio.app.mapper"
-})
+@EnableScheduling
+@ComponentScan(
+        basePackages = {
+                "br.com.borurio.core",
+                "br.com.borurio.app",
+                "br.com.borurio.fiscal",
+                "br.com.borurio.web"
+        },
+        excludeFilters = @ComponentScan.Filter(type = FilterType.CUSTOM, classes = TypeExcludeFilter.class)
+)
 public class Application {
 
     /**
-     * Método principal da aplicação ERP Fiscal Borurio Brasil.
-     * Inicializa o contexto Spring Boot, ativa os módulos integrados
-     * e exibe um banner de inicialização no console.
+     * Método principal da aplicação Borurio ERP Fiscal BR.
+     * Inicializa o contexto Spring Boot, registra os módulos e exibe um banner
+     * padronizado no console, facilitando análise em runtime e em containers.
      *
-     * Modo de execução:
-     *   - Via Maven:
+     * Execução recomendada:
+     *   • Via Maven:
      *       mvn spring-boot:run -pl borurio-web "-Dspring-boot.run.profiles=dev"
-     *   - Via JAR:
-     *       java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
      *
-     * @param args Argumentos de inicialização do Spring Boot.
+     *   • Via JAR:
+     *       java -jar borurio-web-1.0.0.jar --spring.profiles.active=dev
      */
     public static void main(String[] args) {
         var context = SpringApplication.run(Application.class, args);
@@ -66,10 +68,15 @@ public class Application {
         String profile = String.join(",", env.getActiveProfiles());
         if (profile.isEmpty()) profile = "default";
 
-        String appName = env.getProperty("spring.application.name", "borurio-web");
+        String appName = env.getProperty("spring.application.name", "borurio-web-dev");
         String port = env.getProperty("server.port", "8080");
-        String startedAt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
 
+        String startedAt = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+
+        // =========================================================================
+        // BANNER DE INICIALIZAÇÃO — Formato padronizado DevSecOps
+        // =========================================================================
         System.out.println();
         System.out.println("###################################################################################################");
         System.out.println("#                                                                                                 #");
@@ -89,5 +96,11 @@ public class Application {
         System.out.println("#                                                                                                 #");
         System.out.println("###################################################################################################");
         System.out.println();
+
+        // Painel de log para containers e monitoramento
+        System.out.printf(">> Aplicação '%s' iniciada com perfil '%s' na porta %s.%n", appName, profile, port);
+        System.out.println(">> Módulos integrados: CORE | APP | FISCAL | WEB");
+        System.out.println(">> Data/hora: " + startedAt);
+        System.out.println(">> Status: Inicialização concluída sem erros críticos.");
     }
 }

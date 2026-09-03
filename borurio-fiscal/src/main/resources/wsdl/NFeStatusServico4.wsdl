@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions name="NfeStatusServico4"
+             targetNamespace="http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4"
+             xmlns:tns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4"
+             xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns="http://schemas.xmlsoap.org/wsdl/">
+
+    <types>
+        <xsd:schema targetNamespace="http://www.portalfiscal.inf.br/nfe">
+            <!-- SEM IMPORT EXTERNO PARA EVITAR ERRO -->
+        </xsd:schema>
+    </types>
+
+    <message name="nfeDadosMsg">
+        <part name="nfeDadosMsg" type="xsd:string"/>
+    </message>
+
+    <message name="nfeStatusServicoNFResult">
+        <part name="nfeStatusServicoNFResult" type="xsd:string"/>
+    </message>
+
+    <portType name="NfeStatusServico4Soap">
+        <operation name="nfeStatusServicoNF">
+            <input message="tns:nfeDadosMsg"/>
+            <output message="tns:nfeStatusServicoNFResult"/>
+        </operation>
+    </portType>
+
+    <binding name="NfeStatusServico4Soap" type="tns:NfeStatusServico4Soap">
+        <soap:binding transport="http://schemas.xmlsoap.org/soap/http"/>
+        <operation name="nfeStatusServicoNF">
+            <soap:operation soapAction="http://www.portalfiscal.inf.br/nfe/wsdl/NFeStatusServico4/nfeStatusServicoNF"/>
+            <input>
+                <soap:body use="literal"/>
+            </input>
+            <output>
+                <soap:body use="literal"/>
+            </output>
+        </operation>
+    </binding>
+
+    <service name="NfeStatusServico4">
+        <port name="NfeStatusServico4Soap" binding="tns:NfeStatusServico4Soap">
+            <soap:address location="https://homologacao.nfe.fazenda.sp.gov.br/ws/nfestatusservico4.asmx"/>
+        </port>
+    </service>
+
+</definitions>

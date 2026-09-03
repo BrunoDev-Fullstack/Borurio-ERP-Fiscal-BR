@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="60 seconds">
+
+    <!-- =============================================================================
+         CONFIGURAÇÃO LOGBACK – AMBIENTE HOMOLOGAÇÃO
+         _____________________________________________________________________________
+         Projeto: Borurio ERP Fiscal BR
+         Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+
+         Objetivo:
+         - Logs rastreáveis e estáveis
+         - Integração SEFAZ (NF-e 4.00)
+         - Evitar falha de bootstrap por diretório inexistente
+         ============================================================================= -->
+
+    <!-- =============================================================================
+         PROPRIEDADES
+         ============================================================================= -->
+    <property name="LOG_PATH" value="/var/log/borurio"/>
+    <property name="APP_NAME" value="borurio-hom"/>
+
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread][%X{requestId:-no-rid}] %logger{36} - %msg%n"/>
+
+    <!-- =============================================================================
+         APPENDER: CONSOLE (FALLBACK SEGURO)
+         ============================================================================= -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder charset="UTF-8">
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- =============================================================================
+         APPENDER: ARQUIVO PRINCIPAL (COM COMPRESSÃO)
+         ============================================================================= -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>
+                ${LOG_PATH}/${APP_NAME}.%d{yyyy-MM-dd}.log.gz
+            </fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+
+        <encoder charset="UTF-8">
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+
+        <append>true</append>
+    </appender>
+
+    <!-- =============================================================================
+         APPENDER: LOG SEFAZ (ISOLADO)
+         ============================================================================= -->
+    <appender name="SEFAZ_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+
+        <file>${LOG_PATH}/sefaz-hom.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>
+                ${LOG_PATH}/sefaz-hom.%d{yyyy-MM-dd}.log.gz
+            </fileNamePattern>
+            <maxHistory>10</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+
+        <encoder charset="UTF-8">
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+
+        <append>true</append>
+    </appender>
+
+    <!-- =============================================================================
+         APPENDER: ASSÍNCRONO (PERFORMANCE)
+         ============================================================================= -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE"/>
+        <queueSize>2048</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+    </appender>
+
+    <!-- =============================================================================
+         ROOT LOGGER
+         ============================================================================= -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+    </root>
+
+    <!-- =============================================================================
+         LOGGERS DE INFRA
+         ============================================================================= -->
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="org.apache" level="WARN"/>
+
+    <!-- =============================================================================
+         LOGGER PRINCIPAL DA APLICAÇÃO
+         ============================================================================= -->
+    <logger name="br.com.borurio" level="INFO"/>
+
+    <!-- =============================================================================
+         LOGGER FISCAL (SEFAZ / NF-e / XML)
+         ============================================================================= -->
+    <logger name="br.com.borurio.fiscal"
+            level="${LOGGING_LEVEL_BR_COM_BORURIO_FISCAL:INFO}"
+            additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="SEFAZ_FILE"/>
+    </logger>
+
+</configuration>

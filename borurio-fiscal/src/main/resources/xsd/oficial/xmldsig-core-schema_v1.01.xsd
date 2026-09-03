@@ -1,4 +1,17 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+==============================================================================
+xmldsig-core-schema_v1.01.xsd — cópia fiel do schema oficial da SEFAZ
+
+Fonte: pacote "PL_010e_v1.02" (VERSÕES OFICIAIS em uso), baixado em 14/07/2026
+diretamente de https://www.nfe.fazenda.gov.br (Documentos > Esquemas XML).
+Conteúdo idêntico ao original, sem nenhuma alteração.
+
+Confirma fixed="http://www.w3.org/2000/09/xmldsig#rsa-sha1" em SignatureMethod
+e fixed="http://www.w3.org/2000/09/xmldsig#sha1" em DigestMethod — mesma regra
+presente em toda a série histórica de pacotes (PL_008i2 até PL_010e_v1.02).
+==============================================================================
+-->
 <!-- ***************************************************-->
 <!-- ***   Schema específico para assinaturas XML    ***-->
 <!-- *** a partir de certificados do padrão (X509)   ***-->

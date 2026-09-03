@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- =============================================================================
+         LOGBACK ROOT CONFIGURATION
+         Projeto: Borurio ERP
+         Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
+
+         Objetivo:
+         - Selecionar dinamicamente a configuração de logging por ambiente
+         - Integrar com Spring Profiles
+         - Garantir fallback seguro
+         ============================================================================= -->
+
+    <!-- =============================================================================
+         PROPRIEDADES DO SPRING
+         ============================================================================= -->
+    <springProperty scope="context"
+                    name="APP_NAME"
+                    source="spring.application.name"
+                    defaultValue="borurio-erp"/>
+
+    <!-- =============================================================================
+         PERFIL: DESENVOLVIMENTO
+         ============================================================================= -->
+    <springProfile name="dev">
+        <include resource="logback-dev.xml"/>
+    </springProfile>
+
+    <!-- =============================================================================
+         PERFIL: HOMOLOGAÇÃO
+         ============================================================================= -->
+    <springProfile name="hom">
+        <include resource="logback-hom.xml"/>
+    </springProfile>
+
+    <!-- =============================================================================
+         PERFIL: PRODUÇÃO
+         ============================================================================= -->
+    <springProfile name="prd">
+        <include resource="logback-prd.xml"/>
+    </springProfile>
+
+    <!-- =============================================================================
+         FALLBACK SEGURO (quando nenhum profile estiver ativo)
+         ============================================================================= -->
+    <appender name="CONSOLE_FALLBACK" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE_FALLBACK"/>
+    </root>
+
+</configuration>

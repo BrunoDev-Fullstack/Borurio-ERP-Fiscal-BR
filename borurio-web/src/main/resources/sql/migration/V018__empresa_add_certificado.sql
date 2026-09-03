@@ -1,0 +1,4 @@
+ALTER TABLE empresa
+    ADD COLUMN cert_path  VARCHAR(255) NULL,
+    ADD COLUMN cert_senha VARCHAR(255) NULL,
+    ADD COLUMN cert_tipo  VARCHAR(10)  NULL DEFAULT 'PKCS12';

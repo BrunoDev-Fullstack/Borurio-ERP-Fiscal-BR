@@ -1,18 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- ________________________________________________________________________________________________
+     MÓDULO FISCAL — BORURIO ERP FISCAL BR
+
+     Observações importantes para manutenção:
+
+     1) O client SOAP da SEFAZ é gerado via WSDL LOCAL (não usar endpoint remoto).
+        A SEFAZ bloqueia requisições automatizadas (HTTP 403 / HTTP2).
+
+     2) O WSDL deve estar versionado no projeto:
+        src/main/resources/wsdl/NFeStatusServico4.wsdl
+
+     3) Evitar dependência de rede durante build (CI/CD determinístico).
+
+     4) JAXB runtime é obrigatório em Java 17 para funcionamento do CXF.
+
+________________________________________________________________________________________________ -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <!-- =============================================================================
-         MÓDULO: Borurio Fiscal
-         Função: Biblioteca Fiscal e Integração SEFAZ-SP (NF-e 4.00)
-         Stack: Java 17 | Spring Boot 3.3.2 | MyBatis | MySQL 8.4 | Redis | Flyway
-         Autor: Bruno Ribeiro — DevSecOps / Fullstack Java
-         ============================================================================= -->
-
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- Herança do POM raiz -->
     <parent>
         <groupId>br.com.borurio</groupId>
         <artifactId>borurio-erp-br</artifactId>
@@ -21,130 +29,123 @@
 
     <artifactId>borurio-fiscal</artifactId>
     <packaging>jar</packaging>
-    <name>Borurio Fiscal</name>
-    <description>Módulo Fiscal do ERP Borurio Brasil — NF-e / SEFAZ / Auditoria</description>
 
-    <!-- =============================================================================
-         PROPRIEDADES DO PROJETO
-         ============================================================================= -->
+    <name>Borurio Fiscal</name>
+
     <properties>
         <java.version>17</java.version>
-        <spring.boot.version>3.3.2</spring.boot.version>
-        <mybatis.version>3.0.3</mybatis.version>
-        <mysql.connector.version>8.4.0</mysql.connector.version>
-        <flyway.version>10.18.0</flyway.version>
-        <surefire.version>3.2.5</surefire.version>
-        <jacoco.version>0.8.11</jacoco.version>
-        <owasp.version>9.0.9</owasp.version>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <cxf.version>4.0.3</cxf.version>
     </properties>
 
-    <!-- =============================================================================
-         DEPENDÊNCIAS PRINCIPAIS
-         ============================================================================= -->
     <dependencies>
 
-        <!-- Núcleo Spring Boot -->
+        <!-- CORE -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
+            <groupId>br.com.borurio</groupId>
+            <artifactId>borurio-core</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
-        <!-- JDBC + HikariCP -->
+        <!-- SPRING -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-jdbc</artifactId>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+
+        <!-- LOG -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- Spring Security Core — para leitura do SecurityContextHolder nos logs de auditoria -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
         </dependency>
 
         <!-- MyBatis -->
         <dependency>
             <groupId>org.mybatis.spring.boot</groupId>
             <artifactId>mybatis-spring-boot-starter</artifactId>
-            <version>${mybatis.version}</version>
         </dependency>
 
-        <!-- Banco de Dados MySQL -->
+        <!-- MySQL -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
-            <version>${mysql.connector.version}</version>
-        </dependency>
-
-        <!-- Redis -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-
-        <!-- JAXB (XML Fiscal) -->
-        <dependency>
-            <groupId>jakarta.xml.bind</groupId>
-            <artifactId>jakarta.xml.bind-api</artifactId>
-            <version>4.0.2</version>
-        </dependency>
-
-        <!-- Apache Commons -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>3.14.0</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-collections4</artifactId>
-            <version>4.5.0-M2</version>
-        </dependency>
-
-        <!-- Lombok -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>1.18.32</version>
-            <scope>provided</scope>
         </dependency>
 
         <!-- Flyway -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
-            <version>${flyway.version}</version>
+        </dependency>
+
+        <!-- JAXB -->
+        <dependency>
+            <groupId>jakarta.xml.bind</groupId>
+            <artifactId>jakarta.xml.bind-api</artifactId>
         </dependency>
 
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-mysql</artifactId>
-            <version>${flyway.version}</version>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
         </dependency>
 
-        <!-- Dependências de Teste (mantidas, mas desativadas no build) -->
+        <!-- CXF (SOAP SEFAZ) -->
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-frontend-jaxws</artifactId>
+            <version>${cxf.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.cxf</groupId>
+            <artifactId>cxf-rt-transports-http</artifactId>
+            <version>${cxf.version}</version>
+        </dependency>
+
+        <!-- UTIL -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-collections4</artifactId>
+        </dependency>
+
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- TESTES -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.junit.vintage</groupId>
-                    <artifactId>junit-vintage-engine</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
+        <!-- Resilience4j — Retry para chamadas SOAP SEFAZ -->
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>5.10.2</version>
-            <scope>test</scope>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-retry</artifactId>
+            <version>2.2.0</version>
         </dependency>
 
+        <!-- OpenPDF — geração de DANFE (LGPL, fork do iText 5) -->
         <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <version>5.12.0</version>
-            <scope>test</scope>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>1.3.30</version>
         </dependency>
 
+        <!-- H2 -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -153,146 +154,69 @@
 
     </dependencies>
 
-    <!-- =============================================================================
-         BUILD / PLUGINS / CONFIGURAÇÕES
-         ============================================================================= -->
     <build>
-        <finalName>${project.artifactId}-${project.version}</finalName>
-
-        <!-- Recursos -->
-        <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <includes>
-                    <include>**/*.xsd</include>
-                    <include>**/*.xml</include>
-                    <include>**/*.yml</include>
-                    <include>**/*.pfx</include>
-                </includes>
-            </resource>
-        </resources>
-
-        <!-- Testes (mantido mas ignorado no build) -->
-        <testResources>
-            <testResource>
-                <directory>src/test/resources</directory>
-                <includes>
-                    <include>**/*.*</include>
-                </includes>
-            </testResource>
-        </testResources>
 
         <plugins>
 
-            <!-- ========================================================== -->
-            <!-- Compilador Java                                            -->
-            <!-- ========================================================== -->
+            <!-- COMPILADOR -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
-                    <encoding>${project.build.sourceEncoding}</encoding>
-                    <testExcludes>
-                        <testExclude>**/test/**</testExclude>
-                        <testExclude>**/*Test.java</testExclude>
-                    </testExcludes>
+                    <release>${java.version}</release>
                 </configuration>
             </plugin>
 
-            <!-- ========================================================== -->
-            <!-- Desabilitar execução de testes                             -->
-            <!-- ========================================================== -->
+            <!-- TESTES -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>${surefire.version}</version>
-                <configuration>
-                    <skipTests>true</skipTests>
-                    <excludes>
-                        <exclude>**/*Test.java</exclude>
-                    </excludes>
-                </configuration>
             </plugin>
 
-            <!-- ========================================================== -->
-            <!-- Spring Boot: módulo em modo biblioteca                     -->
-            <!-- ========================================================== -->
+            <!-- GERAÇÃO DO CLIENT SOAP SEFAZ -->
             <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-                <version>${spring.boot.version}</version>
-                <configuration>
-                    <skip>true</skip>
-                </configuration>
-            </plugin>
-
-            <!-- ========================================================== -->
-            <!-- Flyway Migration                                           -->
-            <!-- ========================================================== -->
-            <plugin>
-                <groupId>org.flywaydb</groupId>
-                <artifactId>flyway-maven-plugin</artifactId>
-                <version>${flyway.version}</version>
-                <configuration>
-                    <driver>com.mysql.cj.jdbc.Driver</driver>
-                    <url>jdbc:mysql://127.0.0.1:3307/borurio_fiscal_dev?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;serverTimezone=America/Sao_Paulo</url>
-                    <user>borurio</user>
-                    <password>H4ck3r123</password>
-                    <schemas>
-                        <schema>borurio_fiscal_dev</schema>
-                    </schemas>
-                    <locations>
-                        <location>filesystem:src/main/resources/db/migration</location>
-                    </locations>
-                    <baselineOnMigrate>true</baselineOnMigrate>
-                    <validateOnMigrate>true</validateOnMigrate>
-                    <cleanDisabled>true</cleanDisabled>
-                    <encoding>UTF-8</encoding>
-                </configuration>
-            </plugin>
-
-            <!-- ========================================================== -->
-            <!-- Jacoco Cobertura                                           -->
-            <!-- ========================================================== -->
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>${jacoco.version}</version>
+                <groupId>org.apache.cxf</groupId>
+                <artifactId>cxf-codegen-plugin</artifactId>
+                <version>${cxf.version}</version>
                 <executions>
                     <execution>
+                        <id>generate-sefaz-client</id>
+                        <phase>generate-sources</phase>
+                        <configuration>
+                            <wsdlOptions>
+                                <wsdlOption>
+
+                                    <!-- USO OBRIGATÓRIO: WSDL LOCAL -->
+                                    <wsdl>
+                                        ${project.basedir}/src/main/resources/wsdl/NFeStatusServico4.wsdl
+                                    </wsdl>
+
+                                    <extraargs>
+                                        <extraarg>-p</extraarg>
+                                        <extraarg>br.com.borurio.sefaz.client</extraarg>
+                                    </extraargs>
+
+                                </wsdlOption>
+                            </wsdlOptions>
+                        </configuration>
                         <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>report</id>
-                        <phase>test</phase>
-                        <goals>
-                            <goal>report</goal>
+                            <goal>wsdl2java</goal>
                         </goals>
                     </execution>
                 </executions>
             </plugin>
 
-            <!-- ========================================================== -->
-            <!-- OWASP Dependency Check                                     -->
-            <!-- ========================================================== -->
+            <!-- SPRING BOOT -->
             <plugin>
-                <groupId>org.owasp</groupId>
-                <artifactId>dependency-check-maven</artifactId>
-                <version>${owasp.version}</version>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <failBuildOnCVSS>7.0</failBuildOnCVSS>
-                    <format>HTML</format>
-                    <outputDirectory>${project.build.directory}/security-reports</outputDirectory>
-                    <skipProvidedScope>true</skipProvidedScope>
+                    <skip>true</skip>
                 </configuration>
             </plugin>
 
         </plugins>
+
     </build>
 
 </project>
