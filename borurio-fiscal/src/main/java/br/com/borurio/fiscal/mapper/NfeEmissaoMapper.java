@@ -122,6 +122,42 @@ public interface NfeEmissaoMapper {
                                       @Param("backoffMultiplicador") double backoffMultiplicador,
                                       @Param("backoffMaximoSegundos") int backoffMaximoSegundos);
 
+    // Recovery administrativo (02-09-2026): encerra um ciclo em AGUARDANDO_CORRECAO cujo dado
+    // de origem nao pode mais ser corrigido. SO transiciona a partir de AGUARDANDO_CORRECAO e
+    // apenas quando nao ha protocolo SEFAZ (nprot IS NULL) -- um ciclo com protocolo teve destino
+    // real, nunca e abandonavel. NUNCA toca cstat/xmotivo (a evidencia da rejeicao fica intacta)
+    // nem nfe_sequencia (o gate e liberado pelo servico, sem consumirNumero). Guard WHERE torna a
+    // chamada idempotente por natureza: uma segunda chamada sobre uma linha ja ABANDONADO nao
+    // afeta nada (affectedRows=0).
+    @Update("""
+            UPDATE nfe_emissao SET
+                estado       = 'ABANDONADO',
+                resolvido_em = NOW()
+            WHERE id = #{id}
+              AND estado = 'AGUARDANDO_CORRECAO'
+              AND nprot IS NULL
+            """)
+    int marcarAbandonado(@Param("id") Long id);
+
+    // Recovery administrativo (02-09-2026): a tentativa de transmissao foi comprovadamente
+    // rejeitada no transporte/gateway antes de chegar ao autorizador (ex.: HTTP 403 do proxy,
+    // resposta HTML em vez de SOAP) -- nenhuma NF-e existe fiscalmente. SO transiciona a partir de
+    // TRANSMITIDO/PENDENTE_CONFIRMACAO, apenas quando nprot IS NULL e tentativas_consulta = 0
+    // (se ja houve consulta a SEFAZ, existe um cStat real e este recovery nao pode sobrepor).
+    // A checagem de evidencia em nfe_documento (n_prot/dh_recbto/xml_protocolo) e do servico,
+    // nao daqui. NUNCA toca cstat/xmotivo/chave_nfe (evidencia do 403) nem nfe_sequencia (o gate
+    // e liberado pelo servico, sem consumirNumero). Guard WHERE torna a chamada idempotente.
+    @Update("""
+            UPDATE nfe_emissao SET
+                estado       = 'TRANSPORTE_NAO_ENTREGUE',
+                resolvido_em = NOW()
+            WHERE id = #{id}
+              AND estado IN ('TRANSMITIDO', 'PENDENTE_CONFIRMACAO')
+              AND nprot IS NULL
+              AND tentativas_consulta = 0
+            """)
+    int marcarTransporteNaoEntregue(@Param("id") Long id);
+
     // Gate de cancelamento (12-08-2026): projecao do estado fiscal apos evento homologado --
     // SO transiciona a partir de AUTORIZADO, e NUNCA toca cstat/xmotivo/nprot/resolvido_em (a
     // evidencia da autorizacao original fica intocada; a evidencia do cancelamento em si vive em

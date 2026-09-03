@@ -211,8 +211,9 @@ class NfeEmissaoLockOrderRealMySqlIT {
         PedidoMapper pedidoMapperMock = mock(PedidoMapper.class);
         br.com.borurio.app.service.EstoqueService estoqueServiceMock = mock(br.com.borurio.app.service.EstoqueService.class);
 
-        return new NfeEmissaoService(empresaMapperMock, pedidoMapperMock, sequenciaService, emissaoMapper,
-                estoqueServiceMock, new br.com.borurio.fiscal.config.SefazReconciliacaoProperties());
+        return new NfeEmissaoService(empresaMapperMock, pedidoMapperMock, mock(br.com.borurio.app.mapper.PedidoItemMapper.class), sequenciaService, emissaoMapper,
+                mock(br.com.borurio.fiscal.mapper.NfeDocumentoMapper.class), estoqueServiceMock,
+                new br.com.borurio.fiscal.config.SefazReconciliacaoProperties());
     }
 
     // =========================================================================================

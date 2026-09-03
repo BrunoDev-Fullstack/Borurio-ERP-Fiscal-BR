@@ -85,6 +85,7 @@ public class PedidoEmissaoService {
     private final NfeEmissaoService nfeEmissaoService;
     private final NfeReconciliacaoService nfeReconciliacaoService;
     private final EmitenteProperties emitente;
+    private final ValidacaoTextoFiscalPedido validacaoTextoFiscalPedido;
 
     public PedidoEmissaoService(PedidoService pedidoService,
                                 NfeGeracaoService nfeGeracaoService,
@@ -93,7 +94,8 @@ public class PedidoEmissaoService {
                                 EmpresaMapper empresaMapper,
                                 NfeEmissaoService nfeEmissaoService,
                                 NfeReconciliacaoService nfeReconciliacaoService,
-                                EmitenteProperties emitente) {
+                                EmitenteProperties emitente,
+                                ValidacaoTextoFiscalPedido validacaoTextoFiscalPedido) {
         this.pedidoService     = pedidoService;
         this.nfeGeracaoService = nfeGeracaoService;
         this.retornoParser     = retornoParser;
@@ -102,6 +104,7 @@ public class PedidoEmissaoService {
         this.nfeEmissaoService = nfeEmissaoService;
         this.nfeReconciliacaoService = nfeReconciliacaoService;
         this.emitente           = emitente;
+        this.validacaoTextoFiscalPedido = validacaoTextoFiscalPedido;
     }
 
     public NfeGeracaoResult emitir(Long pedidoId) throws Exception {
@@ -137,12 +140,15 @@ public class PedidoEmissaoService {
                 // adivinhar.
                 throw BusinessException.pedidoEmissaoInconsistente(pedidoId);
             }
-            if (NfeEmissao.Estados.isTerminal(ultimaEmissao.getEstado())) {
-                // O ciclo já chegou a um resultado definitivo (o gate já foi liberado em
-                // resolverCiclo) — a interrupção aconteceu na janela estreita entre essa
-                // transação e a atualização de Pedido.status, não antes dela. Corrige o status e
-                // para: NUNCA reabrir ciclo aqui, ou o gate livre seria lido como "abertura nova"
-                // e alocaria um número seguinte para um pedido que já está resolvido.
+            if (NfeEmissao.Estados.encerraCiclo(ultimaEmissao.getEstado())) {
+                // O ciclo já está encerrado e o gate já foi liberado — seja por resolução da SEFAZ
+                // (isTerminal: AUTORIZADO/DENEGADO/NUMERO_OCUPADO) ou por recovery administrativo
+                // (ABANDONADO/TRANSPORTE_NAO_ENTREGUE, modelo gap: ultimo_numero já avançado até o
+                // nNF queimado). A interrupção aconteceu na janela estreita entre essa transação e
+                // a atualização de Pedido.status. Corrige o status e para: NUNCA reabrir ciclo
+                // aqui, ou o gate livre seria lido como "abertura nova" e alocaria o número
+                // seguinte para um pedido que este fluxo interrompido não deveria re-emitir às
+                // cegas (o operador reabre pela via normal, com o pedido em REJEITADO/ERRO).
                 String statusResolvido = mapearStatusPedido(ultimaEmissao.getEstado());
                 pedidoService.atualizarStatus(pedidoId, statusResolvido, pedido.getChaveNfe());
                 throw BusinessException.pedidoJaResolvido(pedidoId, statusResolvido);
@@ -167,6 +173,11 @@ public class PedidoEmissaoService {
 
             criadoPor = resolverCriadoPor();
             empresa   = resolverEmpresaParaEmissao(pedido);
+
+            // Defesa em profundidade (02-09-2026) — charset/maxLength dos campos NF-e TString do
+            // snapshot, ANTES de abrirCiclo()/reserva de nNF. Pega pedido legado ou dado que
+            // escapou da validação de criação; nenhum nNF é reservado, a SEFAZ não é chamada.
+            validacaoTextoFiscalPedido.validar(pedido);
 
             // Validação preventiva de coerência fiscal — antes de qualquer reserva de estoque
             // ou de numeração. Achado do Gate 7D: sem isso, um pedido com CFOP incompatível com
@@ -444,6 +455,20 @@ public class PedidoEmissaoService {
         if (NfeEmissao.Estados.AUTORIZADO.equals(estadoEmissao)) return "AUTORIZADO";
         if (NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(estadoEmissao)) return "REJEITADO";
         if (NfeEmissao.Estados.NUMERO_OCUPADO.equals(estadoEmissao)) return "ERRO";
+        // DENEGADO é terminal (isTerminal) — resultado definitivo, número consumido, gate livre.
+        // Mapeado para "ERRO" (emissível), igual a NUMERO_OCUPADO: a próxima /emitir abre ciclo
+        // NOVO com número novo, sem reaproveitar o denegado. Antes caía no default "AGUARDANDO"
+        // (landmine P2 documentada para o Gate 2) — inconsistente com PEDIDO_JA_RESOLVIDO alegar
+        // resultado definitivo. Corrigido em 02-09-2026 junto com o modelo gap.
+        if (NfeEmissao.Estados.DENEGADO.equals(estadoEmissao)) return "ERRO";
+        // Recovery administrativo (02-09-2026, modelo gap) — só alcançável pela rota de retomada
+        // EMITINDO cujo ciclo foi encerrado por abandonarCiclo()/marcarTransporteNaoEntregue()
+        // enquanto o pedido estava em voo. ABANDONADO: a rejeição continua valendo -> "REJEITADO"
+        // (emissível: o operador reabre com dado corrigido -> nNF novo). TRANSPORTE_NAO_ENTREGUE:
+        // "ERRO", igual ao que o próprio recovery já grava no pedido. Nunca "AGUARDANDO": não há
+        // reconciliação pendente para um ciclo que um humano encerrou.
+        if (NfeEmissao.Estados.ABANDONADO.equals(estadoEmissao)) return "REJEITADO";
+        if (NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE.equals(estadoEmissao)) return "ERRO";
         return "AGUARDANDO";
     }
 

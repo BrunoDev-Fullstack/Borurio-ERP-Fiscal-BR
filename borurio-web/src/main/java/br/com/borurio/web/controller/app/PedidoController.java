@@ -17,6 +17,7 @@ import br.com.borurio.web.dto.PedidoResponse;
 import br.com.borurio.web.service.OmsCertificadoService;
 import br.com.borurio.web.service.PedidoEmissaoService;
 import br.com.borurio.web.service.PedidoOperacaoService;
+import br.com.borurio.web.service.ValidacaoTextoFiscalPedido;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -36,19 +37,22 @@ public class PedidoController {
     private final EmitenteProperties emitente;
     private final EmpresaService empresaService;
     private final OmsCertificadoService omsCertificadoService;
+    private final ValidacaoTextoFiscalPedido validacaoTextoFiscalPedido;
 
     public PedidoController(PedidoService pedidoService,
                             PedidoEmissaoService pedidoEmissaoService,
                             PedidoOperacaoService pedidoOperacaoService,
                             EmitenteProperties emitente,
                             EmpresaService empresaService,
-                            OmsCertificadoService omsCertificadoService) {
-        this.pedidoService           = pedidoService;
-        this.pedidoEmissaoService    = pedidoEmissaoService;
-        this.pedidoOperacaoService   = pedidoOperacaoService;
-        this.emitente                = emitente;
-        this.empresaService          = empresaService;
-        this.omsCertificadoService   = omsCertificadoService;
+                            OmsCertificadoService omsCertificadoService,
+                            ValidacaoTextoFiscalPedido validacaoTextoFiscalPedido) {
+        this.pedidoService              = pedidoService;
+        this.pedidoEmissaoService       = pedidoEmissaoService;
+        this.pedidoOperacaoService      = pedidoOperacaoService;
+        this.emitente                   = emitente;
+        this.empresaService             = empresaService;
+        this.omsCertificadoService      = omsCertificadoService;
+        this.validacaoTextoFiscalPedido = validacaoTextoFiscalPedido;
     }
 
     @GetMapping
@@ -92,8 +96,24 @@ public class PedidoController {
     @Operation(summary = "Cria pedido em RASCUNHO com snapshot fiscal congelado nos itens")
     public Result<PedidoResponse> criar(@Valid @RequestBody PedidoCreateRequest request) {
         Pedido pedido = request.toPedido();
+
         Long empresaId = EmpresaContextHolder.get();
         pedido.setEmpresaId(empresaId);
+
+        // Validação fiscal preventiva (02-09-2026) — charset/maxLength dos campos NF-e TString
+        // (xProd, natOp, xNome, xLgr, nro, xBairro, xMun, infCpl), ANTES de persistir o RASCUNHO.
+        // Dado inválido nunca vira pedido, nunca reserva numeração. Ver ValidacaoTextoFiscalPedido.
+        //
+        // Só valida quando esta requisição REALMENTE vai criar um pedido: um retry idempotente
+        // (mesmo externalOrderId + empresa) precisa devolver o pedido já existente com 200, nunca
+        // 422 — a autoridade de idempotência continua sendo PedidoServiceImpl.criar (mesma chave);
+        // aqui só decidimos se rodamos a validação de criação. Pedido legado gravado antes desta
+        // regra é, por definição, um retry idempotente — nunca é rejeitado retroativamente.
+        boolean retryIdempotente = pedidoService
+                .buscarPorExternalOrderIdEEmpresa(pedido.getExternalOrderId(), empresaId) != null;
+        if (!retryIdempotente) {
+            validacaoTextoFiscalPedido.validar(pedido);
+        }
 
         String jtiOms = EmpresaContextHolder.getJtiAuth();
         boolean cnpjEnviadoPeloOms = jtiOms != null

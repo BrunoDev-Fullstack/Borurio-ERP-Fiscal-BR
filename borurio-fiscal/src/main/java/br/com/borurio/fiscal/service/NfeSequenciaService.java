@@ -93,6 +93,35 @@ public interface NfeSequenciaService {
     /** Ocupa o gate da série com o id de uma nfe_emissao — mesma transação de buscarOuCriarParaAtualizar. */
     void ocuparGate(String cnpjEmitente, String serie, Long emissaoAtivaId);
 
+    /**
+     * Recovery administrativo "modelo gap" (ABANDONADO / TRANSPORTE_NAO_ENTREGUE, 02-09-2026).
+     *
+     * Um ciclo encerrado SEM autorização ocupa permanentemente seu slot
+     * {@code (cnpj_emitente, modelo, serie, numero_nfe)} via a UNIQUE {@code uk_nfe_emissao_numero}
+     * — a linha de {@code nfe_emissao} nunca é apagada. Se {@code ultimo_numero} não alcançar esse
+     * {@code numeroNfe}, o próximo {@code abrirCiclo} da série recalcula o candidato como
+     * {@code ultimo_numero + 1} e colide com o slot morto (violação de constraint no INSERT).
+     *
+     * Este método avança {@code ultimo_numero} até EXATAMENTE {@code numeroNfe}, e apenas quando
+     * ele ainda estiver abaixo disso. Nunca regride, nunca ultrapassa {@code numeroNfe}, nunca
+     * toca {@code emissao_ativa_id}. Idempotente: se {@code ultimo_numero >= numeroNfe}, nada é
+     * escrito e devolve {@code false}.
+     *
+     * Diferente de {@link #consumirNumero} / {@link #consolidarNumeroParaContingencia}, NÃO exige
+     * {@code numeroNfe == ultimo_numero + 1}: o gap é esperado (recovery repetido; ou o ciclo era
+     * a primeira reserva da série e {@code ultimo_numero} nunca saiu de 0).
+     *
+     * Deve rodar dentro da transação do recovery, que já segurou a linha {@code FOR UPDATE} via
+     * {@link #buscarSeExistirParaAtualizar}.
+     *
+     * @return {@code true} se {@code ultimo_numero} foi avançado nesta chamada; {@code false} se
+     *         já estava {@code >= numeroNfe} (no-op).
+     * @throws IllegalArgumentException se cnpjEmitente/serie forem nulos/vazios, ou numeroNfe < 1
+     * @throws IllegalStateException se a sequência não existir (uma emissão sem linha de
+     *         nfe_sequencia é estado impossível — falha explícita em vez de deixar o gap aberto)
+     */
+    boolean avancarUltimoNumeroParaRecovery(String cnpjEmitente, String serie, int numeroNfe);
+
     /** Libera o gate da série (emissao_ativa_id = NULL) — chamado só ao alcançar estado terminal. */
     void liberarGate(String cnpjEmitente, String serie);
 

@@ -21,6 +21,21 @@ public interface NfeSequenciaMapper {
             "WHERE cnpj_emitente = #{cnpjEmitente} AND serie = #{serie}")
     void atualizarNumero(NfeSequencia seq);
 
+    // Recovery "gap" (02-09-2026, ABANDONADO / TRANSPORTE_NAO_ENTREGUE) -- avanca ultimo_numero
+    // ate EXATAMENTE #{numero}, e so quando ele ainda estiver abaixo disso. A guarda
+    // "ultimo_numero < #{numero}" garante os dois invariantes de uma vez: nunca regride e nunca
+    // ultrapassa. affectedRows: 1 = avancou; 0 = ja estava >= #{numero} (ou a linha nao existe).
+    // Diferente de consumirNumero()/consolidarNumeroParaContingencia(), NAO exige
+    // #{numero} == ultimo_numero + 1: um ciclo encerrado sem autorizacao ocupa seu slot
+    // (cnpj, modelo, serie, nNF) para sempre via uk_nfe_emissao_numero, entao o gap entre
+    // ultimo_numero e esse nNF e esperado (recovery repetido; ou o ciclo foi a primeira reserva
+    // da serie e ultimo_numero nunca saiu de 0).
+    @Update("UPDATE nfe_sequencia SET ultimo_numero = #{numero} " +
+            "WHERE cnpj_emitente = #{cnpjEmitente} AND serie = #{serie} AND ultimo_numero < #{numero}")
+    int avancarUltimoNumeroAte(@Param("cnpjEmitente") String cnpjEmitente,
+                                @Param("serie") String serie,
+                                @Param("numero") int numero);
+
     // Gate fiscal (V034/Gate 1) — ocupa/libera o "em voo" da serie. Chamado sempre dentro da
     // mesma transacao SERIALIZABLE que ja segura a linha via buscarParaAtualizar (FOR UPDATE),
     // nunca isoladamente.

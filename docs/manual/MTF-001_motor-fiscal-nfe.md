@@ -431,7 +431,9 @@ PedidoItem.origem        ← Produto.origem  (default: 0)
 PedidoItem.csosn         ← Produto.csosn   (default: "400")
 ```
 
-**Invariante:** após a criação do pedido, qualquer alteração posterior no cadastro do produto não afeta os dados fiscais do pedido. A emissão sempre usa o snapshot congelado no `pedido_item`.
+**Invariante:** após a criação do pedido, qualquer alteração posterior no cadastro do produto não afeta os dados fiscais do pedido. A emissão sempre usa o snapshot congelado no `pedido_item`. O snapshot **nunca é reescrito** — não há sanitização, transliteração ou "conserto" automático de dado fiscal em nenhum ponto do pipeline.
+
+**Validação preventiva de texto fiscal (02-09-2026, V1):** texto incompatível com o schema NF-e é bloqueado **antes** de virar pedido — nunca depois, e nunca corrigido silenciosamente. `ValidacaoTextoFiscalPedido` (regra única `ValidadorTextoFiscalNfe`, em `borurio-fiscal`) valida charset (`TString`: `U+0020`–`U+00FF`, primeiro/último caractere ≠ espaço) e `maxLength` oficial dos campos `xProd`, `natOp`, `xNome`, `xLgr`, `nro`, `xBairro`, `xMun`, `infCpl`. Roda em dois pontos, ambos antes de qualquer efeito fiscal: no `POST /api/app/pedidos` (antes de persistir o `RASCUNHO`) e no `POST .../emitir` (antes de `abrirCiclo()` reservar `nNF` — defesa em profundidade para pedido legado ou dado vindo do catálogo). Violação → HTTP 422 `FISCAL_TEXT_INVALID_CHARS`, `retryable=false`, com `data.field`, `data.itemIndex` (quando item) e `data.reason` (`CARACTERE_NAO_PERMITIDO` / `ESPACO_NA_BORDA` / `ACIMA_DO_MAX_LENGTH`). Um retry idempotente (mesmo `externalOrderId` + empresa de um pedido já existente) **não** passa por essa validação — devolve o pedido existente com 200, nunca 422 retroativo. Fora do escopo V1 (banca V2): NCM, CFOP×destino, origem, CSOSN, CRT, unidade — cada um com regra própria.
 
 ### 4.4 Proteção contra emissão concorrente
 
@@ -584,11 +586,17 @@ Substitui o sequenciador simples anterior (contador que só incrementava, sem vo
 **Estados do ciclo:**
 
 ```
-RESERVADO ──► TRANSMITIDO ──► AUTORIZADO            (terminal — libera gate, consome número)
+RESERVADO ──► TRANSMITIDO ──► AUTORIZADO            (terminal SEFAZ — libera gate, avança ultimo_numero até o nNF)
                           └──► AGUARDANDO_CORRECAO   (não-terminal — mantém gate ocupado)
                           └──► PENDENTE_CONFIRMACAO  (não-terminal — mantém gate ocupado)
-                          └──► DENEGADO              (terminal — inatingível no fluxo atual; ver seção 1.2, Gate 2)
+                          └──► DENEGADO              (terminal SEFAZ — inatingível no fluxo automático; ver seção 1.2, Gate 2)
+                          └──► NUMERO_OCUPADO        (terminal — Gate 3: nNF pertence a outro documento na base SEFAZ)
+
+AGUARDANDO_CORRECAO ─────────► ABANDONADO             (recovery administrativo — modelo gap; ver 5.10)
+TRANSMITIDO/PENDENTE_CONFIRMACAO ─► TRANSPORTE_NAO_ENTREGUE (recovery administrativo — modelo gap; ver 5.10)
 ```
+
+`isTerminal()` = {`AUTORIZADO`, `DENEGADO`, `NUMERO_OCUPADO`} (destino dado pela SEFAZ). `encerraCiclo()` = `isTerminal()` ∪ {`ABANDONADO`, `TRANSPORTE_NAO_ENTREGUE`} — todos liberam o gate e fazem `ultimo_numero` alcançar o `nNF` do ciclo; a diferença é a autoridade (SEFAZ vs. operador). Uma resposta tardia da SEFAZ sobre um ciclo já em `encerraCiclo()` é **no-op** — nunca ressuscita um ciclo encerrado.
 
 **Gate de série (`nfe_sequencia.emissao_ativa_id`, V034):** aponta para a `nfe_emissao` ativa da série enquanto o ciclo não for terminal. Nenhum outro pedido da mesma série (CNPJ+série) consegue abrir um ciclo novo enquanto o gate estiver ocupado — recebe `EMISSAO_EM_ANDAMENTO_NA_SERIE` (409, retryable). Isso vale para **todos** os estados não-terminais, inclusive `RESERVADO` (ainda nem transmitiu) e `PENDENTE_CONFIRMACAO` (timeout) — não é "roubável" em nenhum estado intermediário.
 
@@ -605,6 +613,41 @@ RESERVADO ──► TRANSMITIDO ──► AUTORIZADO            (terminal — li
 - Retorno de `serie`/`numeroNFe` no contrato OMS (Gate 5).
 
 **Cobertura de teste:** unitário (`NfeEmissaoServiceTest`, `NfeEmissaoServiceAdversarialTest`) e MySQL real (`NfeEmissaoLockOrderRealMySqlIT`, 9 cenários — deadlock pré/pós-fix, corridas concorrentes, isolamento entre CNPJs/séries, rollback, TOCTOU) contra um container MySQL 8.4 efêmero de teste, nunca contra HOM/DEV.
+
+### 5.10 Recovery administrativo de ciclo — `ABANDONADO` e `TRANSPORTE_NAO_ENTREGUE` (modelo gap, 02-09-2026)
+
+Dois recoveries administrativos encerram um ciclo que não pode mais ser resolvido pelo fluxo normal. **Ambos são operações manuais, sob `ROLE_ADMIN`**, nunca alcançáveis por `resolverCiclo`/reconciliação:
+
+| Estado | Origem | Prova exigida | Efeito no `Pedido` |
+|---|---|---|---|
+| `ABANDONADO` | `AGUARDANDO_CORRECAO` | rejeição de schema (ex.: `cStat 225`) cujo dado de origem não pode ser corrigido pelo fluxo normal; `nprot` nulo; sem emissão filha de contingência | nenhum — o pedido segue no status que tinha (tipicamente `REJEITADO`) |
+| `TRANSPORTE_NAO_ENTREGUE` | `TRANSMITIDO` / `PENDENTE_CONFIRMACAO` | tentativa **comprovadamente** não entregue ao autorizador (ex.: HTTP 403 do gateway, HTML em vez de SOAP); sem `nProt`, sem `tentativas_consulta`, sem `n_prot`/`dh_recbto`/`xml_protocolo` em `nfe_documento` | volta para `ERRO` (emissível), limpa a `chaveNfe` espúria, desfaz reserva de estoque se houve |
+
+**Endpoints:** `POST /api/admin/nfe-emissoes/{id}/abandonar` e `POST /api/admin/nfe-emissoes/{id}/marcar-transporte-nao-entregue` (body `{ "motivo": "..." }`, mínimo 15 caracteres).
+
+**Modelo "gap" — o ponto central.** A linha de `nfe_emissao` **nunca é apagada** e ocupa permanentemente o slot `uk_nfe_emissao_numero (cnpj_emitente, modelo, serie, numero_nfe)` (constraint física, V033). Portanto o recovery:
+
+- **encerra o ciclo** e **libera o gate** (`emissao_ativa_id → NULL`);
+- **avança `nfe_sequencia.ultimo_numero` até o `numero_nfe` daquele ciclo** — nunca além, nunca regredindo (`UPDATE ... SET ultimo_numero = :nNF WHERE ultimo_numero < :nNF`);
+- o `nNF` encerrado fica **queimado**: o próximo `abrirCiclo` da série usa `numero_nfe + 1`. O número registrado em `nfe_emissao` **não é reutilizado** — tentar reutilizá-lo colidiria na `uk_nfe_emissao_numero` (foi exatamente o incidente que motivou esta revisão).
+
+**Invariantes garantidos:**
+
+- **Idempotência com reparo.** Uma segunda chamada sobre um ciclo já encerrado **não** re-marca o estado, mas **ainda repara `ultimo_numero`** se ele ficou atrás do `nNF` — nunca é um no-op cego antes de conferir o contador. `sequenciaAvancada` na resposta indica se essa chamada moveu o contador.
+- **Nunca inventa `DENEGADO`** nem qualquer outro estado da SEFAZ. `ABANDONADO`/`TRANSPORTE_NAO_ENTREGUE` são rejeitados no topo de `aplicarNovoEstado` — nunca entram como `novoEstado`.
+- **Não apaga evidência histórica.** `cstat`, `xmotivo`, `nprot`, `chave_nfe` são preservados; `resolvido_em` é preenchido.
+- **Não chama a SEFAZ.** Não toca outra série/emissão.
+- **Concorrência.** `REPEATABLE_READ`, ordem canônica de lock `nfe_sequencia → nfe_emissao`. Recovery × recovery e recovery × `abrirCiclo` na mesma série serializam sem deadlock e sem colisão de chave.
+
+**Migrations:** `V039` (`ABANDONADO`), `V040` (`TRANSPORTE_NAO_ENTREGUE`), `V041` (correção do COMMENT para o modelo gap — as V039/V040 descreviam a semântica antiga "não consome número", impossível dada a constraint). Nenhuma altera o tipo da coluna (`VARCHAR(30)` já comporta os dois estados).
+
+**Inutilização / regularização do gap:** o `nNF` queimado fica como *número não autorizado no histórico*. A inutilização formal (`infInut`) ou regularização junto à SEFAZ desse gap é **decisão fiscal separada, não automatizada** — o motor apenas garante que a numeração local não colida. Ver seção 1.2 (pendências) para a definição de política antes de PRD.
+
+**Cobertura de teste:** `NfeRecoveryGapRealMySqlIT` (MySQL 8.4 real, 8 cenários — avanço até o `nNF`, gap grande sem exigir `+1`, recovery repetido não vira `2,3,4…`, contador adiante não regride, reparo idempotente de estado bricado, cobertura explícita de `uk_nfe_emissao_numero`, concorrência recovery×recovery e recovery×`abrirCiclo`); unitário em `NfeEmissaoServiceTest`, `NfeSequenciaServiceTest`, `NfeEmissaoAdminControllerTest`.
+
+### 5.11 Retomada de `EMITINDO` com ciclo já encerrado
+
+Se um pedido ficou preso em `EMITINDO` (emissão interrompida) e o ciclo mais recente já está em `encerraCiclo()` — terminal SEFAZ **ou** recovery administrativo — a próxima `/emitir` **não reabre ciclo**: corrige `Pedido.status` e devolve `PEDIDO_JA_RESOLVIDO`. Mapa (`mapearStatusPedido`): `AUTORIZADO → AUTORIZADO`; `AGUARDANDO_CORRECAO → REJEITADO`; `NUMERO_OCUPADO → ERRO`; `DENEGADO → ERRO` (corrigido em 02-09-2026 — antes caía em `AGUARDANDO`, inconsistente com "resolvido"); `ABANDONADO → REJEITADO`; `TRANSPORTE_NAO_ENTREGUE → ERRO`. `REJEITADO`/`ERRO` são emissíveis: o operador reabre pela via normal e recebe um `nNF` novo.
 
 ---
 

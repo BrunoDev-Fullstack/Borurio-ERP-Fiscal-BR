@@ -64,7 +64,7 @@ class PedidoEmissaoServiceTest {
         emitente.setCnpj("11222333000181"); // fallback legado quando empresa não tem CNPJ (helper de teste não seta)
         service = new PedidoEmissaoService(
                 pedidoService, nfeGeracaoService, retornoParser, estoqueService, empresaMapper,
-                nfeEmissaoService, nfeReconciliacaoService, emitente);
+                nfeEmissaoService, nfeReconciliacaoService, emitente, new ValidacaoTextoFiscalPedido());
         EmpresaContextHolder.clear();
         // Default "feliz" pro claim atômico (P0.1) — testes que não mexem nisso continuam
         // passando; os testes de concorrência/claim sobrescrevem explicitamente por teste.
@@ -555,6 +555,66 @@ class PedidoEmissaoServiceTest {
         assertTrue(ex.getMessage().contains("idDest=2"));
     }
 
+    // -------------------------------------------------------------------------
+    // Defesa em profundidade (02-09-2026) — validação de texto fiscal ANTES de abrirCiclo().
+    // Pega pedido legado / dado que escapou da validação de criação. Nenhum nNF reservado,
+    // SEFAZ não chamada. Regra única: ValidacaoTextoFiscalPedido -> ValidadorTextoFiscalNfe
+    // (instância real no setUp, não mock — a defesa em profundidade precisa validar de verdade).
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("pedido legado com xProd inválido: /emitir → FISCAL_TEXT_INVALID_CHARS ANTES de abrirCiclo(), sem tocar sequência nem SEFAZ")
+    void emitir_pedidoLegadoXProdInvalido_rejeitaAntesDoGate1() {
+        Pedido pedido = pedidoRascunho();
+        pedido.getItens().get(0).setDescricao("1喷油瓶-100ML（彩盒）-太空银");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("FISCAL_TEXT_INVALID_CHARS", ex.getErrorCode());
+        assertEquals(422, ex.getHttpStatus());
+        assertFalse(ex.isRetryable());
+        assertTrue(ex.getMessage().contains("descrição do item 1"));
+        // o texto ofensor nunca é ecoado
+        assertFalse(ex.getMessage().contains("喷油瓶"));
+
+        // Gate 1 nunca é aberto; nenhuma reserva de numeração; nenhuma chamada à SEFAZ.
+        verify(nfeEmissaoService, never()).abrirCiclo(anyLong(), anyString());
+        verifyNoInteractions(nfeGeracaoService, retornoParser);
+    }
+
+    @Test
+    @DisplayName("pedido legado com naturezaOperacao inválida: /emitir → 422 antes do Gate 1")
+    void emitir_pedidoLegadoNatOpInvalida_rejeitaAntesDoGate1() {
+        Pedido pedido = pedidoRascunho();
+        pedido.setNaturezaOperacao("Venda — mercadoria");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("FISCAL_TEXT_INVALID_CHARS", ex.getErrorCode());
+        verify(nfeEmissaoService, never()).abrirCiclo(anyLong(), anyString());
+    }
+
+    @Test
+    @DisplayName("pedido válido (xProd/natOp ASCII): validação passa e o fluxo chega normalmente ao Gate 1")
+    void emitir_pedidoValido_passaValidacaoTextoEChegaAoGate1() throws Exception {
+        Pedido pedido = pedidoRascunho();
+        pedido.setNaturezaOperacao("VENDA DE MERCADORIA");
+        pedido.getItens().get(0).setDescricao("Frasco spray 100ML (caixa) - prata");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        when(empresaMapper.buscarPorId(10L)).thenReturn(empresa(10L, true));
+        when(nfeGeracaoService.gerar(any(), any(), any(), any()))
+                .thenReturn(new NfeGeracaoResult("chave123", "<soap/>"));
+        when(retornoParser.parse("<soap/>")).thenReturn(autorizada());
+
+        assertDoesNotThrow(() -> service.emitir(99L));
+
+        verify(nfeEmissaoService).abrirCiclo(anyLong(), anyString());
+    }
+
     @Test
     void emitir_cfopInterestadualComIdDestInterestadual_permiteEmissao() throws Exception {
         Pedido pedido = pedidoRascunho();
@@ -718,6 +778,41 @@ class PedidoEmissaoServiceTest {
         verify(pedidoService).atualizarStatus(99L, "AUTORIZADO", pedido.getChaveNfe());
         verifyNoInteractions(nfeGeracaoService);
         verify(nfeEmissaoService, never()).abrirCiclo(any(), any());
+    }
+
+    @Test
+    void emitir_emitindoComCicloAbandonado_corrigeStatusParaRejeitadoENaoReabreCiclo() {
+        Pedido pedido = pedidoComStatus("EMITINDO");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        NfeEmissao emissaoAbandonada = emissaoReservada(501L, "1", 101);
+        emissaoAbandonada.setEstado(NfeEmissao.Estados.ABANDONADO);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(99L)).thenReturn(emissaoAbandonada);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("PEDIDO_JA_RESOLVIDO", ex.getErrorCode());
+        // Recovery administrativo já encerrou o ciclo (modelo gap: ultimo_numero avançado, gate
+        // livre). NUNCA reabrir aqui — o gate livre seria lido como "abertura nova". A rejeição
+        // continua valendo: pedido -> REJEITADO (emissível pela via normal).
+        verify(pedidoService).atualizarStatus(99L, "REJEITADO", pedido.getChaveNfe());
+        verify(nfeEmissaoService, never()).abrirCiclo(any(), any());
+        verifyNoInteractions(nfeGeracaoService);
+    }
+
+    @Test
+    void emitir_emitindoComCicloTransporteNaoEntregue_corrigeStatusParaErroENaoReabreCiclo() {
+        Pedido pedido = pedidoComStatus("EMITINDO");
+        when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
+        NfeEmissao emissaoTne = emissaoReservada(501L, "1", 101);
+        emissaoTne.setEstado(NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE);
+        when(nfeEmissaoService.buscarUltimaEmissaoDoPedido(99L)).thenReturn(emissaoTne);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
+
+        assertEquals("PEDIDO_JA_RESOLVIDO", ex.getErrorCode());
+        verify(pedidoService).atualizarStatus(99L, "ERRO", pedido.getChaveNfe());
+        verify(nfeEmissaoService, never()).abrirCiclo(any(), any());
+        verifyNoInteractions(nfeGeracaoService);
     }
 
     @Test

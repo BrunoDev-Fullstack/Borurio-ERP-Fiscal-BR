@@ -100,6 +100,14 @@ public class PedidoServiceImpl implements PedidoService {
     }
 
     @Override
+    public Pedido buscarPorExternalOrderIdEEmpresa(String externalOrderId, Long empresaId) {
+        if (externalOrderId == null || externalOrderId.isBlank() || empresaId == null) {
+            return null;
+        }
+        return pedidoMapper.buscarPorExternalOrderIdEEmpresa(externalOrderId, empresaId);
+    }
+
+    @Override
     public Pedido buscarComItens(Long id) {
         Pedido pedido = buscarPorId(id);
         pedido.setItens(pedidoItemMapper.listarPorPedido(id));

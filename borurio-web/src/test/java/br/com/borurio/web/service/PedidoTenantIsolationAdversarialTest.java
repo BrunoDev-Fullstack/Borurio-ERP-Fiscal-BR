@@ -98,7 +98,8 @@ class PedidoTenantIsolationAdversarialTest {
             EmitenteProperties emitente = new EmitenteProperties();
             emitente.setCnpj("11222333000181");
             service = new PedidoEmissaoService(pedidoService, nfeGeracaoService, retornoParser,
-                    estoqueService, empresaMapper, nfeEmissaoService, nfeReconciliacaoService, emitente);
+                    estoqueService, empresaMapper, nfeEmissaoService, nfeReconciliacaoService, emitente,
+                    new ValidacaoTextoFiscalPedido());
         }
 
         @Test

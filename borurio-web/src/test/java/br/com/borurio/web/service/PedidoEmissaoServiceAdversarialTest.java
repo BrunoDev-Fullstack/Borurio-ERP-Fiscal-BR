@@ -66,7 +66,7 @@ class PedidoEmissaoServiceAdversarialTest {
         emitente.setCnpj("11222333000181");
         service = new PedidoEmissaoService(
                 pedidoService, nfeGeracaoService, retornoParser, estoqueService, empresaMapper,
-                nfeEmissaoService, nfeReconciliacaoService, emitente);
+                nfeEmissaoService, nfeReconciliacaoService, emitente, new ValidacaoTextoFiscalPedido());
         EmpresaContextHolder.clear();
         lenient().when(pedidoService.reivindicarParaEmissao(anyLong())).thenReturn(true);
         lenient().when(nfeEmissaoService.abrirCiclo(anyLong(), anyString()))
@@ -329,18 +329,16 @@ class PedidoEmissaoServiceAdversarialTest {
     //    pelo fluxo automático — resolverEstadoEmissao() nunca produz DENEGADO; só existiria via
     //    Gate 2, futuro, ou correção manual de dado).
     //
-    // ACHADO (P2 — landmine documentada para Gate 2): mapearStatusPedido() só reconhece
-    // AUTORIZADO e AGUARDANDO_CORRECAO explicitamente; qualquer outro valor (inclusive DENEGADO)
-    // cai no default "AGUARDANDO". Se/quando Gate 2 passar a produzir DENEGADO de verdade, um
-    // pedido cujo ciclo já está definitivamente DENEGADO vai ter Pedido.status corrigido para
-    // "AGUARDANDO" — o MESMO status usado para "ainda não temos certeza" — dentro de uma
-    // exceção chamada justamente PEDIDO_JA_RESOLVIDO. Ou seja: o texto da exceção diz "já
-    // resolvido" mas o status gravado diz "aguardando". Confuso para quem consome a API/OMS.
+    // LANDMINE P2 CORRIGIDA (02-09-2026): mapearStatusPedido() antes só reconhecia AUTORIZADO e
+    // AGUARDANDO_CORRECAO; DENEGADO caía no default "AGUARDANDO" — o MESMO rótulo de "ainda não
+    // temos certeza" — dentro de uma exceção PEDIDO_JA_RESOLVIDO. Agora DENEGADO mapeia para
+    // "ERRO" (emissível, igual a NUMERO_OCUPADO): resultado definitivo, a próxima /emitir abre
+    // ciclo NOVO com número novo.
     // =========================================================================================
     @Test
-    @DisplayName("BUG LATENTE P2: ciclo terminal DENEGADO mapeia Pedido.status para \"AGUARDANDO\" (não \"REJEITADO\" nem outro rótulo terminal) " +
-            "— inconsistente com PEDIDO_JA_RESOLVIDO alegar que o resultado é definitivo")
-    void retomadaComCicloDenegado_mapeiaStatusParaAguardando_documentaLandmine() {
+    @DisplayName("Ciclo terminal DENEGADO na retomada EMITINDO: Pedido.status corrigido para \"ERRO\" (rótulo terminal emissível), " +
+            "coerente com PEDIDO_JA_RESOLVIDO — landmine P2 corrigida em 02-09-2026")
+    void retomadaComCicloDenegado_mapeiaStatusParaErro() {
         Pedido pedido = pedidoComStatus("EMITINDO");
         when(pedidoService.buscarComItensDoTenanteAtual(99L)).thenReturn(pedido);
         NfeEmissao emissaoDenegada = emissaoReservada(501L, "1", 101);
@@ -350,8 +348,8 @@ class PedidoEmissaoServiceAdversarialTest {
         BusinessException ex = assertThrows(BusinessException.class, () -> service.emitir(99L));
 
         assertEquals("PEDIDO_JA_RESOLVIDO", ex.getErrorCode());
-        // Comportamento real observado — status gravado é "AGUARDANDO", não algo como "DENEGADO"/"REJEITADO".
-        verify(pedidoService).atualizarStatus(99L, "AGUARDANDO", pedido.getChaveNfe());
+        verify(pedidoService).atualizarStatus(99L, "ERRO", pedido.getChaveNfe());
+        verify(nfeEmissaoService, never()).abrirCiclo(any(), any());
         verifyNoInteractions(nfeGeracaoService);
     }
 

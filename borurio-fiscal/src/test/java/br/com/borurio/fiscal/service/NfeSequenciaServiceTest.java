@@ -281,6 +281,17 @@ public class NfeSequenciaServiceTest {
         }
 
         @Override
+        public int avancarUltimoNumeroAte(String cnpjEmitente, String serie, int numero) {
+            NfeSequencia atual = dados.get(chave(cnpjEmitente, serie));
+            if (atual == null || atual.getUltimoNumero() >= numero) {
+                return 0;
+            }
+            atual.setUltimoNumero(numero);
+            valoresGravados.add(numero);
+            return 1;
+        }
+
+        @Override
         public void ocuparGate(String cnpjEmitente, String serie, Long emissaoAtivaId) {
             NfeSequencia atual = dados.get(chave(cnpjEmitente, serie));
             if (atual == null) return;
@@ -687,6 +698,85 @@ public class NfeSequenciaServiceTest {
 
         assertThrows(IllegalStateException.class, () -> service.consumirNumero(CNPJ, SERIE, 1));
         verify(mapper, never()).atualizarNumero(any());
+    }
+
+    // -------------------------------------------------------------------------
+    // avancarUltimoNumeroParaRecovery — modelo "gap" dos recovery administrativos
+    // (ABANDONADO / TRANSPORTE_NAO_ENTREGUE, 02-09-2026). Avança ultimo_numero até EXATAMENTE
+    // o nNF do ciclo, só quando abaixo disso: nunca regride, nunca ultrapassa. NÃO exige
+    // nNF == ultimo_numero + 1 (o gap é esperado).
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("avancarUltimoNumeroParaRecovery: contador atrás (0) → avança até o nNF (1) e devolve true")
+    void avancarUltimoNumeroParaRecovery_contadorAtras_avancaEDevolveTrue() {
+        NfeSequencia seq = new NfeSequencia();
+        seq.setCnpjEmitente(CNPJ);
+        seq.setSerie(SERIE);
+        seq.setUltimoNumero(0);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(seq);
+        when(mapper.avancarUltimoNumeroAte(CNPJ, SERIE, 1)).thenReturn(1);
+
+        assertTrue(service.avancarUltimoNumeroParaRecovery(CNPJ, SERIE, 1));
+        verify(mapper).avancarUltimoNumeroAte(CNPJ, SERIE, 1);
+    }
+
+    @Test
+    @DisplayName("avancarUltimoNumeroParaRecovery: gap grande (ultimo=48, nNF=49) → avança sem exigir +1")
+    void avancarUltimoNumeroParaRecovery_gapGrande_avanca() {
+        NfeSequencia seq = new NfeSequencia();
+        seq.setCnpjEmitente(CNPJ);
+        seq.setSerie(SERIE);
+        seq.setUltimoNumero(48);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(seq);
+        when(mapper.avancarUltimoNumeroAte(CNPJ, SERIE, 49)).thenReturn(1);
+
+        assertTrue(service.avancarUltimoNumeroParaRecovery(CNPJ, SERIE, 49));
+        verify(mapper).avancarUltimoNumeroAte(CNPJ, SERIE, 49);
+    }
+
+    @Test
+    @DisplayName("avancarUltimoNumeroParaRecovery: contador já igual ao nNF → no-op, devolve false, nunca escreve")
+    void avancarUltimoNumeroParaRecovery_contadorIgual_naoEscreve() {
+        NfeSequencia seq = new NfeSequencia();
+        seq.setCnpjEmitente(CNPJ);
+        seq.setSerie(SERIE);
+        seq.setUltimoNumero(49);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(seq);
+
+        assertFalse(service.avancarUltimoNumeroParaRecovery(CNPJ, SERIE, 49));
+        verify(mapper, never()).avancarUltimoNumeroAte(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("avancarUltimoNumeroParaRecovery: contador ADIANTE do nNF → no-op, devolve false, nunca regride")
+    void avancarUltimoNumeroParaRecovery_contadorAdiante_naoRegride() {
+        NfeSequencia seq = new NfeSequencia();
+        seq.setCnpjEmitente(CNPJ);
+        seq.setSerie(SERIE);
+        seq.setUltimoNumero(60);
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(seq);
+
+        assertFalse(service.avancarUltimoNumeroParaRecovery(CNPJ, SERIE, 49));
+        verify(mapper, never()).avancarUltimoNumeroAte(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("avancarUltimoNumeroParaRecovery: sequência inexistente → IllegalStateException (estado impossível)")
+    void avancarUltimoNumeroParaRecovery_sequenciaInexistente_lancaIllegalState() {
+        when(mapper.buscarParaAtualizar(CNPJ, SERIE)).thenReturn(null);
+
+        assertThrows(IllegalStateException.class,
+                () -> service.avancarUltimoNumeroParaRecovery(CNPJ, SERIE, 1));
+        verify(mapper, never()).avancarUltimoNumeroAte(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("avancarUltimoNumeroParaRecovery: nNF < 1 → IllegalArgumentException")
+    void avancarUltimoNumeroParaRecovery_nNFInvalido_lancaIllegalArgument() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.avancarUltimoNumeroParaRecovery(CNPJ, SERIE, 0));
+        verifyNoInteractions(mapper);
     }
 
     // -------------------------------------------------------------------------

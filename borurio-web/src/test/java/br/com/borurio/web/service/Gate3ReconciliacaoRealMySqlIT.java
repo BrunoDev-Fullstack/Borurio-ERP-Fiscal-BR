@@ -190,8 +190,8 @@ class Gate3ReconciliacaoRealMySqlIT {
         empresa.setSerieNfePadrao("1");
         when(empresaMapperMock.buscarPorCnpjParaAtualizar(any())).thenReturn(empresa);
 
-        return new NfeEmissaoService(empresaMapperMock, pedidoMapperCompartilhado, sequenciaService, emissaoMapper,
-                estoqueServiceCompartilhado, new SefazReconciliacaoProperties());
+        return new NfeEmissaoService(empresaMapperMock, pedidoMapperCompartilhado, mock(br.com.borurio.app.mapper.PedidoItemMapper.class), sequenciaService, emissaoMapper,
+                mock(br.com.borurio.fiscal.mapper.NfeDocumentoMapper.class), estoqueServiceCompartilhado, new SefazReconciliacaoProperties());
     }
 
     private List<PedidoItem> itensPadrao() {

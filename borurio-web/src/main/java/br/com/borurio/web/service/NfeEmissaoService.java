@@ -4,15 +4,23 @@ import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.mapper.PedidoMapper;
+import br.com.borurio.app.mapper.PedidoItemMapper;
+import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.fiscal.config.SefazReconciliacaoProperties;
+import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeSequencia;
+import br.com.borurio.fiscal.mapper.NfeDocumentoMapper;
 import br.com.borurio.fiscal.mapper.NfeEmissaoMapper;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
 import br.com.borurio.web.dto.AberturaCicloResultado;
+import br.com.borurio.web.dto.AbandonoCicloResultado;
+import br.com.borurio.web.dto.TransporteNaoEntregueResultado;
 import br.com.borurio.web.dto.TipoAberturaCiclo;
+
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -75,18 +83,24 @@ public class NfeEmissaoService {
 
     private final EmpresaMapper empresaMapper;
     private final PedidoMapper pedidoMapper;
+    private final PedidoItemMapper pedidoItemMapper;
     private final NfeSequenciaService sequenciaService;
     private final NfeEmissaoMapper nfeEmissaoMapper;
+    private final NfeDocumentoMapper nfeDocumentoMapper;
     private final EstoqueService estoqueService;
     private final SefazReconciliacaoProperties reconciliacaoProperties;
 
     public NfeEmissaoService(EmpresaMapper empresaMapper, PedidoMapper pedidoMapper,
+                              PedidoItemMapper pedidoItemMapper,
                               NfeSequenciaService sequenciaService, NfeEmissaoMapper nfeEmissaoMapper,
+                              NfeDocumentoMapper nfeDocumentoMapper,
                               EstoqueService estoqueService, SefazReconciliacaoProperties reconciliacaoProperties) {
         this.empresaMapper = empresaMapper;
         this.pedidoMapper = pedidoMapper;
+        this.pedidoItemMapper = pedidoItemMapper;
         this.sequenciaService = sequenciaService;
         this.nfeEmissaoMapper = nfeEmissaoMapper;
+        this.nfeDocumentoMapper = nfeDocumentoMapper;
         this.estoqueService = estoqueService;
         this.reconciliacaoProperties = reconciliacaoProperties;
     }
@@ -297,6 +311,266 @@ public class NfeEmissaoService {
     }
 
     /**
+     * Recovery administrativo (02-09-2026, modelo "gap" revisado no mesmo dia pós-incidente) —
+     * encerra um ciclo em AGUARDANDO_CORRECAO cujo dado de origem não pode mais ser corrigido pelo
+     * fluxo normal (ex.: xProd rejeitado por schema num pedido sem endpoint de edição de item),
+     * liberando o gate da série para os demais pedidos.
+     *
+     * Modelo "gap" — a linha de {@code nfe_emissao} NÃO é apagada e ocupa permanentemente o slot
+     * {@code (cnpj_emitente, modelo, serie, numero_nfe)} via a UNIQUE {@code uk_nfe_emissao_numero}.
+     * Portanto o abandono:
+     *   - libera o gate da série ({@code emissao_ativa_id -> NULL});
+     *   - AVANÇA {@code nfe_sequencia.ultimo_numero} até o {@code numero_nfe} deste ciclo (ver
+     *     {@link #avancarSequenciaParaGap}) — nunca além, nunca regredindo. O nNF fica "queimado":
+     *     o próximo {@code abrirCiclo} da série pega {@code numero_nfe + 1}, nunca reusa o nNF.
+     * Diferença em relação aos terminais de {@code isTerminal} (AUTORIZADO/DENEGADO/NUMERO_OCUPADO):
+     * aqueles avançam o contador porque a SEFAZ deu destino fiscal ao nNF; aqui o contador avança
+     * só para não colidir na constraint — sem autorização, sem denegação, e sem chamar
+     * {@code consumirNumero()} (cuja checagem estrita {@code numero == ultimoNumero+1} não vale
+     * aqui: o gap é esperado). É por isso que ABANDONADO fica fora de {@code isTerminal} e esta é
+     * uma operação separada, nunca um {@code novoEstado} de {@code aplicarNovoEstado}.
+     *
+     * Guards (todos sob o lock FOR UPDATE de nfe_emissao):
+     *   - só a partir de AGUARDANDO_CORRECAO — nunca RESERVADO/TRANSMITIDO/PENDENTE_CONFIRMACAO
+     *     (ainda em voo), nunca AUTORIZADO/DENEGADO/NUMERO_OCUPADO/CANCELADO (destino já dado);
+     *   - {@code nprot} obrigatoriamente nulo — um ciclo com protocolo teve destino real na SEFAZ;
+     *   - nenhuma emissão filha de contingência apontando para este ciclo (senão a filha ficaria
+     *     órfã ao liberar o gate);
+     *   - idempotente: se já está ABANDONADO, não re-marca — mas AINDA repara {@code ultimo_numero}
+     *     se ficou atrás do nNF ({@code idempotente=true}, {@code sequenciaAvancada} reflete o
+     *     reparo). Nunca é um no-op cego antes de checar o contador.
+     *
+     * NÃO toca Pedido nem Estoque: o {@code Pedido} de origem continua no status que já tinha
+     * (tipicamente REJEITADO) — a decisão de reemitir/descartar o pedido é de quem opera, não
+     * deste recovery. NÃO chama a SEFAZ. Preserva {@code cstat}/{@code xmotivo}/{@code nprot} como
+     * evidência histórica; preenche {@code resolvido_em}.
+     *
+     * Ordem canônica de lock: nfe_sequencia -> nfe_emissao (mesma de abrirCiclo/aplicarNovoEstado).
+     * REPEATABLE_READ com FOR UPDATE explícito nas duas linhas que precisam ser exclusivas —
+     * mesma disciplina de {@code resolverCiclo}.
+     */
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    public AbandonoCicloResultado abandonarCiclo(Long emissaoId, String motivo) {
+        // Pré-leitura NÃO bloqueante só para localizar cnpj/série (nunca decide a transição).
+        NfeEmissao preRead = nfeEmissaoMapper.buscarPorId(emissaoId);
+        if (preRead == null) {
+            throw BusinessException.emissaoNaoEncontrada(emissaoId);
+        }
+        NfeSequencia seq = sequenciaService.buscarSeExistirParaAtualizar(
+                preRead.getCnpjEmitente(), preRead.getSerie());
+
+        NfeEmissao emissao = nfeEmissaoMapper.buscarPorIdParaAtualizar(emissaoId);
+        if (emissao == null) {
+            throw BusinessException.emissaoNaoEncontrada(emissaoId);
+        }
+
+        // Idempotência: já abandonado -> não re-marca, mas AINDA repara o contador (modelo gap)
+        // se ultimo_numero ficou atrás do nNF. Nunca é um no-op cego — Bruno, 02-09-2026.
+        if (NfeEmissao.Estados.ABANDONADO.equals(emissao.getEstado())) {
+            boolean gateJaLivre = seq == null || !emissaoId.equals(seq.getEmissaoAtivaId());
+            boolean sequenciaAvancada = avancarSequenciaParaGap(seq, emissao);
+            return AbandonoCicloResultado.idempotente(emissao, gateJaLivre,
+                    seq.getUltimoNumero(), sequenciaAvancada);
+        }
+
+        if (!NfeEmissao.Estados.AGUARDANDO_CORRECAO.equals(emissao.getEstado())) {
+            throw BusinessException.cicloNaoAbandonavel(emissaoId, emissao.getEstado());
+        }
+        if (emissao.getNprot() != null && !emissao.getNprot().isBlank()) {
+            throw BusinessException.cicloComProtocolo(emissaoId);
+        }
+        NfeEmissao filha = nfeEmissaoMapper.buscarPorOrigemId(emissaoId);
+        if (filha != null) {
+            throw BusinessException.cicloSubstituido(emissaoId, filha.getId());
+        }
+
+        int afetadas = nfeEmissaoMapper.marcarAbandonado(emissaoId);
+        if (afetadas != 1) {
+            // Já seguramos o FOR UPDATE desta linha; o WHERE de marcarAbandonado
+            // (estado='AGUARDANDO_CORRECAO' AND nprot IS NULL) casa com o que acabamos de validar
+            // sob lock -> affectedRows != 1 aqui é estado impossível.
+            throw new IllegalStateException("marcarAbandonado não afetou nfe_emissao id=" + emissaoId
+                    + " (estado sob lock=" + emissao.getEstado() + ", nprot=" + emissao.getNprot()
+                    + ") — inconsistência inesperada.");
+        }
+
+        // Modelo gap: a linha ABANDONADA ocupa o slot (cnpj,modelo,serie,nNF) para sempre via
+        // uk_nfe_emissao_numero. Avança ultimo_numero até o nNF deste ciclo para que o próximo
+        // abrirCiclo NÃO recalcule o mesmo candidato e colida no INSERT. Nunca além, nunca regride.
+        boolean sequenciaAvancada = avancarSequenciaParaGap(seq, emissao);
+
+        // Libera o gate — só se ele realmente aponta para este ciclo (nunca liberar gate alheio).
+        boolean gateLiberado = false;
+        if (seq != null && emissaoId.equals(seq.getEmissaoAtivaId())) {
+            sequenciaService.liberarGate(emissao.getCnpjEmitente(), emissao.getSerie());
+            gateLiberado = true;
+        }
+
+        log.warn("[NfeEmissao] Ciclo ABANDONADO | emissaoId={} | pedidoId={} | cnpj={} | serie={} | "
+                        + "nNF={} | cstat={} | gateLiberado={} | ultimoNumero={} | sequenciaAvancada={} | motivo=\"{}\"",
+                emissaoId, emissao.getPedidoId(), emissao.getCnpjEmitente(), emissao.getSerie(),
+                emissao.getNumeroNfe(), emissao.getCstat(), gateLiberado, seq.getUltimoNumero(),
+                sequenciaAvancada, motivo);
+
+        return AbandonoCicloResultado.abandonado(emissao, gateLiberado,
+                seq.getUltimoNumero(), sequenciaAvancada);
+    }
+
+    /**
+     * Modelo "gap" dos recovery administrativos (ABANDONADO / TRANSPORTE_NAO_ENTREGUE, 02-09-2026):
+     * avança {@code nfe_sequencia.ultimo_numero} até o {@code numero_nfe} deste ciclo encerrado sem
+     * autorização — a linha de {@code nfe_emissao} nunca é apagada e ocupa o slot
+     * {@code (cnpj_emitente, modelo, serie, numero_nfe)} para sempre via a UNIQUE
+     * {@code uk_nfe_emissao_numero}; um {@code abrirCiclo} posterior recalcularia
+     * {@code ultimo_numero + 1} e colidiria no INSERT. Nunca regride, nunca ultrapassa o nNF.
+     * Idempotente: no-op se {@code ultimo_numero >= numero_nfe}. Mantém o objeto {@code seq} em
+     * memória coerente com o UPDATE.
+     *
+     * @return {@code true} se {@code ultimo_numero} foi avançado nesta chamada.
+     */
+    private boolean avancarSequenciaParaGap(NfeSequencia seq, NfeEmissao emissao) {
+        if (seq == null) {
+            // Uma nfe_emissao existente implica que abrirCicloNovo criou a linha de nfe_sequencia
+            // (buscarOuCriarParaAtualizar). seq nulo aqui é estado impossível — falha explícita em
+            // vez de deixar o gap aberto (reabriria a colisão de uk_nfe_emissao_numero).
+            throw new IllegalStateException("nfe_emissao id=" + emissao.getId() + " existe mas não há "
+                    + "linha em nfe_sequencia para cnpj=" + emissao.getCnpjEmitente()
+                    + " serie=" + emissao.getSerie() + " — impossível reparar o contador (modelo gap).");
+        }
+        if (seq.getUltimoNumero() >= emissao.getNumeroNfe()) {
+            return false;
+        }
+        boolean avancou = sequenciaService.avancarUltimoNumeroParaRecovery(
+                emissao.getCnpjEmitente(), emissao.getSerie(), emissao.getNumeroNfe());
+        seq.setUltimoNumero(emissao.getNumeroNfe());
+        return avancou;
+    }
+
+    /**
+     * Recovery administrativo (02-09-2026) — encerra um ciclo em TRANSMITIDO/PENDENTE_CONFIRMACAO
+     * cuja tentativa de transmissão foi COMPROVADAMENTE rejeitada no transporte/gateway ANTES de
+     * chegar ao autorizador da SEFAZ (ex.: HTTP 403 do proxy por certificado inválido, resposta
+     * HTML em vez de SOAP). Nenhuma NF-e existe fiscalmente: sem {@code retEnviNFe}, sem recibo,
+     * sem {@code protNFe}, sem {@code nProt}, sem {@code dhRecbto}.
+     *
+     * Efeito na numeração idêntico ao {@link #abandonarCiclo} (modelo "gap") — encerra o ciclo,
+     * libera o gate e AVANÇA {@code nfe_sequencia.ultimo_numero} até o {@code numero_nfe} deste
+     * ciclo (ver {@link #avancarSequenciaParaGap}), nunca além, nunca regredindo, porque a linha de
+     * {@code nfe_emissao} ocupa o slot {@code uk_nfe_emissao_numero} para sempre. Preenche
+     * {@code resolvido_em}, preserva {@code cstat}/{@code xmotivo}/{@code chave} como evidência —
+     * mas parte de outro estado e com uma prova de transporte diferente. Além disso, aqui o
+     * {@code Pedido} volta para {@code ERRO} (estado emissível) com a {@code chaveNfe} espúria
+     * limpa, e a reserva de estoque (se o emit a fez) é desfeita — porque PENDENTE_CONFIRMACAO
+     * mantém a reserva até um destino definitivo, e este é o destino: "a NF-e nunca existiu".
+     *
+     * Guards (todos sob o lock FOR UPDATE de nfe_emissao):
+     *   - estado ∈ {TRANSMITIDO, PENDENTE_CONFIRMACAO};
+     *   - {@code nprot} nulo;
+     *   - {@code tentativas_consulta == 0} — se já houve consulta à SEFAZ, existe um cStat real
+     *     que este recovery não pode sobrepor;
+     *   - nenhuma linha de {@code nfe_documento} da chave com {@code n_prot}/{@code dh_recbto}/
+     *     {@code xml_protocolo} preenchidos (evidência de recepção/processamento pela SEFAZ);
+     *   - nenhuma emissão filha de contingência;
+     *   - idempotente: se já está TRANSPORTE_NAO_ENTREGUE, não re-marca — mas AINDA repara
+     *     {@code ultimo_numero} se ficou atrás do nNF ({@code idempotente=true},
+     *     {@code sequenciaAvancada} reflete o reparo). Nunca é no-op cego antes de checar o contador.
+     *
+     * NÃO chama a SEFAZ. NÃO toca outra série/emissão. Nunca inventa DENEGADO nem apaga evidência.
+     */
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    public TransporteNaoEntregueResultado marcarTransporteNaoEntregue(Long emissaoId, String motivo) {
+        NfeEmissao preRead = nfeEmissaoMapper.buscarPorId(emissaoId);
+        if (preRead == null) {
+            throw BusinessException.emissaoNaoEncontrada(emissaoId);
+        }
+        NfeSequencia seq = sequenciaService.buscarSeExistirParaAtualizar(
+                preRead.getCnpjEmitente(), preRead.getSerie());
+
+        NfeEmissao emissao = nfeEmissaoMapper.buscarPorIdParaAtualizar(emissaoId);
+        if (emissao == null) {
+            throw BusinessException.emissaoNaoEncontrada(emissaoId);
+        }
+
+        // Idempotência: já marcado -> não re-marca, mas AINDA repara o contador (modelo gap) se
+        // ultimo_numero ficou atrás do nNF. Nunca é um no-op cego — Bruno, 02-09-2026.
+        if (NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE.equals(emissao.getEstado())) {
+            boolean gateJaLivre = seq == null || !emissaoId.equals(seq.getEmissaoAtivaId());
+            boolean sequenciaAvancada = avancarSequenciaParaGap(seq, emissao);
+            return TransporteNaoEntregueResultado.idempotente(emissao, gateJaLivre,
+                    seq.getUltimoNumero(), sequenciaAvancada);
+        }
+
+        if (!NfeEmissao.Estados.TRANSMITIDO.equals(emissao.getEstado())
+                && !NfeEmissao.Estados.PENDENTE_CONFIRMACAO.equals(emissao.getEstado())) {
+            throw BusinessException.cicloNaoElegivelTransporte(emissaoId, emissao.getEstado());
+        }
+        if (emissao.getNprot() != null && !emissao.getNprot().isBlank()) {
+            throw BusinessException.cicloComProtocolo(emissaoId);
+        }
+        if (emissao.getTentativasConsulta() > 0) {
+            throw BusinessException.cicloJaReconciliado(emissaoId, emissao.getTentativasConsulta());
+        }
+        NfeEmissao filha = nfeEmissaoMapper.buscarPorOrigemId(emissaoId);
+        if (filha != null) {
+            throw BusinessException.cicloSubstituido(emissaoId, filha.getId());
+        }
+        if (emissao.getChaveNfe() != null && !emissao.getChaveNfe().isBlank()) {
+            Optional<NfeDocumento> doc = nfeDocumentoMapper.findByChave(emissao.getChaveNfe());
+            if (doc.isPresent()) {
+                NfeDocumento d = doc.get();
+                boolean temEvidencia = (d.getNProt() != null && !d.getNProt().isBlank())
+                        || d.getDhRecbto() != null
+                        || (d.getXmlProtocolo() != null && !d.getXmlProtocolo().isBlank());
+                if (temEvidencia) {
+                    throw BusinessException.evidenciaDeProcessamento(emissaoId, emissao.getChaveNfe());
+                }
+            }
+        }
+
+        int afetadas = nfeEmissaoMapper.marcarTransporteNaoEntregue(emissaoId);
+        if (afetadas != 1) {
+            throw new IllegalStateException("marcarTransporteNaoEntregue não afetou nfe_emissao id="
+                    + emissaoId + " (estado sob lock=" + emissao.getEstado() + ", nprot=" + emissao.getNprot()
+                    + ", tentativasConsulta=" + emissao.getTentativasConsulta() + ") — inconsistência inesperada.");
+        }
+
+        // Modelo gap (igual ao abandono): a linha ocupa (cnpj,modelo,serie,nNF) para sempre via
+        // uk_nfe_emissao_numero — avança ultimo_numero até o nNF deste ciclo. Nunca além, nunca regride.
+        boolean sequenciaAvancada = avancarSequenciaParaGap(seq, emissao);
+
+        boolean gateLiberado = false;
+        if (seq != null && emissaoId.equals(seq.getEmissaoAtivaId())) {
+            sequenciaService.liberarGate(emissao.getCnpjEmitente(), emissao.getSerie());
+            gateLiberado = true;
+        }
+
+        Long pedidoId = emissao.getPedidoId();
+        Pedido pedido = pedidoMapper.buscarPorId(pedidoId);
+        boolean estoqueDesfeito = false;
+        if (pedido != null) {
+            pedidoMapper.atualizarStatus(pedidoId, "ERRO", null);
+            Long empresaAncoraId = pedido.getEmpresaId();
+            Empresa ancora = empresaAncoraId != null ? empresaMapper.buscarPorId(empresaAncoraId) : null;
+            boolean controlaEstoque = ancora == null || ancora.controlaEstoque();
+            if (empresaAncoraId != null && controlaEstoque) {
+                List<PedidoItem> itens = pedidoItemMapper.listarPorPedido(pedidoId);
+                estoqueService.desfazerReservaItens(itens, empresaAncoraId, pedidoId, "sistema-recovery-transporte");
+                estoqueDesfeito = true;
+            }
+        }
+
+        log.warn("[NfeEmissao] Ciclo TRANSPORTE_NAO_ENTREGUE | emissaoId={} | pedidoId={} | cnpj={} | "
+                        + "serie={} | nNF={} | cstatSintetico={} | gateLiberado={} | ultimoNumero={} | "
+                        + "sequenciaAvancada={} | pedido->ERRO | estoqueDesfeito={} | motivo=\"{}\"",
+                emissaoId, pedidoId, emissao.getCnpjEmitente(), emissao.getSerie(), emissao.getNumeroNfe(),
+                emissao.getCstat(), gateLiberado, seq.getUltimoNumero(), sequenciaAvancada,
+                estoqueDesfeito, motivo);
+
+        return TransporteNaoEntregueResultado.aplicado(emissao, gateLiberado,
+                seq.getUltimoNumero(), sequenciaAvancada, estoqueDesfeito);
+    }
+
+    /**
      * Claim atômico da janela de reconciliação (Gate 3) — UPDATE condicional único (ver
      * NfeEmissaoMapper.tentarAdquirirJanelaConsulta), nunca lock explícito + leitura + decisão.
      * Transação própria, curta, sem nenhuma chamada de rede dentro dela — a Consulta Situação só
@@ -314,6 +588,20 @@ public class NfeEmissaoService {
     }
 
     private ResultadoAplicacao aplicarNovoEstado(Long emissaoId, String novoEstado, Integer cStat, String xMotivo, String nProt) {
+        // ABANDONADO e TRANSPORTE_NAO_ENTREGUE nunca são destino de resolução de ciclo
+        // (SEFAZ/reconciliação): só são alcançáveis pelos recovery administrativos dedicados, que
+        // têm sua própria transação e guards. Barrar aqui impede que uma futura chamada de
+        // resolverCiclo passe um desses por engano — não consomem número, então cairiam no ramo
+        // não-terminal e deixariam o gate preso.
+        if (NfeEmissao.Estados.ABANDONADO.equals(novoEstado)) {
+            throw new IllegalArgumentException(
+                    "ABANDONADO não é um estado de resolução de ciclo — use abandonarCiclo().");
+        }
+        if (NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE.equals(novoEstado)) {
+            throw new IllegalArgumentException(
+                    "TRANSPORTE_NAO_ENTREGUE não é um estado de resolução de ciclo — use "
+                            + "marcarTransporteNaoEntregue().");
+        }
         // Ordem canônica de lock do projeto: Empresa -> nfe_sequencia -> nfe_emissao (mesma de
         // abrirCiclo/retomarCicloAtivo e de FiscalNumberingService). Este método recebe só o id
         // da emissão, então precisa descobrir cnpj/série ANTES de travar nfe_sequencia — mas essa
@@ -393,12 +681,14 @@ public class NfeEmissaoService {
             }
         }
 
-        if (NfeEmissao.Estados.isTerminal(emissao.getEstado())) {
+        if (NfeEmissao.Estados.encerraCiclo(emissao.getEstado())) {
             // Idempotência: decidida pelo estado já travado (a fonte válida), nunca pela
             // pré-leitura de cima — protege contra uma segunda resolução do mesmo ciclo (Gate 3:
             // reconciliação pode ser chamada mais de uma vez). Sinaliza ao chamador
             // (resolverCicloComEfeitos) que os efeitos de Pedido/Estoque já foram aplicados antes,
             // na transação que resolveu este ciclo pela primeira vez — nunca reaplicar.
+            // encerraCiclo (não isTerminal): um ciclo já ABANDONADO também é no-op aqui — uma
+            // resposta tardia da SEFAZ nunca ressuscita um ciclo que o operador encerrou.
             return ResultadoAplicacao.NAO_APLICADO_JA_TERMINAL;
         }
 

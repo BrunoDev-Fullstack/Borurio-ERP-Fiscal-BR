@@ -16,6 +16,7 @@ import br.com.borurio.web.controller.app.PedidoController;
 import br.com.borurio.web.service.OmsCertificadoService;
 import br.com.borurio.web.service.PedidoEmissaoService;
 import br.com.borurio.web.service.PedidoOperacaoService;
+import br.com.borurio.web.service.ValidacaoTextoFiscalPedido;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -53,7 +55,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(PedidoController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, ValidacaoTextoFiscalPedido.class})
 class PedidoControllerTest {
 
     @Autowired MockMvc mockMvc;
@@ -901,5 +903,171 @@ class PedidoControllerTest {
                 .andExpect(status().isOk());
 
         verify(pedidoService).listarPaginado(org.mockito.ArgumentMatchers.eq(10L), anyInt(), anyInt());
+    }
+
+    // -------------------------------------------------------------------------
+    // Validação fiscal preventiva (02-09-2026) — FISCAL_TEXT_INVALID_CHARS no POST /pedidos.
+    // Regra única: ValidacaoTextoFiscalPedido -> ValidadorTextoFiscalNfe (bean real via @Import).
+    // -------------------------------------------------------------------------
+
+    private static String bodyComDescricao(String descricao) {
+        return """
+                {
+                  "destCnpjCpf": "12345678000195",
+                  "destRazaoSocial": "Cliente Teste",
+                  "destUf": "SP",
+                  "naturezaOperacao": "VENDA DE MERCADORIA",
+                  "itens": [
+                    { "produtoId": 1, "codigoProduto": "SKU-1", "descricao": "%s",
+                      "ncm": "01012900", "cfop": "5101", "unidade": "UN", "origem": 0, "csosn": "102",
+                      "quantidade": 1, "valorUnitario": 10.0 }
+                  ]
+                }
+                """.formatted(descricao);
+    }
+
+    @Test
+    @WithMockUser
+    void criar_descricaoChinesa_returns422_pedidoNaoCriado() throws Exception {
+        mockMvc.perform(post("/api/app/pedidos").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyComDescricao("1喷油瓶-100ML（彩盒）-太空银")))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("FISCAL_TEXT_INVALID_CHARS"))
+                .andExpect(jsonPath("$.retryable").value(false))
+                .andExpect(jsonPath("$.data.field").value("itens[0].descricao"))
+                .andExpect(jsonPath("$.data.itemIndex").value(0))
+                .andExpect(jsonPath("$.data.reason").value("CARACTERE_NAO_PERMITIDO"));
+
+        verify(pedidoService, never()).criar(any(), any());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_retryIdempotente_comTextoInvalido_naoRejeita_devolvePedidoExistente() throws Exception {
+        // Pedido já existe para (externalOrderId, empresa) — a validação de criação NÃO roda:
+        // a resposta correta de um retry idempotente é 200 + pedido existente, nunca 422 por
+        // charset (ex.: pedido legado gravado antes desta regra). Autoridade de idempotência
+        // continua em PedidoServiceImpl.criar; aqui só provamos que a V1 não intercepta o retry.
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+        Pedido existente = new Pedido();
+        existente.setId(67L);
+        existente.setStatus("REJEITADO");
+        existente.setExternalOrderId("ORDER-LEGADO-CHINES");
+        when(pedidoService.buscarPorExternalOrderIdEEmpresa(eq("ORDER-LEGADO-CHINES"), any()))
+                .thenReturn(existente);
+        when(pedidoService.criar(any(), any())).thenReturn(existente);
+
+        String body = """
+                {
+                  "destCnpjCpf": "12345678000195",
+                  "destRazaoSocial": "Cliente Teste",
+                  "destUf": "SP",
+                  "externalOrderId": "ORDER-LEGADO-CHINES",
+                  "itens": [
+                    { "produtoId": 1, "codigoProduto": "SKU-1", "descricao": "喷油瓶-太空银",
+                      "ncm": "01012900", "cfop": "5101", "unidade": "UN", "origem": 0, "csosn": "102",
+                      "quantidade": 1, "valorUnitario": 10.0 }
+                  ]
+                }
+                """;
+        mockMvc.perform(post("/api/app/pedidos").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(67));
+
+        verify(pedidoService).criar(any(), any());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_descricaoComEmoji_returns422() throws Exception {
+        mockMvc.perform(post("/api/app/pedidos").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyComDescricao("Produto legal 😀")))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("FISCAL_TEXT_INVALID_CHARS"));
+
+        verify(pedidoService, never()).criar(any(), any());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_descricaoPortuguesComAcentos_returns200() throws Exception {
+        when(emitente.getCnpj()).thenReturn("12.345.678/0001-95");
+
+        Pedido pedido = new Pedido();
+        pedido.setId(70L);
+        pedido.setDestCnpjCpf("12345678000195");
+        pedido.setDestRazaoSocial("Cliente Teste");
+        pedido.setStatus("RASCUNHO");
+        when(pedidoService.criar(any(), any())).thenReturn(pedido);
+
+        mockMvc.perform(post("/api/app/pedidos").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyComDescricao("Coração de melão à vontade - caixa prata")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(70));
+
+        verify(pedidoService).criar(any(), any());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_naturezaOperacaoComCaractereInvalido_returns422() throws Exception {
+        String body = """
+                {
+                  "destCnpjCpf": "12345678000195",
+                  "destRazaoSocial": "Cliente Teste",
+                  "destUf": "SP",
+                  "naturezaOperacao": "Venda — mercadoria"
+                }
+                """;
+        mockMvc.perform(post("/api/app/pedidos").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("FISCAL_TEXT_INVALID_CHARS"))
+                .andExpect(jsonPath("$.data.field").value("naturezaOperacao"));
+
+        verify(pedidoService, never()).criar(any(), any());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_descricaoAcimaDe120_returns422() throws Exception {
+        mockMvc.perform(post("/api/app/pedidos").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyComDescricao("a".repeat(121))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("FISCAL_TEXT_INVALID_CHARS"));
+
+        verify(pedidoService, never()).criar(any(), any());
+    }
+
+    @Test
+    @WithMockUser
+    void criar_segundoItemInvalido_apontaItemIndex1() throws Exception {
+        String body = """
+                {
+                  "destCnpjCpf": "12345678000195",
+                  "destRazaoSocial": "Cliente Teste",
+                  "destUf": "SP",
+                  "itens": [
+                    { "produtoId": 1, "codigoProduto": "SKU-1", "descricao": "Produto valido",
+                      "ncm": "01012900", "cfop": "5101", "unidade": "UN", "origem": 0, "csosn": "102",
+                      "quantidade": 1, "valorUnitario": 10.0 },
+                    { "produtoId": 2, "codigoProduto": "SKU-2", "descricao": "喷油瓶",
+                      "ncm": "01012900", "cfop": "5101", "unidade": "UN", "origem": 0, "csosn": "102",
+                      "quantidade": 1, "valorUnitario": 10.0 }
+                  ]
+                }
+                """;
+        mockMvc.perform(post("/api/app/pedidos").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.data.field").value("itens[1].descricao"))
+                .andExpect(jsonPath("$.data.itemIndex").value(1));
+
+        verify(pedidoService, never()).criar(any(), any());
     }
 }

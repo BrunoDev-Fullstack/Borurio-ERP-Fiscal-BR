@@ -343,8 +343,8 @@ class NfeContingenciaGapLockReproducaoRealMySqlIT {
         NfeEmissaoMapper emissaoMapper = session.getMapper(NfeEmissaoMapper.class);
         NfeSequenciaService sequenciaService = new NfeSequenciaServiceImpl(seqMapper);
         EmpresaMapper empresaMapperMock = mock(EmpresaMapper.class);
-        return new NfeEmissaoService(empresaMapperMock, pedidoMapperMock, sequenciaService, emissaoMapper,
-                estoqueServiceMock, new SefazReconciliacaoProperties());
+        return new NfeEmissaoService(empresaMapperMock, pedidoMapperMock, mock(br.com.borurio.app.mapper.PedidoItemMapper.class), sequenciaService, emissaoMapper,
+                mock(br.com.borurio.fiscal.mapper.NfeDocumentoMapper.class), estoqueServiceMock, new SefazReconciliacaoProperties());
     }
 
     private NfeContingenciaService construirNfeContingenciaServiceReal(SqlSession session) {

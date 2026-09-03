@@ -767,4 +767,134 @@ public class BusinessException extends RuntimeException {
                 422,
                 false);
     }
+
+    // -------------------------------------------------------------------------
+    // Recovery administrativo do ciclo do nNF (02-09-2026) — estado ABANDONADO.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Texto destinado a um campo NF-e do tipo {@code TString} (xProd, natOp, xNome, xLgr, nro,
+     * xBairro, xMun, infCpl) contém caractere fora do conjunto oficial ({@code U+0020}–{@code U+00FF},
+     * pattern da NT 2023.002), começa/termina com espaço, ou excede o {@code maxLength} do XSD.
+     * Detectado ANTES de persistir o pedido (POST /pedidos) e, como defesa em profundidade, ANTES
+     * de {@code abrirCiclo()} no {@code /emitir}. {@code retryable=false}: exige corrigir a origem
+     * no OMS. O texto ofensor NUNCA é ecoado — só o nome do campo (e {@code itemIndex} quando item).
+     */
+    public static BusinessException fiscalTextInvalidChars(String field, Integer itemIndex,
+                                                          String reason, String detalhe) {
+        java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("field", field);
+        if (itemIndex != null) {
+            data.put("itemIndex", itemIndex);
+        }
+        // reason: código estável (nome do enum Motivo do ValidadorTextoFiscalNfe) para o OMS
+        // ramificar sem parsear a mensagem — CARACTERE_NAO_PERMITIDO / ESPACO_NA_BORDA /
+        // ACIMA_DO_MAX_LENGTH. O errorCode continua único (FISCAL_TEXT_INVALID_CHARS): é um
+        // envelope de validação de texto fiscal, o motivo específico vem aqui.
+        if (reason != null) {
+            data.put("reason", reason);
+        }
+        String alvo = itemIndex != null
+                ? "A descrição do item " + (itemIndex + 1)
+                : "O campo '" + field + "'";
+        return new BusinessException(
+                "FISCAL_TEXT_INVALID_CHARS",
+                alvo + " " + detalhe + ".",
+                422,
+                false,
+                data);
+    }
+
+    /** nfe_emissao inexistente no abandono administrativo. */
+    public static BusinessException emissaoNaoEncontrada(Long emissaoId) {
+        return new BusinessException(
+                "EMISSAO_NOT_FOUND",
+                "Ciclo de emissão não encontrado: id=" + emissaoId,
+                404);
+    }
+
+    /**
+     * Abandono só é permitido para um ciclo em AGUARDANDO_CORRECAO (rejeição corrigível cujo dado
+     * de origem não pode mais ser corrigido). Qualquer outro estado — RESERVADO/TRANSMITIDO/
+     * PENDENTE_CONFIRMACAO (ainda em voo), AUTORIZADO/DENEGADO/NUMERO_OCUPADO (terminais reais),
+     * CANCELADO, ABANDONADO — é recusado.
+     */
+    public static BusinessException cicloNaoAbandonavel(Long emissaoId, String estadoAtual) {
+        return new BusinessException(
+                "CICLO_NAO_ABANDONAVEL",
+                "Ciclo de emissão id=" + emissaoId + " está em '" + estadoAtual + "' — o abandono só "
+                        + "é permitido a partir de AGUARDANDO_CORRECAO.",
+                422,
+                false);
+    }
+
+    /**
+     * Ciclo com protocolo SEFAZ (nprot preenchido) teve destino real — autorizado ou denegado —
+     * e nunca é abandonável, independentemente do estado local.
+     */
+    public static BusinessException cicloComProtocolo(Long emissaoId) {
+        return new BusinessException(
+                "CICLO_COM_PROTOCOLO",
+                "Ciclo de emissão id=" + emissaoId + " tem protocolo SEFAZ registrado — teve destino "
+                        + "definitivo e não pode ser abandonado.",
+                422,
+                false);
+    }
+
+    /**
+     * Ciclo NORMAL já substituído por uma emissão em contingência (existe uma linha filha com
+     * emissao_origem_id apontando para ele). Liberar o gate da série aqui deixaria a filha órfã.
+     */
+    public static BusinessException cicloSubstituido(Long emissaoId, Long filhaId) {
+        return new BusinessException(
+                "CICLO_SUBSTITUIDO",
+                "Ciclo de emissão id=" + emissaoId + " já foi substituído por contingência (emissão "
+                        + "filha id=" + filhaId + ") — resolva o ciclo ativo, não abandone a origem.",
+                422,
+                false);
+    }
+
+    /**
+     * "Transporte não entregue" só é aplicável a um ciclo em TRANSMITIDO ou PENDENTE_CONFIRMACAO —
+     * ou seja, que saiu do Borurio mas não obteve resultado fiscal. Qualquer outro estado tem
+     * resultado (AUTORIZADO/DENEGADO/NUMERO_OCUPADO), nunca saiu (RESERVADO), ou já foi tratado
+     * por outro recovery (ABANDONADO/AGUARDANDO_CORRECAO/CANCELADO/TRANSPORTE_NAO_ENTREGUE).
+     */
+    public static BusinessException cicloNaoElegivelTransporte(Long emissaoId, String estadoAtual) {
+        return new BusinessException(
+                "CICLO_NAO_ELEGIVEL_TRANSPORTE",
+                "Ciclo de emissão id=" + emissaoId + " está em '" + estadoAtual + "' — 'transporte não "
+                        + "entregue' só se aplica a TRANSMITIDO ou PENDENTE_CONFIRMACAO.",
+                422,
+                false);
+    }
+
+    /**
+     * O ciclo já passou por pelo menos uma consulta de reconciliação à SEFAZ
+     * ({@code tentativas_consulta > 0}) — existe um resultado real da consulta que este recovery
+     * de transporte não pode sobrepor. Use a reconciliação normal.
+     */
+    public static BusinessException cicloJaReconciliado(Long emissaoId, int tentativasConsulta) {
+        return new BusinessException(
+                "CICLO_JA_RECONCILIADO",
+                "Ciclo de emissão id=" + emissaoId + " já teve " + tentativasConsulta + " consulta(s) de "
+                        + "reconciliação à SEFAZ — resolva pela reconciliação, não pelo recovery de transporte.",
+                422,
+                false);
+    }
+
+    /**
+     * Existe evidência persistida de que a SEFAZ recebeu/processou o lote (nfe_documento com
+     * n_prot, dh_recbto ou xml_protocolo preenchidos) — o recovery de "transporte não entregue"
+     * é proibido nesse caso: a NF-e pode existir fiscalmente.
+     */
+    public static BusinessException evidenciaDeProcessamento(Long emissaoId, String chaveNfe) {
+        return new BusinessException(
+                "EVIDENCIA_DE_PROCESSAMENTO",
+                "Ciclo de emissão id=" + emissaoId + " (chave " + chaveNfe + ") tem evidência de "
+                        + "recepção/processamento pela SEFAZ — não pode ser marcado como transporte não "
+                        + "entregue. Resolva por consulta/reconciliação.",
+                422,
+                false);
+    }
 }

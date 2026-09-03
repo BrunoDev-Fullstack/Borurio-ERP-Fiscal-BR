@@ -222,6 +222,48 @@ public class NfeSequenciaServiceImpl implements NfeSequenciaService {
         mapper.ocuparGate(cnpjEmitente, serie, emissaoAtivaId);
     }
 
+    // Recovery administrativo "modelo gap" (ABANDONADO / TRANSPORTE_NAO_ENTREGUE, 02-09-2026).
+    // Um ciclo encerrado sem autorizacao ocupa seu slot (cnpj, modelo, serie, nNF) para sempre via
+    // uk_nfe_emissao_numero -- ultimo_numero PRECISA alcancar esse nNF, senao abrirCicloNovo
+    // recalcula ultimo_numero + 1 e colide. Avanca ate EXATAMENTE numeroNfe, so quando abaixo
+    // disso: nunca regride, nunca ultrapassa. NAO exige numeroNfe == ultimo_numero + 1 (o gap e
+    // esperado). Mesmo lock/isolamento dos demais metodos do Gate 1.
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public boolean avancarUltimoNumeroParaRecovery(String cnpjEmitente, String serie, int numeroNfe) {
+        if (cnpjEmitente == null || cnpjEmitente.isBlank()) {
+            throw new IllegalArgumentException("cnpjEmitente é obrigatório.");
+        }
+        if (serie == null || serie.isBlank()) {
+            throw new IllegalArgumentException("serie é obrigatória.");
+        }
+        if (numeroNfe < 1) {
+            throw new IllegalArgumentException("numeroNfe deve ser maior ou igual a 1: " + numeroNfe);
+        }
+
+        NfeSequencia seq = mapper.buscarParaAtualizar(cnpjEmitente, serie);
+        if (seq == null) {
+            throw new IllegalStateException(
+                    "Sequência não encontrada para CNPJ=" + cnpjEmitente + " série=" + serie
+                            + " ao reparar o contador (modelo gap) até nNF=" + numeroNfe
+                            + " — uma nfe_emissao sem linha de nfe_sequencia é estado impossível.");
+        }
+        if (seq.getUltimoNumero() >= numeroNfe) {
+            return false; // já alcançado — nada a escrever, nunca regride
+        }
+
+        int afetadas = mapper.avancarUltimoNumeroAte(cnpjEmitente, serie, numeroNfe);
+        if (afetadas != 1) {
+            // Sob o FOR UPDATE recém-adquirido, ultimo_numero não muda entre a leitura acima e
+            // este UPDATE — a guarda "ultimo_numero < numeroNfe" casa com o que acabamos de ler.
+            throw new IllegalStateException(
+                    "avancarUltimoNumeroAte afetou " + afetadas + " linhas para CNPJ=" + cnpjEmitente
+                            + " série=" + serie + " nNF=" + numeroNfe + " (ultimo_numero sob lock="
+                            + seq.getUltimoNumero() + ") — inconsistência inesperada.");
+        }
+        return true;
+    }
+
     @Override
     @Transactional(isolation = Isolation.SERIALIZABLE)
     public void liberarGate(String cnpjEmitente, String serie) {

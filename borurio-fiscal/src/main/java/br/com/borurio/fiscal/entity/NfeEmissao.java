@@ -40,9 +40,74 @@ public class NfeEmissao {
          */
         public static final String CANCELADO = "CANCELADO";
 
-        /** Estados que liberam o gate da sequencia (nfe_sequencia.emissao_ativa_id) ao serem alcancados. */
+        /**
+         * Recovery administrativo (02-09-2026): encerra um ciclo em AGUARDANDO_CORRECAO cujo dado
+         * de origem NAO pode mais ser corrigido (ex.: xProd rejeitado por schema num pedido sem
+         * endpoint de edicao de item). Semantica: "este ciclo terminou operacionalmente, mas esta
+         * NF-e nunca existiu fiscalmente". Modelo "gap" (revisao de 02-09-2026 pos-incidente):
+         *   - libera o gate da serie (nfe_sequencia.emissao_ativa_id -> NULL);
+         *   - AVANCA nfe_sequencia.ultimo_numero ate o numero_nfe deste ciclo -- nunca alem, nunca
+         *     regredindo. A linha de nfe_emissao NAO e apagada e ocupa permanentemente o slot
+         *     (cnpj_emitente, modelo, serie, numero_nfe) via a UNIQUE uk_nfe_emissao_numero, entao
+         *     o nNF NAO volta a ser alocavel -- o proximo ciclo pega numero_nfe + 1. Esse nNF fica
+         *     como "numero nao autorizado no historico" (a inutilizacao formal junto a SEFAZ, se
+         *     desejada, e um passo administrativo separado);
+         *   - preserva cstat/xmotivo/nprot da rejeicao; preenche resolvido_em.
+         * Diferente dos terminais de {@link #isTerminal}: aqueles consomem o numero porque a SEFAZ
+         * deu destino fiscal ao nNF; aqui o numero e apenas "queimado" para nao colidir, sem
+         * autorizacao nem denegacao.
+         * So alcancavel via {@code NfeEmissaoService.abandonarCiclo} (endpoint /api/admin), nunca
+         * por resolverCiclo/reconciliacao. Guard: origem obrigatoriamente AGUARDANDO_CORRECAO e
+         * nprot nulo (um ciclo com protocolo teve destino real na SEFAZ, nunca e abandonavel). A
+         * chamada idempotente (ciclo ja ABANDONADO) ainda repara o contador se ultimo_numero
+         * ficou abaixo de numero_nfe -- nunca e um no-op cego.
+         */
+        public static final String ABANDONADO = "ABANDONADO";
+
+        /**
+         * Recovery administrativo (02-09-2026): a tentativa de transmissao foi COMPROVADAMENTE
+         * rejeitada no transporte/gateway ANTES de chegar ao autorizador da SEFAZ (ex.: HTTP 403
+         * do proxy por certificado cliente invalido, resposta HTML em vez de SOAP) -- nenhuma NF-e
+         * existe fiscalmente: sem retEnviNFe, sem recibo, sem protNFe, sem nProt, sem dhRecbto.
+         * Distinto de ABANDONADO (aquele e AGUARDANDO_CORRECAO / cStat 225 -- o lote FOI recebido
+         * e rejeitado por schema); aqui o lote NUNCA chegou. Efeito na numeracao identico ao
+         * ABANDONADO (modelo "gap"): encerra o ciclo, libera o gate, AVANCA
+         * nfe_sequencia.ultimo_numero ate o numero_nfe deste ciclo (nunca alem, nunca regredindo)
+         * porque a linha de nfe_emissao ocupa o slot uk_nfe_emissao_numero para sempre, preenche
+         * resolvido_em, preserva cstat/xmotivo/chave como evidencia. Adicionalmente devolve o
+         * Pedido de origem a ERRO (emissivel), limpa a chave espuria e desfaz a reserva de estoque
+         * se o emit a fez. So alcancavel via
+         * {@code NfeEmissaoService.marcarTransporteNaoEntregue} (endpoint /api/admin) e apenas
+         * quando NAO ha nprot, nem tentativas_consulta, nem evidencia de processamento em
+         * nfe_documento (n_prot/dh_recbto/xml_protocolo). A chamada idempotente ainda repara o
+         * contador se ultimo_numero ficou abaixo de numero_nfe.
+         */
+        public static final String TRANSPORTE_NAO_ENTREGUE = "TRANSPORTE_NAO_ENTREGUE";
+
+        /**
+         * Estados terminais "fiscais" -- a SEFAZ deu destino ao nNF: AUTORIZADO/DENEGADO (recusou
+         * ou autorizou esta tentativa), NUMERO_OCUPADO (o numero pertencia a outro documento).
+         * ABANDONADO e TRANSPORTE_NAO_ENTREGUE NAO entram aqui: encerram o ciclo e tambem fazem
+         * ultimo_numero alcancar o nNF (modelo "gap", para nao colidir na uk_nfe_emissao_numero),
+         * mas por decisao administrativa de recovery, nunca por resposta da SEFAZ -- essa distincao
+         * e o motivo de {@code abandonarCiclo}/{@code marcarTransporteNaoEntregue} serem operacoes
+         * separadas, nunca um {@code novoEstado} de {@code aplicarNovoEstado}.
+         */
         public static boolean isTerminal(String estado) {
             return AUTORIZADO.equals(estado) || DENEGADO.equals(estado) || NUMERO_OCUPADO.equals(estado);
+        }
+
+        /**
+         * Estados em que o ciclo esta encerrado e o gate da serie NAO deve mais apontar para ele:
+         * os terminais de {@link #isTerminal} mais os recovery administrativos ABANDONADO e
+         * TRANSPORTE_NAO_ENTREGUE. Todos avancam nfe_sequencia.ultimo_numero ate o nNF do ciclo
+         * (os terminais como consumo fiscal; os recovery pelo modelo "gap"). Usado por quem
+         * precisa saber "este ciclo ainda esta em voo?".
+         */
+        public static boolean encerraCiclo(String estado) {
+            return isTerminal(estado)
+                    || ABANDONADO.equals(estado)
+                    || TRANSPORTE_NAO_ENTREGUE.equals(estado);
         }
 
         private Estados() {}

@@ -1,16 +1,20 @@
 package br.com.borurio.web.service;
 
 import br.com.borurio.app.entity.Empresa;
+import br.com.borurio.app.entity.Pedido;
 import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.mapper.PedidoMapper;
 import br.com.borurio.app.service.EstoqueService;
 import br.com.borurio.fiscal.config.SefazReconciliacaoProperties;
+import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeSequencia;
 import br.com.borurio.fiscal.mapper.NfeEmissaoMapper;
 import br.com.borurio.fiscal.service.NfeSequenciaService;
+
+import java.util.Optional;
 import br.com.borurio.web.dto.AberturaCicloResultado;
 import br.com.borurio.web.dto.TipoAberturaCiclo;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,8 +44,10 @@ class NfeEmissaoServiceTest {
 
     @Mock EmpresaMapper empresaMapper;
     @Mock PedidoMapper pedidoMapper;
+    @Mock br.com.borurio.app.mapper.PedidoItemMapper pedidoItemMapper;
     @Mock NfeSequenciaService sequenciaService;
     @Mock NfeEmissaoMapper nfeEmissaoMapper;
+    @Mock br.com.borurio.fiscal.mapper.NfeDocumentoMapper nfeDocumentoMapper;
     @Mock EstoqueService estoqueService;
 
     NfeEmissaoService service;
@@ -51,8 +57,8 @@ class NfeEmissaoServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new NfeEmissaoService(empresaMapper, pedidoMapper, sequenciaService, nfeEmissaoMapper,
-                estoqueService, new SefazReconciliacaoProperties());
+        service = new NfeEmissaoService(empresaMapper, pedidoMapper, pedidoItemMapper, sequenciaService,
+                nfeEmissaoMapper, nfeDocumentoMapper, estoqueService, new SefazReconciliacaoProperties());
     }
 
     private Empresa empresa(Long id, String serie) {
@@ -716,5 +722,576 @@ class NfeEmissaoServiceTest {
         verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
         verify(sequenciaService, never()).liberarGate(any(), any());
         verifyNoInteractions(pedidoMapper, estoqueService);
+    }
+
+    // -------------------------------------------------------------------------
+    // abandonarCiclo — recovery administrativo (02-09-2026), estado ABANDONADO.
+    //
+    // Modelo "gap" (revisão pós-incidente): encerra o ciclo, libera o gate E avança
+    // nfe_sequencia.ultimo_numero até o numero_nfe deste ciclo — nunca além, nunca
+    // regredindo. A linha ABANDONADA ocupa o slot (cnpj,modelo,serie,nNF) para sempre
+    // via uk_nfe_emissao_numero, então o nNF NÃO volta a ser alocável. A chamada
+    // idempotente ainda repara o contador se ele ficou atrás — nunca é no-op cego.
+    // -------------------------------------------------------------------------
+
+    private NfeEmissao emissaoComEvidencia(Long id, Long pedidoId, String estado, int numero,
+                                            Integer cstat, String xmotivo, String nprot) {
+        NfeEmissao e = emissao(id, pedidoId, estado, numero);
+        e.setCstat(cstat);
+        e.setXmotivo(xmotivo);
+        e.setNprot(nprot);
+        return e;
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: AGUARDANDO_CORRECAO nNF=1 ultimo_numero=0 → ABANDONADO, gate liberado, "
+            + "ultimo_numero avançado até 1 (modelo gap), cStat/xMotivo preservados")
+    void abandonarCiclo_aguardandoCorrecao_encerraCicloLiberaGateAvancaSequencia() {
+        NfeEmissao alvo = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 1,
+                225, "Rejeição: Falha no Schema XML do lote de NFe", null);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, 2L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(2L)).thenReturn(null);
+        when(nfeEmissaoMapper.marcarAbandonado(2L)).thenReturn(1);
+        when(sequenciaService.avancarUltimoNumeroParaRecovery(CNPJ, "1", 1)).thenReturn(true);
+
+        var resultado = service.abandonarCiclo(2L, "descricao chinesa incorrigivel no pedido 67");
+
+        verify(nfeEmissaoMapper).marcarAbandonado(2L);
+        verify(sequenciaService).liberarGate(CNPJ, "1");
+        // Modelo gap: avança ultimo_numero até o nNF; NUNCA consumirNumero (não é destino fiscal).
+        verify(sequenciaService).avancarUltimoNumeroParaRecovery(CNPJ, "1", 1);
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        // Recovery do ciclo só: NÃO toca Pedido (o pedido de origem fica no status que já tinha,
+        // tipicamente REJEITADO — nunca vira DENEGADO) nem Estoque.
+        verifyNoInteractions(pedidoMapper, estoqueService);
+
+        assertFalse(resultado.idempotente());
+        assertTrue(resultado.gateLiberado());
+        assertTrue(resultado.sequenciaAvancada());
+        assertEquals(1, resultado.ultimoNumeroResultante());
+        assertEquals(NfeEmissao.Estados.AGUARDANDO_CORRECAO, resultado.estadoAnterior());
+        assertEquals(NfeEmissao.Estados.ABANDONADO, resultado.estadoAtual());
+        assertEquals(1, resultado.numeroNfe());
+        assertEquals("1", resultado.serie());
+        assertEquals(225, resultado.cstat());
+        assertEquals("Rejeição: Falha no Schema XML do lote de NFe", resultado.xmotivo());
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: cenário completo — abandono libera o gate, avança ultimo_numero até 1, "
+            + "e o próximo abrirCiclo pega o nNF SEGUINTE (2), nunca reusa o nNF queimado")
+    void abandonarCiclo_gateLivreDepois_novoCicloPegaProximoNumero() {
+        // 1) Abandono do ciclo preso do pedido 67 (série "1", nNF 1, gate ocupado por ele).
+        NfeEmissao alvo = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 1, 225, "schema", null);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, 2L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(2L)).thenReturn(null);
+        when(nfeEmissaoMapper.marcarAbandonado(2L)).thenReturn(1);
+        when(sequenciaService.avancarUltimoNumeroParaRecovery(CNPJ, "1", 1)).thenReturn(true);
+
+        service.abandonarCiclo(2L, "descricao chinesa incorrigivel no pedido 67");
+
+        verify(sequenciaService).liberarGate(CNPJ, "1");
+        verify(sequenciaService).avancarUltimoNumeroParaRecovery(CNPJ, "1", 1);
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+
+        // 2) Estado pós-abandono: gate livre (emissaoAtivaId=null), ultimo_numero agora 1.
+        when(empresaMapper.buscarPorCnpjParaAtualizar(CNPJ)).thenReturn(empresa(8L, "1"));
+        when(sequenciaService.buscarOuCriarParaAtualizar(CNPJ, "1")).thenReturn(sequencia(1, null));
+        doAnswer(inv -> {
+            NfeEmissao e = inv.getArgument(0);
+            e.setId(3L);
+            return 1;
+        }).when(nfeEmissaoMapper).inserir(any(NfeEmissao.class));
+
+        // 3) Pedido 68 abre um ciclo novo — pega o nNF SEGUINTE (1 + 1 = 2), nunca o nNF queimado.
+        AberturaCicloResultado novo = service.abrirCiclo(68L, CNPJ);
+
+        assertEquals(TipoAberturaCiclo.NOVA_ABERTURA, novo.tipo());
+        assertEquals(2, novo.emissao().getNumeroNfe(), "nNF 1 foi queimado no abandono; o próximo é 2");
+        assertEquals("1", novo.emissao().getSerie());
+        verify(sequenciaService).ocuparGate(CNPJ, "1", 3L);
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: idempotente com contador ATRÁS — não re-marca, mas REPARA a sequência (nunca no-op cego)")
+    void abandonarCiclo_jaAbandonado_contadorAtras_reparaSequencia() {
+        NfeEmissao jaAbandonado = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.ABANDONADO, 1, 225, "schema", null);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(jaAbandonado);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, null));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(jaAbandonado);
+        when(sequenciaService.avancarUltimoNumeroParaRecovery(CNPJ, "1", 1)).thenReturn(true);
+
+        var resultado = service.abandonarCiclo(2L, "segunda chamada do mesmo abandono");
+
+        assertTrue(resultado.idempotente());
+        assertEquals(NfeEmissao.Estados.ABANDONADO, resultado.estadoAtual());
+        verify(nfeEmissaoMapper, never()).marcarAbandonado(anyLong());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        // O contador estava atrás (0 < 1) — a chamada idempotente reparou.
+        verify(sequenciaService).avancarUltimoNumeroParaRecovery(CNPJ, "1", 1);
+        assertTrue(resultado.sequenciaAvancada());
+        assertEquals(1, resultado.ultimoNumeroResultante());
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: idempotente com contador JÁ alcançado — não toca a sequência (nunca regride)")
+    void abandonarCiclo_jaAbandonado_contadorJaAlcancado_naoTocaSequencia() {
+        NfeEmissao jaAbandonado = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.ABANDONADO, 1, 225, "schema", null);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(jaAbandonado);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(1, null));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(jaAbandonado);
+
+        var resultado = service.abandonarCiclo(2L, "terceira chamada — contador já em dia");
+
+        assertTrue(resultado.idempotente());
+        verify(sequenciaService, never()).avancarUltimoNumeroParaRecovery(any(), any(), anyInt());
+        assertFalse(resultado.sequenciaAvancada());
+        assertEquals(1, resultado.ultimoNumeroResultante());
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa quando há protocolo SEFAZ (nprot != null) — nada é alterado")
+    void abandonarCiclo_comProtocolo_recusaSemAlterarNada() {
+        NfeEmissao comProt = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 1,
+                150, "Autorizado fora de prazo", "135250000012345");
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(comProt);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, 2L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(comProt);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.abandonarCiclo(2L, "tentativa invalida de abandono com protocolo"));
+
+        assertEquals("CICLO_COM_PROTOCOLO", ex.getErrorCode());
+        verify(nfeEmissaoMapper, never()).marcarAbandonado(anyLong());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+    }
+
+    private void assertNaoAbandonavel(String estado) {
+        NfeEmissao alvo = emissaoComEvidencia(2L, 67L, estado, 1, 100, "x", null);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, 2L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(alvo);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.abandonarCiclo(2L, "abandono invalido para estado " + estado));
+
+        assertEquals("CICLO_NAO_ABANDONAVEL", ex.getErrorCode(), "estado " + estado);
+        verify(nfeEmissaoMapper, never()).marcarAbandonado(anyLong());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa AUTORIZADO — terminal real, número já teve destino")
+    void abandonarCiclo_recusaAutorizado() {
+        assertNaoAbandonavel(NfeEmissao.Estados.AUTORIZADO);
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa DENEGADO — terminal real")
+    void abandonarCiclo_recusaDenegado() {
+        assertNaoAbandonavel(NfeEmissao.Estados.DENEGADO);
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa NUMERO_OCUPADO — terminal real")
+    void abandonarCiclo_recusaNumeroOcupado() {
+        assertNaoAbandonavel(NfeEmissao.Estados.NUMERO_OCUPADO);
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa RESERVADO — ciclo ainda em voo, nunca foi rejeitado")
+    void abandonarCiclo_recusaReservado() {
+        assertNaoAbandonavel(NfeEmissao.Estados.RESERVADO);
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa TRANSMITIDO — resultado ainda incerto, resolver por reconciliação")
+    void abandonarCiclo_recusaTransmitido() {
+        assertNaoAbandonavel(NfeEmissao.Estados.TRANSMITIDO);
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa PENDENTE_CONFIRMACAO — resultado ainda incerto")
+    void abandonarCiclo_recusaPendenteConfirmacao() {
+        assertNaoAbandonavel(NfeEmissao.Estados.PENDENTE_CONFIRMACAO);
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa CANCELADO — já é projeção pós-evento homologado")
+    void abandonarCiclo_recusaCancelado() {
+        assertNaoAbandonavel(NfeEmissao.Estados.CANCELADO);
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: emissão inexistente → EMISSAO_NOT_FOUND (404), nada é travado")
+    void abandonarCiclo_emissaoNaoEncontrada_lanca404() {
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(null);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.abandonarCiclo(2L, "abandono de emissao que nao existe"));
+
+        assertEquals("EMISSAO_NOT_FOUND", ex.getErrorCode());
+        assertEquals(404, ex.getHttpStatus());
+        verify(sequenciaService, never()).buscarSeExistirParaAtualizar(any(), any());
+        verify(nfeEmissaoMapper, never()).buscarPorIdParaAtualizar(anyLong());
+        verify(nfeEmissaoMapper, never()).marcarAbandonado(anyLong());
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: recusa se o ciclo NORMAL já foi substituído por contingência (filha existe)")
+    void abandonarCiclo_cicloSubstituido_recusa() {
+        NfeEmissao alvo = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 1, 225, "schema", null);
+        NfeEmissao filha = emissao(3L, 67L, NfeEmissao.Estados.RESERVADO, 1);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, 3L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(2L)).thenReturn(filha);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.abandonarCiclo(2L, "abandono de normal ja substituida"));
+
+        assertEquals("CICLO_SUBSTITUIDO", ex.getErrorCode());
+        verify(nfeEmissaoMapper, never()).marcarAbandonado(anyLong());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: se o gate aponta para OUTRO ciclo, marca ABANDONADO mas NÃO libera o gate alheio")
+    void abandonarCiclo_gateApontaParaOutroCiclo_naoLiberaGateAlheio() {
+        NfeEmissao alvo = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 1, 225, "schema", null);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, 999L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(2L)).thenReturn(null);
+        when(nfeEmissaoMapper.marcarAbandonado(2L)).thenReturn(1);
+        when(sequenciaService.avancarUltimoNumeroParaRecovery(CNPJ, "1", 1)).thenReturn(true);
+
+        var resultado = service.abandonarCiclo(2L, "abandono com gate ja de outro ciclo");
+
+        verify(nfeEmissaoMapper).marcarAbandonado(2L);
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        // O contador ainda é avançado — o gap independe de o gate ser ou não deste ciclo.
+        verify(sequenciaService).avancarUltimoNumeroParaRecovery(CNPJ, "1", 1);
+        assertFalse(resultado.gateLiberado());
+        assertTrue(resultado.sequenciaAvancada());
+        assertEquals(NfeEmissao.Estados.ABANDONADO, resultado.estadoAtual());
+    }
+
+    @Test
+    @DisplayName("abandonarCiclo: ordem canônica de lock — nfe_sequencia (FOR UPDATE) ANTES de nfe_emissao (FOR UPDATE)")
+    void abandonarCiclo_ordemDeLock_sequenciaAntesDeEmissao() {
+        NfeEmissao alvo = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.AGUARDANDO_CORRECAO, 1, 225, "schema", null);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, 2L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(2L)).thenReturn(null);
+        when(nfeEmissaoMapper.marcarAbandonado(2L)).thenReturn(1);
+
+        service.abandonarCiclo(2L, "verificacao de ordem de lock no abandono");
+
+        InOrder ordem = inOrder(nfeEmissaoMapper, sequenciaService);
+        ordem.verify(nfeEmissaoMapper).buscarPorId(2L);                     // pré-leitura NÃO bloqueante
+        ordem.verify(sequenciaService).buscarSeExistirParaAtualizar(CNPJ, "1"); // FOR UPDATE nfe_sequencia
+        ordem.verify(nfeEmissaoMapper).buscarPorIdParaAtualizar(2L);        // FOR UPDATE nfe_emissao — só depois
+        ordem.verify(nfeEmissaoMapper).marcarAbandonado(2L);
+        ordem.verify(sequenciaService).liberarGate(CNPJ, "1");
+    }
+
+    @Test
+    @DisplayName("resolverCiclo: ABANDONADO nunca é destino de resolução — rejeitado explicitamente")
+    void resolverCiclo_estadoAbandonado_rejeitado() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.resolverCiclo(2L, NfeEmissao.Estados.ABANDONADO, 225, "schema", null));
+
+        verifyNoInteractions(sequenciaService, pedidoMapper, estoqueService);
+        verify(nfeEmissaoMapper, never()).buscarPorIdParaAtualizar(anyLong());
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+    }
+
+    @Test
+    @DisplayName("resolverCiclo: resposta tardia da SEFAZ sobre um ciclo já ABANDONADO é no-op — não ressuscita")
+    void resolverCiclo_cicloJaAbandonado_respostaTardiaEhNoop() {
+        NfeEmissao jaAbandonado = emissaoComEvidencia(2L, 67L, NfeEmissao.Estados.ABANDONADO, 1, 225, "schema", null);
+        when(nfeEmissaoMapper.buscarPorId(2L)).thenReturn(jaAbandonado);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(0, null));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(2L)).thenReturn(jaAbandonado);
+        when(nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(2L)).thenReturn(null);
+
+        service.resolverCiclo(2L, NfeEmissao.Estados.AUTORIZADO, 100, null, "135250000099999");
+
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // marcarTransporteNaoEntregue — recovery de ciclo TRANSMITIDO/PENDENTE_CONFIRMACAO cuja
+    // transmissão foi comprovadamente rejeitada no transporte/gateway antes do autorizador.
+    // Modelo "gap": encerra o ciclo, libera o gate, avança ultimo_numero até o nNF do ciclo
+    // (nunca além, nunca regride), devolve o pedido a ERRO. Nunca chama SEFAZ.
+    // -------------------------------------------------------------------------
+
+    private NfeEmissao emissaoTransmitida(Long id, Long pedidoId, String estado, int numero,
+                                           String chave, String nprot, int tentativasConsulta) {
+        NfeEmissao e = emissao(id, pedidoId, estado, numero);
+        e.setCstat(-1);
+        e.setXmotivo("Erro ao interpretar resposta: DOCTYPE is disallowed ...");
+        e.setChaveNfe(chave);
+        e.setNprot(nprot);
+        e.setTentativasConsulta(tentativasConsulta);
+        return e;
+    }
+
+    private Pedido pedido(Long id, Long empresaId) {
+        Pedido p = new Pedido();
+        p.setId(id);
+        p.setEmpresaId(empresaId);
+        p.setStatus("AGUARDANDO");
+        return p;
+    }
+
+    private Empresa empresaControlaEstoque(Long id, boolean controla) {
+        Empresa e = new Empresa();
+        e.setId(id);
+        e.setControleEstoqueAtivo(controla);
+        return e;
+    }
+
+    private static final String CHAVE_TNE = "35260954393421000159550010000000491699768389";
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: PENDENTE_CONFIRMACAO sem evidência, empresa sem estoque → "
+            + "TRANSPORTE_NAO_ENTREGUE, gate liberado, ultimo_numero avançado até 49 (gap), pedido → ERRO")
+    void marcarTransporteNaoEntregue_pendenteSemEvidencia_encerraLiberaGate_avancaSequencia_pedidoParaErro() {
+        NfeEmissao alvo = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 49,
+                CHAVE_TNE, null, 0);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, 3L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(3L)).thenReturn(null);
+        when(nfeDocumentoMapper.findByChave(CHAVE_TNE)).thenReturn(Optional.empty());
+        when(nfeEmissaoMapper.marcarTransporteNaoEntregue(3L)).thenReturn(1);
+        when(sequenciaService.avancarUltimoNumeroParaRecovery(CNPJ, "1", 49)).thenReturn(true);
+        when(pedidoMapper.buscarPorId(68L)).thenReturn(pedido(68L, 1L));
+        when(empresaMapper.buscarPorId(1L)).thenReturn(empresaControlaEstoque(1L, false));
+
+        var r = service.marcarTransporteNaoEntregue(3L, "gateway 403 - lote nao chegou ao autorizador");
+
+        verify(nfeEmissaoMapper).marcarTransporteNaoEntregue(3L);
+        verify(sequenciaService).liberarGate(CNPJ, "1");
+        verify(sequenciaService).avancarUltimoNumeroParaRecovery(CNPJ, "1", 49);
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(pedidoMapper).atualizarStatus(68L, "ERRO", null);
+        verify(estoqueService, never()).desfazerReservaItens(any(), any(), any(), any());
+
+        assertFalse(r.idempotente());
+        assertTrue(r.gateLiberado());
+        assertTrue(r.sequenciaAvancada());
+        assertEquals(49, r.ultimoNumeroResultante());
+        assertTrue(r.pedidoParaErro());
+        assertFalse(r.estoqueDesfeito());
+        assertEquals(NfeEmissao.Estados.PENDENTE_CONFIRMACAO, r.estadoAnterior());
+        assertEquals(NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE, r.estadoAtual());
+        assertEquals(49, r.numeroNfe());
+        assertEquals(CHAVE_TNE, r.chaveNfePreservada());
+        assertEquals(-1, r.cstatSintetico());
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: empresa âncora controla estoque → desfaz a reserva")
+    void marcarTransporteNaoEntregue_comEstoque_desfazReserva() {
+        NfeEmissao alvo = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.TRANSMITIDO, 49, CHAVE_TNE, null, 0);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, 3L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(3L)).thenReturn(null);
+        when(nfeDocumentoMapper.findByChave(CHAVE_TNE)).thenReturn(Optional.empty());
+        when(nfeEmissaoMapper.marcarTransporteNaoEntregue(3L)).thenReturn(1);
+        when(sequenciaService.avancarUltimoNumeroParaRecovery(CNPJ, "1", 49)).thenReturn(true);
+        when(pedidoMapper.buscarPorId(68L)).thenReturn(pedido(68L, 8L));
+        when(empresaMapper.buscarPorId(8L)).thenReturn(empresaControlaEstoque(8L, true));
+        when(pedidoItemMapper.listarPorPedido(68L)).thenReturn(List.of(new PedidoItem()));
+
+        var r = service.marcarTransporteNaoEntregue(3L, "gateway 403 com empresa que controla estoque");
+
+        verify(estoqueService).desfazerReservaItens(anyList(), eq(8L), eq(68L), anyString());
+        assertTrue(r.estoqueDesfeito());
+        verify(sequenciaService).avancarUltimoNumeroParaRecovery(CNPJ, "1", 49);
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: recusa se nfe_documento da chave tem nProt (evidência de processamento)")
+    void marcarTransporteNaoEntregue_evidenciaEmNfeDocumento_recusa() {
+        NfeEmissao alvo = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 49, CHAVE_TNE, null, 0);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, 3L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(3L)).thenReturn(null);
+        NfeDocumento doc = new NfeDocumento();
+        doc.setNProt("135260000000001");
+        when(nfeDocumentoMapper.findByChave(CHAVE_TNE)).thenReturn(Optional.of(doc));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.marcarTransporteNaoEntregue(3L, "tentativa invalida - existe protocolo real"));
+
+        assertEquals("EVIDENCIA_DE_PROCESSAMENTO", ex.getErrorCode());
+        verify(nfeEmissaoMapper, never()).marcarTransporteNaoEntregue(anyLong());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verify(pedidoMapper, never()).atualizarStatus(anyLong(), any(), any());
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: recusa se há nProt na própria emissão")
+    void marcarTransporteNaoEntregue_comNprot_recusa() {
+        NfeEmissao alvo = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 49,
+                CHAVE_TNE, "135260000000009", 0);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, 3L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(alvo);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.marcarTransporteNaoEntregue(3L, "tentativa invalida - emissao com protocolo"));
+
+        assertEquals("CICLO_COM_PROTOCOLO", ex.getErrorCode());
+        verify(nfeEmissaoMapper, never()).marcarTransporteNaoEntregue(anyLong());
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: recusa se já houve consulta de reconciliação (tentativas_consulta > 0)")
+    void marcarTransporteNaoEntregue_jaReconciliado_recusa() {
+        NfeEmissao alvo = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 49, CHAVE_TNE, null, 2);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, 3L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(alvo);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.marcarTransporteNaoEntregue(3L, "tentativa invalida - ciclo ja reconciliado"));
+
+        assertEquals("CICLO_JA_RECONCILIADO", ex.getErrorCode());
+        verify(nfeEmissaoMapper, never()).marcarTransporteNaoEntregue(anyLong());
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: recusa RESERVADO / AUTORIZADO / AGUARDANDO_CORRECAO / ABANDONADO / DENEGADO")
+    void marcarTransporteNaoEntregue_estadoNaoElegivel_recusa() {
+        for (String estado : new String[]{
+                NfeEmissao.Estados.RESERVADO, NfeEmissao.Estados.AUTORIZADO,
+                NfeEmissao.Estados.AGUARDANDO_CORRECAO, NfeEmissao.Estados.ABANDONADO,
+                NfeEmissao.Estados.DENEGADO, NfeEmissao.Estados.NUMERO_OCUPADO,
+                NfeEmissao.Estados.CANCELADO}) {
+            NfeEmissao alvo = emissaoTransmitida(3L, 68L, estado, 49, CHAVE_TNE, null, 0);
+            when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(alvo);
+            when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, 3L));
+            when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(alvo);
+
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> service.marcarTransporteNaoEntregue(3L, "abandono invalido para estado " + estado));
+            assertEquals("CICLO_NAO_ELEGIVEL_TRANSPORTE", ex.getErrorCode(), "estado " + estado);
+            verify(nfeEmissaoMapper, never()).marcarTransporteNaoEntregue(anyLong());
+            reset(nfeEmissaoMapper, sequenciaService);
+        }
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: idempotente com contador ATRÁS — não re-marca, mas REPARA a sequência")
+    void marcarTransporteNaoEntregue_jaMarcado_contadorAtras_reparaSequencia() {
+        NfeEmissao ja = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE, 49, CHAVE_TNE, null, 0);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(ja);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, null));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(ja);
+        when(sequenciaService.avancarUltimoNumeroParaRecovery(CNPJ, "1", 49)).thenReturn(true);
+
+        var r = service.marcarTransporteNaoEntregue(3L, "segunda chamada do mesmo recovery de transporte");
+
+        assertTrue(r.idempotente());
+        assertEquals(NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE, r.estadoAtual());
+        verify(nfeEmissaoMapper, never()).marcarTransporteNaoEntregue(anyLong());
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        verify(pedidoMapper, never()).atualizarStatus(anyLong(), any(), any());
+        // Contador estava atrás (48 < 49) — a chamada idempotente reparou.
+        verify(sequenciaService).avancarUltimoNumeroParaRecovery(CNPJ, "1", 49);
+        assertTrue(r.sequenciaAvancada());
+        assertEquals(49, r.ultimoNumeroResultante());
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: idempotente com contador JÁ alcançado — não toca a sequência")
+    void marcarTransporteNaoEntregue_jaMarcado_contadorJaAlcancado_naoTocaSequencia() {
+        NfeEmissao ja = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE, 49, CHAVE_TNE, null, 0);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(ja);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(49, null));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(ja);
+
+        var r = service.marcarTransporteNaoEntregue(3L, "terceira chamada — contador já em dia");
+
+        assertTrue(r.idempotente());
+        verify(sequenciaService, never()).avancarUltimoNumeroParaRecovery(any(), any(), anyInt());
+        assertFalse(r.sequenciaAvancada());
+        assertEquals(49, r.ultimoNumeroResultante());
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: emissão inexistente → EMISSAO_NOT_FOUND (404)")
+    void marcarTransporteNaoEntregue_emissaoNaoEncontrada_404() {
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(null);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.marcarTransporteNaoEntregue(3L, "recovery de emissao que nao existe"));
+
+        assertEquals("EMISSAO_NOT_FOUND", ex.getErrorCode());
+        assertEquals(404, ex.getHttpStatus());
+        verify(sequenciaService, never()).buscarSeExistirParaAtualizar(any(), any());
+    }
+
+    @Test
+    @DisplayName("marcarTransporteNaoEntregue: se o gate aponta para OUTRO ciclo, marca estado mas NÃO libera o gate alheio")
+    void marcarTransporteNaoEntregue_gateApontaParaOutroCiclo_naoLiberaGateAlheio() {
+        NfeEmissao alvo = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.PENDENTE_CONFIRMACAO, 49, CHAVE_TNE, null, 0);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(alvo);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, 999L));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(alvo);
+        when(nfeEmissaoMapper.buscarPorOrigemId(3L)).thenReturn(null);
+        when(nfeDocumentoMapper.findByChave(CHAVE_TNE)).thenReturn(Optional.empty());
+        when(nfeEmissaoMapper.marcarTransporteNaoEntregue(3L)).thenReturn(1);
+        when(pedidoMapper.buscarPorId(68L)).thenReturn(pedido(68L, 1L));
+        when(empresaMapper.buscarPorId(1L)).thenReturn(empresaControlaEstoque(1L, false));
+
+        var r = service.marcarTransporteNaoEntregue(3L, "recovery com gate ja de outro ciclo");
+
+        verify(nfeEmissaoMapper).marcarTransporteNaoEntregue(3L);
+        verify(sequenciaService, never()).liberarGate(any(), any());
+        assertFalse(r.gateLiberado());
+        assertTrue(r.pedidoParaErro());
+    }
+
+    @Test
+    @DisplayName("resolverCiclo: TRANSPORTE_NAO_ENTREGUE nunca é destino de resolução — rejeitado")
+    void resolverCiclo_estadoTransporteNaoEntregue_rejeitado() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.resolverCiclo(3L, NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE, -1, "x", null));
+        verifyNoInteractions(sequenciaService, pedidoMapper, estoqueService);
+    }
+
+    @Test
+    @DisplayName("resolverCiclo: resposta tardia da SEFAZ sobre um ciclo já TRANSPORTE_NAO_ENTREGUE é no-op")
+    void resolverCiclo_cicloJaTransporteNaoEntregue_respostaTardiaEhNoop() {
+        NfeEmissao ja = emissaoTransmitida(3L, 68L, NfeEmissao.Estados.TRANSPORTE_NAO_ENTREGUE, 49, CHAVE_TNE, null, 0);
+        when(nfeEmissaoMapper.buscarPorId(3L)).thenReturn(ja);
+        when(sequenciaService.buscarSeExistirParaAtualizar(CNPJ, "1")).thenReturn(sequencia(48, null));
+        when(nfeEmissaoMapper.buscarPorIdParaAtualizar(3L)).thenReturn(ja);
+        when(nfeEmissaoMapper.buscarPorOrigemIdParaAtualizar(3L)).thenReturn(null);
+
+        service.resolverCiclo(3L, NfeEmissao.Estados.AUTORIZADO, 100, null, "135250000012345");
+
+        verify(nfeEmissaoMapper, never()).atualizarResultado(any());
+        verify(sequenciaService, never()).consumirNumero(any(), any(), anyInt());
+        verify(sequenciaService, never()).liberarGate(any(), any());
     }
 }

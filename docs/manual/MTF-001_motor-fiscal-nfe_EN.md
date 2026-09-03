@@ -351,7 +351,9 @@ PedidoItem.origem        ← Produto.origem  (default: 0)
 PedidoItem.csosn         ← Produto.csosn   (default: "400")
 ```
 
-**Invariant:** after the order is created, any subsequent change to the product catalog does not affect the order's fiscal data. Issuance always uses the snapshot frozen in `pedido_item`.
+**Invariant:** after the order is created, any subsequent change to the product catalog does not affect the order's fiscal data. Issuance always uses the snapshot frozen in `pedido_item`. The snapshot is **never rewritten** — there is no sanitization or automatic "repair" of fiscal data anywhere in the pipeline.
+
+> **This EN manual is behind the PT-BR canonical (`MTF-001_motor-fiscal-nfe.md`), which predates Gates 1–3, the SVC contingency and the 2026-09-02 round.** For current behavior of the nNF operational cycle (`nfe_emissao`, Gate 1), the administrative recovery states `ABANDONADO` / `TRANSPORTE_NAO_ENTREGUE` (gap model — the cycle is closed, the gate released, `nfe_sequencia.ultimo_numero` advanced to the cycle's `nNF`, never regressed, never past it; the number is not reused; SEFAZ is never called; `DENEGADO` is never invented; historical evidence is never deleted) and the V1 preventive fiscal-text validation (`FISCAL_TEXT_INVALID_CHARS`), see PT-BR sections 4.3, 5.9–5.11 and `INTEGRATION_CONTRACT_PT-BR.md` §6.3/§6.4. Full EN translation of these sections is tracked as documentation backlog.
 
 ---
 

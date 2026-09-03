@@ -4,9 +4,9 @@
 
 | Attribute             | Value                                   |
 |-----------------------|-----------------------------------------|
-| Version               | 1.11                                    |
-| Status                | **VALID FOR HOM INTEGRATION** — HOM is available for the CC's own testing; go-live starts only after the CC's final validation. This translation is behind the PT-BR original (canonical) by several minor revisions between 1.9.1 and 1.11 — see `INTEGRATION_CONTRACT_PT-BR.md` for full intermediate history. |
-| Validation date       | 2026-07-22                              |
+| Version               | 1.13                                    |
+| Status                | **VALID FOR HOM INTEGRATION** — HOM is available for the CC's own testing; go-live starts only after the CC's final validation. This translation is behind the PT-BR original (canonical) by several minor revisions between 1.9.1 and 1.12 — see `INTEGRATION_CONTRACT_PT-BR.md` for full intermediate history. Synced for 1.13: `FISCAL_TEXT_INVALID_CHARS` (section 6.3) and the administrative recovery note (section 6.4). |
+| Validation date       | 2026-09-02                              |
 | Reference environment | HOM — external access provided only during a controlled test window. No fixed URL should be assumed by the integrator. |
 | Platform              | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validated against     | Source code + HOM tests                 |
@@ -682,7 +682,22 @@ Content-Type: application/json
 
 > `[CONTRACT]` Save `data.id` as `pedidoId` for the following steps.
 
-> `[OPERATIONAL]` The fiscal snapshot fields in each item (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) are copied from the product at creation time. This copy is immutable — subsequent changes to the product catalog do not affect existing orders.
+**Response — HTTP 422 (fiscal text incompatible with the NF-e schema — the order is NOT created):**
+```json
+{
+  "code": 422,
+  "message": "A descrição do item 1 contém caractere não aceito pela NF-e ...",
+  "data": { "field": "itens[0].descricao", "itemIndex": 0, "reason": "CARACTERE_NAO_PERMITIDO" },
+  "errorCode": "FISCAL_TEXT_INVALID_CHARS",
+  "retryable": false
+}
+```
+
+> `[CONTRACT]` **`FISCAL_TEXT_INVALID_CHARS` (2026-09-02).** Preventive charset/length validation of the text fields that map to NF-e `TString` elements: `naturezaOperacao`, `destRazaoSocial`, `destLogradouro`, `destNumero`, `destBairro`, `destMunicipio`, `observacao` and each item's `descricao`. Rule: only characters `U+0020`–`U+00FF` (Latin-1 — Portuguese accents are accepted; ideograms, emoji and full-width punctuation are not), first and last character ≠ space, and the field's official `maxLength`. Text is **never sanitized or auto-fixed** by Borurio — fix it at the source and resend. `data.field` points to the field; `data.itemIndex` (when an item) the 0-based index; `data.reason` is a stable code for programmatic handling: `CARACTERE_NAO_PERMITIDO`, `ESPACO_NA_BORDA` or `ACIMA_DO_MAX_LENGTH`. The same validation runs again in `/emitir` (defense in depth) — a legacy order with incompatible text is blocked there, before any fiscal number is reserved.
+
+> `[CONTRACT]` **Idempotency × validation.** Resending `POST /pedidos` with the same `externalOrderId` (and same company) of an order that already exists returns the existing order with **HTTP 200** — never `FISCAL_TEXT_INVALID_CHARS`. Text validation only runs when the request will actually create a new order.
+
+> `[OPERATIONAL]` The fiscal snapshot fields in each item (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) are copied from the product at creation time. This copy is immutable — subsequent changes to the product catalog do not affect existing orders. There is no sanitization, transliteration or automatic "repair" of fiscal data anywhere in the pipeline.
 
 ---
 
@@ -760,6 +775,8 @@ Authorization: Bearer {token}
 ```
 
 > `[CONTRACT]` **(2026-08-11)** `NUMERO_FISCAL_OCUPADO` (Gate 3, reconciliation) — the number identified in `data.numeroNFe` was **consumed and burned**, never reused; a new call to `/emitir` on the same `pedidoId` already opens a new cycle with the next number. `data.cStat` may be `null` when reconciliation resolved locally (via `nfe_documento`) without an explicit query cStat — use `data.estadoFiscal` for the semantics, never a synthetic value.
+
+> `[OPERATIONAL]` **(2026-09-02)** A fiscal cycle may, exceptionally, be closed by an internal Borurio **administrative recovery** (`ABANDONADO` for a schema rejection that cannot be corrected by the normal flow; `TRANSPORTE_NAO_ENTREGUE` for an attempt provably not delivered to the SEFAZ authorizer). The OMS neither triggers nor observes these states directly: the `Pedido` returns to an issuable status (`REJEITADO` or `ERRO`) and the integration behavior is unchanged — resending `/emitir` on the same `pedidoId` opens a new cycle with the **next number**. The closed cycle's `nNF` is **not reused** (same guarantee as `NUMERO_FISCAL_OCUPADO`).
 
 **Response — HTTP 422 (emitter registration incomplete — SEFAZ is never called):**
 ```json

@@ -4,9 +4,9 @@
 
 | Atributo               | Valor                                   |
 |------------------------|-----------------------------------------|
-| Versão                 | 1.12                                    |
+| Versão                 | 1.13                                    |
 | Status                 | **VIGENTE PARA INTEGRAÇÃO EM HOM** — seção 6.10 é proposta interna, ainda não confirmada pelo CC nem implantada em HOM. Ambiente HOM disponível para testes do CC; go-live depende da validação final dele. |
-| Data da revisão documental | 10-08-2026 — adiciona `errorCode: LOCAL_PROCESSING_FAILURE` (seção 6.4/8.2a); nenhum endpoint ou campo de payload alterado |
+| Data da revisão documental | 02-09-2026 — adiciona `errorCode: FISCAL_TEXT_INVALID_CHARS` (seção 6.3: validação preventiva de charset/tamanho de texto fiscal, campo `data.reason`) e nota operacional sobre recovery administrativo de ciclo (seção 6.4). Nenhum endpoint novo; payload de criação inalterado. Anterior: 10-08-2026 — `errorCode: LOCAL_PROCESSING_FAILURE`. |
 | Ambiente de referência | HOM — acesso externo fornecido somente durante janela controlada de teste. Nenhuma URL fixa deve ser assumida pelo integrador. |
 | Plataforma             | Spring Boot 3.3.2 · Java 17 · NF-e 4.00 |
 | Validado contra        | Código-fonte + testes automatizados     |
@@ -694,6 +694,21 @@ Content-Type: application/json
 
 > `[CONTRATO]` Guardar `data.id` como `pedidoId` para as etapas seguintes.
 
+**Resposta — HTTP 422 (texto fiscal incompatível com o schema NF-e — o pedido NÃO é criado):**
+```json
+{
+  "code": 422,
+  "message": "A descrição do item 1 contém caractere não aceito pela NF-e — use apenas letras, números e pontuação padrão (sem caracteres de outros alfabetos ou emoji).",
+  "data": { "field": "itens[0].descricao", "itemIndex": 0, "reason": "CARACTERE_NAO_PERMITIDO" },
+  "errorCode": "FISCAL_TEXT_INVALID_CHARS",
+  "retryable": false
+}
+```
+
+> `[CONTRATO]` **`FISCAL_TEXT_INVALID_CHARS` (02-09-2026).** Validação preventiva de charset e tamanho dos campos de texto que vão para elementos NF-e `TString`: `naturezaOperacao`, `destRazaoSocial`, `destLogradouro`, `destNumero`, `destBairro`, `destMunicipio`, `observacao` e a `descricao` de cada item. Regra: só caracteres `U+0020`–`U+00FF` (latino-1 — acentos do português são aceitos; ideogramas, emoji e pontuação *full-width* não), primeiro e último caractere ≠ espaço, e o `maxLength` oficial do campo. O texto **nunca é sanitizado nem corrigido** pelo Borurio — corrija na origem e reenvie. `data.field` aponta o campo; `data.itemIndex` (quando é item) o índice 0-based; `data.reason` é um código estável para tratamento programático: `CARACTERE_NAO_PERMITIDO`, `ESPACO_NA_BORDA` ou `ACIMA_DO_MAX_LENGTH`. A mesma validação roda de novo em `/emitir` (defesa em profundidade) — um pedido legado com texto incompatível é bloqueado ali, antes de reservar número fiscal.
+
+> `[CONTRATO]` **Idempotência × validação.** Um reenvio de `POST /pedidos` com o mesmo `externalOrderId` (e mesma empresa) de um pedido que já existe devolve o pedido existente com **HTTP 200** — nunca `FISCAL_TEXT_INVALID_CHARS`. A validação de texto só roda quando a requisição vai realmente criar um pedido novo.
+
 > `[OPERACIONAL]` Os campos fiscais do item (`codigoProduto`, `descricao`, `ncm`, `cfop`, `unidade`, `origem`, `csosn`) são copiados do produto no momento da criação. Essa cópia é imutável — alterações posteriores no cadastro do produto não afetam pedidos existentes.
 
 > `[CONTRATO]` **(20-07-2026)** `serieNfe` vem sempre `null` na criação — deixou de ser resolvida neste momento. A série é resolvida junto com o número, atomicamente, só no início de cada tentativa de emissão (seção 6.4), a partir da configuração vigente da empresa emitente naquele instante — não da configuração vigente quando o pedido foi criado. Se `serieNfe` for enviado no payload do POST, o valor é ignorado silenciosamente (sem erro), assim como `chaveNfe`.
@@ -774,6 +789,8 @@ Authorization: Bearer {token}
 ```
 
 > `[CONTRATO]` **(11-08-2026)** `NUMERO_FISCAL_OCUPADO` (Gate 3, reconciliação) — o número identificado em `data.numeroNFe` foi **consumido e queimado**, nunca reaproveitado; uma nova chamada a `/emitir` no mesmo `pedidoId` já abre um ciclo novo com o número seguinte. `data.cStat` pode vir `null` quando a reconciliação resolveu localmente (via `nfe_documento`) sem um cStat de consulta explícito — use `data.estadoFiscal` para a semântica, nunca um valor sintético.
+
+> `[OPERACIONAL]` **(02-09-2026)** Um ciclo fiscal pode, excepcionalmente, ser encerrado por um **recovery administrativo interno** do Borurio (`ABANDONADO` para uma rejeição de schema incorrigível pelo fluxo normal; `TRANSPORTE_NAO_ENTREGUE` para uma tentativa comprovadamente não entregue ao autorizador da SEFAZ). O OMS não aciona nem observa esses estados diretamente: o `Pedido` volta a um status emissível (`REJEITADO` ou `ERRO`) e o comportamento de integração é o mesmo de sempre — reenviar `/emitir` no mesmo `pedidoId` abre um ciclo novo com o **número seguinte**. O `nNF` do ciclo encerrado **não é reutilizado** (mesma garantia de `NUMERO_FISCAL_OCUPADO`).
 
 **Resposta — HTTP 422 (cadastro do emitente incompleto — não chega a chamar a SEFAZ):**
 ```json

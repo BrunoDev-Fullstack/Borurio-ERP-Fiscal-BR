@@ -10,6 +10,15 @@ public interface PedidoService {
 
     Pedido criar(Pedido pedido, List<PedidoItem> itens);
 
+    /**
+     * Idempotência de criação por (externalOrderId, empresaId) — mesma chave usada por
+     * {@link #criar} para devolver o pedido já existente. Exposto para o chamador decidir, ANTES
+     * de {@code criar}, se esta requisição vai realmente criar um pedido (ex.: pular validações
+     * de criação num retry idempotente). {@code null} se não existe. {@code null} também quando
+     * externalOrderId ou empresaId forem nulos/vazios (sem chave, sem idempotência).
+     */
+    Pedido buscarPorExternalOrderIdEEmpresa(String externalOrderId, Long empresaId);
+
     /** Retorna o pedido com a lista de itens preenchida. */
     Pedido buscarComItens(Long id);
 
