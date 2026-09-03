@@ -43,4 +43,20 @@ public interface PedidoItemMapper {
 
     @Delete("DELETE FROM pedido_item WHERE pedido_id = #{pedidoId}")
     int deletarPorPedido(@Param("pedidoId") Long pedidoId);
+
+    /**
+     * Correção controlada (03-09-2026, V1) — só a descrição do item é editável nesta versão.
+     * {@code pedido_id} no WHERE garante que o item pertence mesmo ao pedido informado (evita
+     * corrigir item de outro pedido por id incorreto/malicioso). rowsAffected=0 significa item
+     * inexistente ou não pertencente a este pedido — o chamador decide o erro.
+     */
+    @Update("""
+            UPDATE pedido_item SET
+                descricao = #{descricao}
+            WHERE id = #{itemId}
+            AND pedido_id = #{pedidoId}
+            """)
+    int atualizarDescricao(@Param("itemId") Long itemId,
+                           @Param("pedidoId") Long pedidoId,
+                           @Param("descricao") String descricao);
 }

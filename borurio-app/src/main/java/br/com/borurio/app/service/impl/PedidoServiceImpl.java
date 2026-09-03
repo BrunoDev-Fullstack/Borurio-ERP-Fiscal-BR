@@ -184,6 +184,34 @@ public class PedidoServiceImpl implements PedidoService {
         return pedidoMapper.reivindicarParaEmissao(id) == 1;
     }
 
+    @Override
+    @Transactional
+    public Pedido corrigir(Long id, Pedido cabecalhoMesclado, List<PedidoItem> itensParaAtualizar) {
+        cabecalhoMesclado.setId(id);
+        int linhas = pedidoMapper.corrigirCamposFiscais(cabecalhoMesclado);
+        if (linhas == 0) {
+            Pedido atual = buscarPorId(id);
+            throw BusinessException.invalidOrderStatus(
+                    "Correção só é permitida para pedidos RASCUNHO/REJEITADO/ERRO. Status atual: "
+                            + atual.getStatus());
+        }
+
+        if (itensParaAtualizar != null) {
+            for (PedidoItem item : itensParaAtualizar) {
+                int rows = pedidoItemMapper.atualizarDescricao(item.getId(), id, item.getDescricao());
+                if (rows == 0) {
+                    throw new IllegalArgumentException(
+                            "Item id=" + item.getId() + " não pertence ao pedido " + id
+                                    + " ou não existe.");
+                }
+            }
+        }
+
+        log.info("[PedidoService] Pedido corrigido | id={} | itensCorrigidos={}",
+                id, itensParaAtualizar != null ? itensParaAtualizar.size() : 0);
+        return buscarComItens(id);
+    }
+
     // -------------------------------------------------------------------------
     // Privado
     // -------------------------------------------------------------------------

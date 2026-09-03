@@ -13,11 +13,13 @@ import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeEvento;
 import br.com.borurio.fiscal.service.CertificadoContexto;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
+import br.com.borurio.web.dto.PedidoCorrecaoRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -66,7 +68,7 @@ class PedidoOperacaoServiceTest {
     void setUp() {
         service = new PedidoOperacaoService(pedidoService, documentoService,
                 cancelamentoOrquestradorService, nfeEventoService, cceOrquestradorService, estoqueService,
-                empresaMapper, contextoResolver, nfeEmissaoService);
+                empresaMapper, contextoResolver, nfeEmissaoService, new ValidacaoTextoFiscalPedido());
     }
 
     private NfeEmissao emissaoResolvida(String serie, int numeroNfe, String estado, Integer cStat,
@@ -532,5 +534,137 @@ class PedidoOperacaoServiceTest {
                 () -> service.emitirCce(50L, "Correção do endereço do destinatário", "22222222-2222-2222-2222-222222222222"));
 
         verifyNoInteractions(cceOrquestradorService, contextoResolver);
+    }
+
+    // -------------------------------------------------------------------------
+    // Correção controlada de texto fiscal (03-09-2026, V1 — acordo com OMS)
+    // -------------------------------------------------------------------------
+
+    private Pedido pedidoRejeitadoComItens() {
+        Pedido p = new Pedido();
+        p.setId(67L);
+        p.setEmpresaId(10L);
+        p.setStatus("REJEITADO");
+        p.setCnpjEmitente(CNPJ_A);
+        p.setDestRazaoSocial("Cliente Original");
+        p.setDestBairro("Bairro Original");
+        p.setNaturezaOperacao("VENDA DE MERCADORIA");
+
+        PedidoItem item1 = new PedidoItem();
+        item1.setId(1L);
+        item1.setDescricao("Descrição item 1 original");
+        PedidoItem item2 = new PedidoItem();
+        item2.setId(2L);
+        item2.setDescricao("Descrição item 2 original");
+        p.setItens(List.of(item1, item2));
+        return p;
+    }
+
+    @Test
+    @DisplayName("corrigir: só sobrescreve os campos enviados — os demais preservam o valor atual")
+    void corrigir_mesclaCamposNaoNulos_preservaOsNaoEnviados() {
+        Pedido atual = pedidoRejeitadoComItens();
+        when(pedidoService.buscarComItensDoTenanteAtual(67L)).thenReturn(atual);
+        when(pedidoService.corrigir(eq(67L), any(), any())).thenReturn(atual);
+
+        PedidoCorrecaoRequest req = new PedidoCorrecaoRequest();
+        req.setDestBairro("Bairro Corrigido");
+
+        service.corrigir(67L, req);
+
+        ArgumentCaptor<Pedido> captor = ArgumentCaptor.forClass(Pedido.class);
+        verify(pedidoService).corrigir(eq(67L), captor.capture(), eq(List.of()));
+        Pedido mesclado = captor.getValue();
+        assertEquals("Bairro Corrigido", mesclado.getDestBairro());
+        assertEquals("Cliente Original", mesclado.getDestRazaoSocial());
+        assertEquals("VENDA DE MERCADORIA", mesclado.getNaturezaOperacao());
+    }
+
+    @Test
+    @DisplayName("corrigir: só o item referenciado no body é persistido, o outro item não é tocado")
+    void corrigir_itemComDescricaoValida_persisteSoOItemCorrigido() {
+        Pedido atual = pedidoRejeitadoComItens();
+        when(pedidoService.buscarComItensDoTenanteAtual(67L)).thenReturn(atual);
+        when(pedidoService.corrigir(eq(67L), any(), any())).thenReturn(atual);
+
+        PedidoCorrecaoRequest.ItemCorrecaoRequest itemReq = new PedidoCorrecaoRequest.ItemCorrecaoRequest();
+        itemReq.setId(2L);
+        itemReq.setDescricao("Descrição do item 2 corrigida");
+        PedidoCorrecaoRequest req = new PedidoCorrecaoRequest();
+        req.setItens(List.of(itemReq));
+
+        service.corrigir(67L, req);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<PedidoItem>> captor = ArgumentCaptor.forClass(List.class);
+        verify(pedidoService).corrigir(eq(67L), any(), captor.capture());
+        List<PedidoItem> itensCorrigidos = captor.getValue();
+        assertEquals(1, itensCorrigidos.size());
+        assertEquals(2L, itensCorrigidos.get(0).getId());
+        assertEquals("Descrição do item 2 corrigida", itensCorrigidos.get(0).getDescricao());
+        // item 1 permanece com a descrição original na instância mesclada.
+        assertEquals("Descrição item 1 original", atual.getItens().get(0).getDescricao());
+    }
+
+    @Test
+    @DisplayName("corrigir: texto inválido (charset NF-e) barra a correção antes de persistir")
+    void corrigir_textoInvalido_lancaFiscalTextInvalidChars() {
+        Pedido atual = pedidoRejeitadoComItens();
+        when(pedidoService.buscarComItensDoTenanteAtual(67L)).thenReturn(atual);
+
+        PedidoCorrecaoRequest req = new PedidoCorrecaoRequest();
+        req.setDestRazaoSocial("客户名称");
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.corrigir(67L, req));
+
+        assertEquals("FISCAL_TEXT_INVALID_CHARS", ex.getErrorCode());
+        verify(pedidoService, never()).corrigir(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("corrigir: item id inexistente no pedido falha rápido, sem persistir nada")
+    void corrigir_itemIdNaoPertenceAoPedido_lancaIllegalArgumentException() {
+        Pedido atual = pedidoRejeitadoComItens();
+        when(pedidoService.buscarComItensDoTenanteAtual(67L)).thenReturn(atual);
+
+        PedidoCorrecaoRequest.ItemCorrecaoRequest itemReq = new PedidoCorrecaoRequest.ItemCorrecaoRequest();
+        itemReq.setId(999L);
+        itemReq.setDescricao("descrição qualquer");
+        PedidoCorrecaoRequest req = new PedidoCorrecaoRequest();
+        req.setItens(List.of(itemReq));
+
+        assertThrows(IllegalArgumentException.class, () -> service.corrigir(67L, req));
+
+        verify(pedidoService, never()).corrigir(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("corrigir: status não permite mais correção — BusinessException do PedidoService propaga")
+    void corrigir_statusInvalido_propagaBusinessException() {
+        Pedido atual = pedidoRejeitadoComItens();
+        when(pedidoService.buscarComItensDoTenanteAtual(67L)).thenReturn(atual);
+        when(pedidoService.corrigir(eq(67L), any(), any()))
+                .thenThrow(BusinessException.invalidOrderStatus(
+                        "Correção só é permitida para pedidos RASCUNHO/REJEITADO/ERRO. Status atual: EMITINDO"));
+
+        PedidoCorrecaoRequest req = new PedidoCorrecaoRequest();
+        req.setObservacao("tentando corrigir durante emissão concorrente");
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> service.corrigir(67L, req));
+        assertEquals("INVALID_ORDER_STATUS", ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("P0-2 H) corrigir: pedido de outra empresa é bloqueado antes de qualquer efeito")
+    void corrigir_pedidoDeOutraEmpresa_bloqueadoAntesDeQualquerEfeito() {
+        EmpresaContextHolder.set(99L);
+        when(pedidoService.buscarComItensDoTenanteAtual(67L))
+                .thenThrow(new NoSuchElementException("Pedido não encontrado: id=67"));
+
+        PedidoCorrecaoRequest req = new PedidoCorrecaoRequest();
+        req.setObservacao("correção");
+
+        assertThrows(NoSuchElementException.class, () -> service.corrigir(67L, req));
+        verify(pedidoService, never()).corrigir(any(), any(), any());
     }
 }

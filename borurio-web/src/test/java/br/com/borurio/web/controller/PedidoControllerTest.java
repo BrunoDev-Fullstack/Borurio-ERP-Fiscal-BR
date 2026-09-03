@@ -244,6 +244,78 @@ class PedidoControllerTest {
     }
 
     // -------------------------------------------------------------------------
+    // Correção controlada (03-09-2026, V1 — acordo com OMS)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser
+    void corrigir_valido_returns200() throws Exception {
+        Pedido corrigido = new Pedido();
+        corrigido.setId(1L);
+        corrigido.setStatus("REJEITADO");
+        when(pedidoOperacaoService.corrigir(eq(1L), any())).thenReturn(corrigido);
+
+        mockMvc.perform(patch("/api/app/pedidos/1")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"destRazaoSocial\": \"Cliente Corrigido Ltda\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.id").value(1));
+    }
+
+    @Test
+    @WithMockUser
+    void corrigir_statusErrado_returns422() throws Exception {
+        when(pedidoOperacaoService.corrigir(eq(1L), any()))
+                .thenThrow(BusinessException.invalidOrderStatus(
+                        "Correção só é permitida para pedidos RASCUNHO/REJEITADO/ERRO. Status atual: AUTORIZADO"));
+
+        mockMvc.perform(patch("/api/app/pedidos/1")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"observacao\": \"tentando corrigir autorizado\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    @WithMockUser
+    void corrigir_itemNaoPertenceAoPedido_returns400() throws Exception {
+        when(pedidoOperacaoService.corrigir(eq(1L), any()))
+                .thenThrow(new IllegalArgumentException("Item id=999 não pertence ao pedido 1"));
+
+        mockMvc.perform(patch("/api/app/pedidos/1")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"itens\": [{\"id\": 999, \"descricao\": \"nova descrição\"}]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    void corrigir_pedidoDeOutraEmpresa_returns404() throws Exception {
+        when(pedidoOperacaoService.corrigir(eq(1L), any()))
+                .thenThrow(new NoSuchElementException("Pedido não encontrado: id=1"));
+
+        mockMvc.perform(patch("/api/app/pedidos/1")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"observacao\": \"correção\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    void corrigir_itemSemId_returns422() throws Exception {
+        mockMvc.perform(patch("/api/app/pedidos/1")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"itens\": [{\"descricao\": \"sem id\"}]}"))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    // -------------------------------------------------------------------------
     // externalOrderId — idempotência
     // -------------------------------------------------------------------------
 

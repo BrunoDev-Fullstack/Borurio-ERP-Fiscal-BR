@@ -57,4 +57,23 @@ public interface PedidoService {
      * já assumiu a emissão ou o status não é mais emissível. Ver PedidoMapper.reivindicarParaEmissao.
      */
     boolean reivindicarParaEmissao(Long id);
+
+    /**
+     * Correção controlada de texto fiscal (03-09-2026, V1, acordo com OMS) — permite reaproveitar
+     * o mesmo {@code pedidoId}/{@code externalOrderId} quando o dado da criação veio incompatível
+     * com o schema da NF-e (o snapshot fiscal é imutável por padrão). Só aplica quando o pedido
+     * ainda está em RASCUNHO/REJEITADO/ERRO — mesmo guard atômico usado por
+     * {@link #reivindicarParaEmissao}, nunca corre com uma reivindicação de emissão concorrente.
+     *
+     * <p>{@code cabecalhoMesclado} deve conter TODOS os campos do cabeçalho já mesclados
+     * (existentes + correção) — o chamador decide o merge, esta camada só persiste. {@code
+     * itensParaAtualizar} traz apenas os itens cuja {@code descricao} foi de fato corrigida (id +
+     * descricao); itens não corrigidos não devem estar na lista.
+     *
+     * <p>Lança {@code BusinessException} ({@code INVALID_ORDER_STATUS}) se o status não permitir
+     * mais a correção, e {@code IllegalArgumentException} se algum item não pertencer ao pedido.
+     * Nunca toca em {@code nfe_emissao} — histórico fiscal de tentativas anteriores é preservado;
+     * a próxima {@code /emitir} abre um ciclo novo com {@code nNF} novo, nunca reaproveitado.
+     */
+    Pedido corrigir(Long id, Pedido cabecalhoMesclado, List<PedidoItem> itensParaAtualizar);
 }

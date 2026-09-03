@@ -2,6 +2,7 @@ package br.com.borurio.web.service;
 
 import br.com.borurio.app.entity.Empresa;
 import br.com.borurio.app.entity.Pedido;
+import br.com.borurio.app.entity.PedidoItem;
 import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.EmpresaMapper;
 import br.com.borurio.app.service.EstoqueService;
@@ -10,6 +11,7 @@ import br.com.borurio.fiscal.entity.NfeDocumento;
 import br.com.borurio.fiscal.entity.NfeEmissao;
 import br.com.borurio.fiscal.entity.NfeEvento;
 import br.com.borurio.fiscal.service.NfeDocumentoService;
+import br.com.borurio.web.dto.PedidoCorrecaoRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -17,6 +19,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,6 +45,7 @@ public class PedidoOperacaoService {
     private final EmpresaMapper empresaMapper;
     private final FiscalContextoResolver contextoResolver;
     private final NfeEmissaoService nfeEmissaoService;
+    private final ValidacaoTextoFiscalPedido validacaoTextoFiscalPedido;
 
     public PedidoOperacaoService(PedidoService pedidoService,
                                   NfeDocumentoService documentoService,
@@ -51,7 +55,8 @@ public class PedidoOperacaoService {
                                   EstoqueService estoqueService,
                                   EmpresaMapper empresaMapper,
                                   FiscalContextoResolver contextoResolver,
-                                  NfeEmissaoService nfeEmissaoService) {
+                                  NfeEmissaoService nfeEmissaoService,
+                                  ValidacaoTextoFiscalPedido validacaoTextoFiscalPedido) {
         this.pedidoService     = pedidoService;
         this.documentoService  = documentoService;
         this.cancelamentoOrquestradorService = cancelamentoOrquestradorService;
@@ -61,6 +66,7 @@ public class PedidoOperacaoService {
         this.empresaMapper     = empresaMapper;
         this.contextoResolver  = contextoResolver;
         this.nfeEmissaoService = nfeEmissaoService;
+        this.validacaoTextoFiscalPedido = validacaoTextoFiscalPedido;
     }
 
     // -------------------------------------------------------------------------
@@ -170,6 +176,75 @@ public class PedidoOperacaoService {
 
         log.info("[PedidoOperacao] Situação consultada | pedidoId={} | chave={}", pedidoId, chave);
         return resp;
+    }
+
+    // -------------------------------------------------------------------------
+    // CORREÇÃO CONTROLADA DE TEXTO FISCAL (03-09-2026, V1 — acordo com OMS)
+    // Reaproveita o mesmo pedidoId/externalOrderId quando o snapshot fiscal veio incompatível
+    // com o schema da NF-e (a criação normal congela o snapshot — ver ValidacaoTextoFiscalPedido).
+    // Só descrição do item, endereço e demais textos fiscais do cabeçalho; quantidade/preço/NCM/
+    // CFOP/CSOSN/unidade ficam fora do escopo desta versão (o próprio DTO não os expõe). Nunca
+    // toca em nfe_emissao: histórico de tentativas anteriores é preservado, e a próxima /emitir
+    // abre um ciclo novo com nNF novo, nunca reaproveitado.
+    // -------------------------------------------------------------------------
+
+    public Pedido corrigir(Long pedidoId, PedidoCorrecaoRequest request) {
+        // P0-2 (07-08-2026, hardening pós-banca) — mesma fronteira de isolamento de emitir().
+        Pedido atual = pedidoService.buscarComItensDoTenanteAtual(pedidoId);
+
+        aplicarCorrecaoCabecalho(atual, request);
+        List<PedidoItem> itensCorrigidos = aplicarCorrecaoItens(atual, request);
+
+        // Valida o pedido MESCLADO (existente + correção) — inclusive campos/itens não tocados
+        // nesta chamada: se sobrar algum texto inválido em outro campo, a correção falha aqui
+        // com o field exato, em vez de deixar a OMS descobrir só na próxima tentativa de /emitir.
+        validacaoTextoFiscalPedido.validar(atual);
+
+        Pedido corrigido = pedidoService.corrigir(pedidoId, atual, itensCorrigidos);
+        log.info("[PedidoOperacao] Pedido corrigido | pedidoId={} | itensCorrigidos={}",
+                pedidoId, itensCorrigidos.size());
+        return corrigido;
+    }
+
+    /** Só sobrescreve campos enviados (não nulos) — os demais mantêm o valor atual do pedido. */
+    private void aplicarCorrecaoCabecalho(Pedido atual, PedidoCorrecaoRequest req) {
+        if (req.getNaturezaOperacao() != null)    atual.setNaturezaOperacao(req.getNaturezaOperacao());
+        if (req.getObservacao() != null)          atual.setObservacao(req.getObservacao());
+        if (req.getDestRazaoSocial() != null)     atual.setDestRazaoSocial(req.getDestRazaoSocial());
+        if (req.getDestUf() != null)              atual.setDestUf(req.getDestUf());
+        if (req.getDestLogradouro() != null)      atual.setDestLogradouro(req.getDestLogradouro());
+        if (req.getDestNumero() != null)          atual.setDestNumero(req.getDestNumero());
+        if (req.getDestBairro() != null)          atual.setDestBairro(req.getDestBairro());
+        if (req.getDestCodigoMunicipio() != null) atual.setDestCodigoMunicipio(req.getDestCodigoMunicipio());
+        if (req.getDestMunicipio() != null)       atual.setDestMunicipio(req.getDestMunicipio());
+        if (req.getDestCep() != null)             atual.setDestCep(req.getDestCep());
+    }
+
+    /**
+     * Aplica a nova descrição direto nos itens já carregados de {@code atual} (mesma instância —
+     * é o que {@link ValidacaoTextoFiscalPedido#validar} vai enxergar) e devolve só os itens cuja
+     * descrição foi de fato corrigida, para persistir. Item id inexistente no pedido é erro do
+     * chamador — falha rápido, nunca ignora silenciosamente.
+     */
+    private List<PedidoItem> aplicarCorrecaoItens(Pedido atual, PedidoCorrecaoRequest req) {
+        if (req.getItens() == null || req.getItens().isEmpty()) return List.of();
+
+        Map<Long, PedidoItem> itensPorId = atual.getItens().stream()
+                .collect(java.util.stream.Collectors.toMap(PedidoItem::getId, i -> i));
+
+        List<PedidoItem> corrigidos = new java.util.ArrayList<>();
+        for (PedidoCorrecaoRequest.ItemCorrecaoRequest correcao : req.getItens()) {
+            PedidoItem item = itensPorId.get(correcao.getId());
+            if (item == null) {
+                throw new IllegalArgumentException(
+                        "Item id=" + correcao.getId() + " não pertence ao pedido " + atual.getId());
+            }
+            if (correcao.getDescricao() != null) {
+                item.setDescricao(correcao.getDescricao());
+                corrigidos.add(item);
+            }
+        }
+        return corrigidos;
     }
 
     // -------------------------------------------------------------------------

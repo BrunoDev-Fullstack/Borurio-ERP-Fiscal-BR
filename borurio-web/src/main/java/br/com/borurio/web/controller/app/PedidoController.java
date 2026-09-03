@@ -12,6 +12,7 @@ import br.com.borurio.core.mvc.api.Result;
 import br.com.borurio.core.mvc.api.ResultUtil;
 import br.com.borurio.fiscal.config.EmitenteProperties;
 import br.com.borurio.fiscal.dto.NfeGeracaoResult;
+import br.com.borurio.web.dto.PedidoCorrecaoRequest;
 import br.com.borurio.web.dto.PedidoCreateRequest;
 import br.com.borurio.web.dto.PedidoResponse;
 import br.com.borurio.web.service.OmsCertificadoService;
@@ -185,6 +186,30 @@ public class PedidoController {
 
     private boolean isBlank(String s) {
         return s == null || s.isBlank();
+    }
+
+    /**
+     * Correção controlada (03-09-2026, V1 — acordo com OMS): mantém o mesmo pedidoId e
+     * externalOrderId. Body: campos opcionais — só os enviados (não nulos) são alterados.
+     * Escopo V1: descrição do item (por id), endereço e demais textos fiscais do cabeçalho.
+     * Quantidade, preço, NCM, CFOP, CSOSN e unidade ficam fora desta versão.
+     */
+    @PatchMapping("/{id}")
+    @Operation(
+            summary = "Corrige textos fiscais do pedido, mantendo o mesmo pedidoId e externalOrderId",
+            description = "Só permitido com o pedido em `RASCUNHO`, `REJEITADO` ou `ERRO` — HTTP 422 " +
+                          "`errorCode=INVALID_ORDER_STATUS` em qualquer outro estado (a correção nunca corre " +
+                          "com uma emissão em andamento: se `/emitir` reivindicar o pedido primeiro, esta " +
+                          "chamada falha de forma segura). Revalida o pedido MESCLADO inteiro (existente + " +
+                          "correção, itens inclusive) antes de gravar — `FISCAL_TEXT_INVALID_CHARS` (HTTP 422) " +
+                          "se sobrar texto inválido em qualquer campo, mesmo um não tocado nesta chamada. " +
+                          "Nunca altera `nfe_emissao`: o histórico de tentativas anteriores é preservado e a " +
+                          "próxima `/emitir` abre um ciclo novo com `nNF` novo, nunca reaproveitado."
+    )
+    public Result<PedidoResponse> corrigir(@PathVariable Long id,
+                                           @Valid @RequestBody PedidoCorrecaoRequest request) {
+        Pedido corrigido = pedidoOperacaoService.corrigir(id, request);
+        return ResultUtil.success(PedidoResponse.from(corrigido));
     }
 
     @PostMapping("/{id}/emitir")

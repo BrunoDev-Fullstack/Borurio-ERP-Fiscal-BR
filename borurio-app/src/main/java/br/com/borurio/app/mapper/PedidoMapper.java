@@ -164,4 +164,32 @@ public interface PedidoMapper {
     int atualizarPosInsercao(@Param("id") Long id,
                               @Param("numero") String numero,
                               @Param("valorTotal") BigDecimal valorTotal);
+
+    /**
+     * Correção controlada de texto fiscal (03-09-2026, V1, acordo com OMS) — mesmo guard atômico
+     * de {@code reivindicarParaEmissao}: só aplica se o pedido AINDA estiver em
+     * RASCUNHO/REJEITADO/ERRO no momento exato do UPDATE. rowsAffected=0 significa que o status
+     * mudou entre a leitura (em PedidoOperacaoService) e esta chamada — nunca corre com uma
+     * reivindicação de emissão concorrente (o InnoDB serializa as duas UPDATEs pela mesma linha).
+     * Os três valores do IN precisam continuar sincronizados com
+     * PedidoEmissaoService.STATUS_EMISSIVEIS. Nunca toca numero/serieNfe/chaveNfe/status/
+     * destCnpjCpf/cnpjEmitente/externalOrderId — fora do escopo desta correção.
+     */
+    @Update("""
+            UPDATE pedido SET
+                dest_razao_social     = #{destRazaoSocial},
+                dest_uf               = #{destUf, jdbcType=VARCHAR},
+                dest_logradouro       = #{destLogradouro, jdbcType=VARCHAR},
+                dest_numero           = #{destNumero, jdbcType=VARCHAR},
+                dest_bairro           = #{destBairro, jdbcType=VARCHAR},
+                dest_codigo_municipio = #{destCodigoMunicipio, jdbcType=VARCHAR},
+                dest_municipio        = #{destMunicipio, jdbcType=VARCHAR},
+                dest_cep              = #{destCep, jdbcType=VARCHAR},
+                natureza_operacao     = #{naturezaOperacao},
+                observacao            = #{observacao, jdbcType=VARCHAR},
+                data_atualizacao      = NOW()
+            WHERE id = #{id}
+            AND status IN ('RASCUNHO', 'REJEITADO', 'ERRO')
+            """)
+    int corrigirCamposFiscais(Pedido pedido);
 }

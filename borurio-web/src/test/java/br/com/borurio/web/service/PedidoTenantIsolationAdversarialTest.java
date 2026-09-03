@@ -218,7 +218,7 @@ class PedidoTenantIsolationAdversarialTest {
             org.mockito.MockitoAnnotations.openMocks(this);
             service = new PedidoOperacaoService(pedidoService, documentoService,
                     cancelamentoOrquestradorService, nfeEventoService, cceOrquestradorService, estoqueService,
-                    empresaMapper, contextoResolver, nfeEmissaoService);
+                    empresaMapper, contextoResolver, nfeEmissaoService, new ValidacaoTextoFiscalPedido());
         }
 
         @Test

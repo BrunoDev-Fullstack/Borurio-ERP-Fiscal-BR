@@ -2,6 +2,8 @@ package br.com.borurio.app.service;
 
 import br.com.borurio.app.context.EmpresaContextHolder;
 import br.com.borurio.app.entity.Pedido;
+import br.com.borurio.app.entity.PedidoItem;
+import br.com.borurio.app.exception.BusinessException;
 import br.com.borurio.app.mapper.PedidoItemMapper;
 import br.com.borurio.app.mapper.PedidoMapper;
 import br.com.borurio.app.mapper.ProdutoMapper;
@@ -14,6 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.NoSuchElementException;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -130,5 +133,61 @@ class PedidoServiceImplTest {
 
         assertEquals(99L, resultado.getId());
         verify(pedidoMapper, never()).buscarPorIdEEmpresa(anyLong(), anyLong());
+    }
+
+    // -------------------------------------------------------------------------
+    // corrigir (03-09-2026, V1 — acordo com OMS) — guard atômico via UPDATE condicional,
+    // mesmo padrão de reivindicarParaEmissao. A camada de validação/merge fica em
+    // PedidoOperacaoService (borurio-web); aqui só se testa a persistência guardada.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("corrigir: rowsAffected=1 no header persiste os itens e retorna o pedido recarregado")
+    void corrigir_headerAtualizado_persisteItensEDevolvePedidoRecarregado() {
+        Pedido mesclado = pedidoComItens(67L);
+        PedidoItem item = new PedidoItem();
+        item.setId(2L);
+        item.setDescricao("descrição corrigida");
+
+        when(pedidoMapper.corrigirCamposFiscais(mesclado)).thenReturn(1);
+        when(pedidoItemMapper.atualizarDescricao(2L, 67L, "descrição corrigida")).thenReturn(1);
+        when(pedidoMapper.buscarPorId(67L)).thenReturn(pedidoComItens(67L));
+        when(pedidoItemMapper.listarPorPedido(67L)).thenReturn(List.of(item));
+
+        Pedido resultado = service.corrigir(67L, mesclado, List.of(item));
+
+        assertEquals(67L, resultado.getId());
+        verify(pedidoItemMapper).atualizarDescricao(2L, 67L, "descrição corrigida");
+    }
+
+    @Test
+    @DisplayName("corrigir: rowsAffected=0 no header (status mudou/pedido sumiu) lança INVALID_ORDER_STATUS, nunca toca item")
+    void corrigir_headerNaoAtualizado_lancaInvalidOrderStatus() {
+        Pedido mesclado = pedidoComItens(67L);
+        when(pedidoMapper.corrigirCamposFiscais(mesclado)).thenReturn(0);
+        Pedido atualEmitindo = pedidoComItens(67L);
+        atualEmitindo.setStatus("EMITINDO");
+        when(pedidoMapper.buscarPorId(67L)).thenReturn(atualEmitindo);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.corrigir(67L, mesclado, List.of()));
+
+        assertEquals("INVALID_ORDER_STATUS", ex.getErrorCode());
+        verifyNoInteractions(pedidoItemMapper);
+    }
+
+    @Test
+    @DisplayName("corrigir: item que não pertence ao pedido (rowsAffected=0 no UPDATE do item) lança IllegalArgumentException")
+    void corrigir_itemNaoPertenceAoPedido_lancaIllegalArgumentException() {
+        Pedido mesclado = pedidoComItens(67L);
+        PedidoItem itemAlheio = new PedidoItem();
+        itemAlheio.setId(999L);
+        itemAlheio.setDescricao("descrição qualquer");
+
+        when(pedidoMapper.corrigirCamposFiscais(mesclado)).thenReturn(1);
+        when(pedidoItemMapper.atualizarDescricao(999L, 67L, "descrição qualquer")).thenReturn(0);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.corrigir(67L, mesclado, List.of(itemAlheio)));
     }
 }
